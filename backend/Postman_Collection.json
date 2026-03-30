@@ -1,0 +1,545 @@
+﻿{
+	"info": {
+		"_postman_id": "apnidukan-backend-api",
+		"name": "Apnidukan Backend API",
+		"description": "Multi-tenant SaaS backend API.\n\n**Auth Rules:**\n- ðŸ”“ Public â€” no token needed\n- ðŸ”‘ User â€” accessToken required\n- ðŸ‘‘ Admin â€” accessToken of admin role required\n\nRun **Login User** first to auto-fill {{accessToken}}.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{accessToken}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{ "key": "baseUrl",      "value": "http://localhost:5000/api" },
+		{ "key": "accessToken",  "value": "" },
+		{ "key": "refreshToken", "value": "" },
+		{ "key": "userId",       "value": "" },
+		{ "key": "businessId",   "value": "" },
+		{ "key": "listingId",    "value": "" },
+		{ "key": "categoryId",   "value": "" },
+		{ "key": "planId",       "value": "" }
+	],
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Register User ðŸ”“",
+					"event": [{
+						"listen": "test",
+						"script": {
+							"exec": [
+								"if (pm.response.code === 201) {",
+								"    const r = pm.response.json();",
+								"    pm.collectionVariables.set('accessToken', r.data.accessToken);",
+								"    pm.collectionVariables.set('refreshToken', r.data.refreshToken);",
+								"    pm.collectionVariables.set('userId', r.data.user._id);",
+								"}"
+							],
+							"type": "text/javascript"
+						}
+					}],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Test Owner\",\n  \"email\": \"owner@example.com\",\n  \"phone\": \"9000000001\",\n  \"password\": \"password123\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth","register"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Login User ðŸ”“",
+					"event": [{
+						"listen": "test",
+						"script": {
+							"exec": [
+								"if (pm.response.code === 200) {",
+								"    const r = pm.response.json();",
+								"    pm.collectionVariables.set('accessToken', r.data.accessToken);",
+								"    pm.collectionVariables.set('refreshToken', r.data.refreshToken);",
+								"    pm.collectionVariables.set('userId', r.data.user._id);",
+								"}"
+							],
+							"type": "text/javascript"
+						}
+					}],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"raj@example.com\",\n  \"password\": \"password123\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth","login"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Login as Admin ðŸ”“",
+					"event": [{
+						"listen": "test",
+						"script": {
+							"exec": [
+								"if (pm.response.code === 200) {",
+								"    const r = pm.response.json();",
+								"    pm.collectionVariables.set('accessToken', r.data.accessToken);",
+								"    pm.collectionVariables.set('refreshToken', r.data.refreshToken);",
+								"    pm.collectionVariables.set('userId', r.data.user._id);",
+								"}"
+							],
+							"type": "text/javascript"
+						}
+					}],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@apnidukan.com\",\n  \"password\": \"admin123\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth","login"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current User ðŸ”‘",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/auth/me", "host": ["{{baseUrl}}"], "path": ["auth","me"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token ðŸ”“",
+					"event": [{
+						"listen": "test",
+						"script": {
+							"exec": [
+								"if (pm.response.code === 200) {",
+								"    const r = pm.response.json();",
+								"    pm.collectionVariables.set('accessToken', r.data.accessToken);",
+								"}"
+							],
+							"type": "text/javascript"
+						}
+					}],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" },
+						"url": { "raw": "{{baseUrl}}/auth/refresh", "host": ["{{baseUrl}}"], "path": ["auth","refresh"] }
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Business",
+			"item": [
+				{
+					"name": "Create Business ðŸ”‘ (business_owner)",
+					"event": [{
+						"listen": "test",
+						"script": {
+							"exec": [
+								"if (pm.response.code === 201) {",
+								"    const r = pm.response.json();",
+								"    pm.collectionVariables.set('businessId', r.data._id);",
+								"}"
+							],
+							"type": "text/javascript"
+						}
+					}],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"My Kirana Store\",\n  \"category\": \"{{categoryId}}\",\n  \"description\": \"Fresh groceries daily\",\n  \"phone\": \"9876543210\",\n  \"whatsapp\": \"9876543210\",\n  \"address\": {\n    \"street\": \"123 Main Road\",\n    \"area\": \"Test Area\",\n    \"city\": \"Mumbai\",\n    \"state\": \"Maharashtra\",\n    \"pincode\": \"400001\"\n  }\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/business", "host": ["{{baseUrl}}"], "path": ["business"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Get My Businesses ðŸ”‘",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/business/my/businesses", "host": ["{{baseUrl}}"], "path": ["business","my","businesses"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Businesses ðŸ‘‘ (admin only)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/business?page=1&limit=20",
+							"host": ["{{baseUrl}}"],
+							"path": ["business"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "limit", "value": "20" }
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Business by Slug ðŸ”“",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/business/slug/rajs-kirana-store", "host": ["{{baseUrl}}"], "path": ["business","slug","rajs-kirana-store"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Get Business by ID ðŸ”“",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/business/{{businessId}}", "host": ["{{baseUrl}}"], "path": ["business","{{businessId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Update Business ðŸ”‘ (owner)",
+					"request": {
+						"method": "PUT",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"description\": \"Updated store description\"\n}" },
+						"url": { "raw": "{{baseUrl}}/business/{{businessId}}", "host": ["{{baseUrl}}"], "path": ["business","{{businessId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Business ðŸ”‘ (owner/admin)",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/business/{{businessId}}", "host": ["{{baseUrl}}"], "path": ["business","{{businessId}}"] }
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Listings",
+			"item": [
+				{
+					"name": "Create Listing ðŸ”‘",
+					"event": [{
+						"listen": "test",
+						"script": {
+							"exec": [
+								"if (pm.response.code === 201) {",
+								"    const r = pm.response.json();",
+								"    pm.collectionVariables.set('listingId', r.data._id);",
+								"}"
+							],
+							"type": "text/javascript"
+						}
+					}],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"business\": \"{{businessId}}\",\n  \"title\": \"Basmati Rice 5kg\",\n  \"description\": \"Premium quality basmati rice\",\n  \"listingType\": \"product\",\n  \"price\": 450,\n  \"priceType\": \"fixed\",\n  \"stock\": 100\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/listings", "host": ["{{baseUrl}}"], "path": ["listings"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Get My Listings ðŸ”‘",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/listings/my/listings?page=1&limit=20",
+							"host": ["{{baseUrl}}"],
+							"path": ["listings","my","listings"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "limit", "value": "20" }
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Listings by Business ðŸ”‘ (owner/admin)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/listings/business/{{businessId}}", "host": ["{{baseUrl}}"], "path": ["listings","business","{{businessId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Get Listing by ID ðŸ”“",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/listings/{{listingId}}", "host": ["{{baseUrl}}"], "path": ["listings","{{listingId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Search Listings ðŸ”“",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/listings/search?q=rice&city=Mumbai",
+							"host": ["{{baseUrl}}"],
+							"path": ["listings","search"],
+							"query": [
+								{ "key": "q", "value": "rice" },
+								{ "key": "city", "value": "Mumbai" }
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Featured Listings ðŸ”“",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/listings/featured", "host": ["{{baseUrl}}"], "path": ["listings","featured"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Update Listing ðŸ”‘ (owner)",
+					"request": {
+						"method": "PUT",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"price\": 500,\n  \"stock\": 80\n}" },
+						"url": { "raw": "{{baseUrl}}/listings/{{listingId}}", "host": ["{{baseUrl}}"], "path": ["listings","{{listingId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Listing ðŸ”‘ (owner)",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/listings/{{listingId}}", "host": ["{{baseUrl}}"], "path": ["listings","{{listingId}}"] }
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Categories",
+			"item": [
+				{
+					"name": "Get All Categories ðŸ”“",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/categories", "host": ["{{baseUrl}}"], "path": ["categories"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Get Category Tree ðŸ”“",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/categories/tree", "host": ["{{baseUrl}}"], "path": ["categories","tree"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Create Category ðŸ‘‘ (admin only)",
+					"event": [{
+						"listen": "test",
+						"script": {
+							"exec": [
+								"if (pm.response.code === 201) {",
+								"    const r = pm.response.json();",
+								"    pm.collectionVariables.set('categoryId', r.data._id);",
+								"}"
+							],
+							"type": "text/javascript"
+						}
+					}],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Kirana & Grocery\",\n  \"description\": \"Kirana stores and grocery shops\",\n  \"isActive\": true\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/categories", "host": ["{{baseUrl}}"], "path": ["categories"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Update Category ðŸ‘‘ (admin only)",
+					"request": {
+						"method": "PUT",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"description\": \"Updated description\"\n}" },
+						"url": { "raw": "{{baseUrl}}/categories/{{categoryId}}", "host": ["{{baseUrl}}"], "path": ["categories","{{categoryId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Category ðŸ‘‘ (admin only)",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/categories/{{categoryId}}", "host": ["{{baseUrl}}"], "path": ["categories","{{categoryId}}"] }
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Plans",
+			"item": [
+				{
+					"name": "Get All Plans ðŸ”“",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/plans", "host": ["{{baseUrl}}"], "path": ["plans"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Get Plan by ID ðŸ”“",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/plans/{{planId}}", "host": ["{{baseUrl}}"], "path": ["plans","{{planId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Create Plan ðŸ‘‘ (admin only)",
+					"event": [{
+						"listen": "test",
+						"script": {
+							"exec": [
+								"if (pm.response.code === 201) {",
+								"    const r = pm.response.json();",
+								"    pm.collectionVariables.set('planId', r.data._id);",
+								"}"
+							],
+							"type": "text/javascript"
+						}
+					}],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Pro Plan\",\n  \"price\": 999,\n  \"billingCycle\": \"monthly\",\n  \"features\": {\n    \"maxListings\": 100,\n    \"maxFeaturedListings\": 10,\n    \"whatsappIntegration\": true,\n    \"analytics\": true,\n    \"customDomain\": false,\n    \"prioritySupport\": false\n  },\n  \"isActive\": true\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/plans", "host": ["{{baseUrl}}"], "path": ["plans"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Update Plan ðŸ‘‘ (admin only)",
+					"request": {
+						"method": "PUT",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"price\": 799\n}" },
+						"url": { "raw": "{{baseUrl}}/plans/{{planId}}", "host": ["{{baseUrl}}"], "path": ["plans","{{planId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Plan ðŸ‘‘ (admin only)",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/plans/{{planId}}", "host": ["{{baseUrl}}"], "path": ["plans","{{planId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Subscribe to Plan ðŸ”‘",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"businessId\": \"{{businessId}}\"\n}" },
+						"url": { "raw": "{{baseUrl}}/plans/{{planId}}/subscribe", "host": ["{{baseUrl}}"], "path": ["plans","{{planId}}","subscribe"] }
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Inquiries",
+			"item": [
+				{
+					"name": "Create Inquiry ðŸ”“",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"business\": \"{{businessId}}\",\n  \"listing\": \"{{listingId}}\",\n  \"customerName\": \"Test Customer\",\n  \"customerPhone\": \"9123456789\",\n  \"message\": \"Is this available?\",\n  \"type\": \"form\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/inquiries", "host": ["{{baseUrl}}"], "path": ["inquiries"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Get Business Inquiries ðŸ”‘ (owner)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/inquiries/business/{{businessId}}", "host": ["{{baseUrl}}"], "path": ["inquiries","business","{{businessId}}"] }
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Health Check ðŸ”“",
+			"request": {
+				"auth": { "type": "noauth" },
+				"method": "GET",
+				"header": [],
+				"url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+			},
+			"response": []
+		}
+	]
+}
