@@ -189,17 +189,24 @@ export default function ShopPage() {
 
   const shopPublicUrl = useMemo(() => {
     if (!shopSlug) return "";
-    const base = import.meta.env.VITE_STOREFRONT_URL || "";
-    let baseUrl = String(base || (typeof window === "undefined" ? "" : window.location.origin)).trim();
 
-    // Ensure the URL is absolute/clickable in apps like WhatsApp.
-    // If user sets VITE_STOREFRONT_URL like "apnidukan.com", auto-prefix https://
-    if (baseUrl && !/^(https?:)?\/\//i.test(baseUrl)) {
-      baseUrl = `https://${baseUrl}`;
+    const fallbackBase = "http://localhost:8080";
+    const rawBase = String(import.meta.env.VITE_STOREFRONT_URL || "").trim();
+
+    // If env is missing, or malformed like "slug/localhost:8080", fall back to localhost:8080.
+    const candidate = !rawBase || (!/^(https?:)?\/\//i.test(rawBase) && /[\\/]/.test(rawBase))
+      ? fallbackBase
+      : rawBase;
+
+    const withProtocol = /^(https?:)?\/\//i.test(candidate) ? candidate : `http://${candidate}`;
+
+    try {
+      const parsed = new URL(withProtocol);
+      const normalizedBase = `${parsed.protocol}//${parsed.host}`.replace(/\/\/+$/, "");
+      return `${normalizedBase}/shop/${shopSlug}`;
+    } catch {
+      return `${fallbackBase}/shop/${shopSlug}`;
     }
-
-    baseUrl = baseUrl.replace(/\/\/+$/, "");
-    return `${baseUrl}/shop/${shopSlug}`;
   }, [shopSlug]);
 
   const isNonShareableLocalUrl = (url: string) => {

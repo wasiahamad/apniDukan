@@ -62,8 +62,21 @@ export interface Business {
   description?: string;
   whyChooseUs?: Array<{ title: string; desc: string; iconName?: string }>;
   workingHours?: Record<string, { open?: string; close?: string; isOpen?: boolean }>;
-  plan?: { _id: string; name: string };
+  plan?: {
+    _id: string;
+    name: string;
+    slug?: string;
+    features?: {
+      publicShopEnabled?: boolean;
+    };
+  };
   planExpiresAt?: string;
+  effectiveEntitlements?: {
+    planIsActive?: boolean;
+    source?: 'plan' | 'fallback' | 'defaults';
+    expiresAt?: string | null;
+    publicShopEnabled?: boolean;
+  };
   isActive: boolean;
   isVerified: boolean;
   stats?: {

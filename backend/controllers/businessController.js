@@ -1555,7 +1555,7 @@ export const getAllBusinesses = async (req, res) => {
       Business.find(query)
         .populate('owner', 'name email phone role isActive')
         .populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages')
-        .populate('plan', 'name')
+        .populate('plan', 'name slug features')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -1563,10 +1563,25 @@ export const getAllBusinesses = async (req, res) => {
       Business.countDocuments(query),
     ]);
 
+    const businessesWithEntitlements = await Promise.all(
+      businesses.map(async (business) => {
+        const entitlements = await getEffectiveEntitlementsForBusiness(business);
+        return {
+          ...business,
+          effectiveEntitlements: {
+            planIsActive: !!entitlements?.planIsActive,
+            source: entitlements?.source || 'defaults',
+            expiresAt: entitlements?.expiresAt || null,
+            publicShopEnabled: entitlements?.features?.publicShopEnabled === true,
+          },
+        };
+      })
+    );
+
     res.status(200).json({
       success: true,
       data: {
-        businesses,
+        businesses: businessesWithEntitlements,
         pagination: {
           total,
           page: parseInt(page),
