@@ -1,5 +1,5 @@
 # 🏪 Apnidukan Platform - Project Documentation
-
+# All set
 > **Complete local business digital transformation platform dengan 3 interconnected applications**
 
 ---
