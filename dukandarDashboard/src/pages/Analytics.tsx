@@ -1,20 +1,157 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, AreaChart, Area } from "recharts";
-import { generateDailyViews, deviceData, hourlyActivity, shopData } from "@/data/mockData";
+import { businessApi, type Business } from "@/lib/api/index";
+import { orderApi, type Order } from "@/lib/api/orders";
+import { Skeleton } from "@/components/ui/skeleton";
 
-const dailyViews = generateDailyViews();
+const getLastNDays = (days: number) => {
+  const out: Date[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - i);
+    out.push(d);
+  }
+  return out;
+};
 
-const funnelData = [
-  { name: "Views", value: shopData.total_views, fill: "hsl(153, 73%, 43%)" },
-  { name: "WhatsApp", value: shopData.whatsapp_clicks, fill: "hsl(153, 73%, 55%)" },
-  { name: "Calls", value: shopData.call_clicks, fill: "hsl(224, 76%, 53%)" },
-  { name: "Map", value: shopData.map_clicks, fill: "hsl(33, 100%, 50%)" },
-];
+const HOUR_TEMPLATE = Array.from({ length: 24 }, (_, i) => ({
+  hour: `${String(i).padStart(2, "0")}:00`,
+  views: 0,
+}));
 
 const Analytics = () => {
   const [range, setRange] = useState<"7d" | "30d">("7d");
-  const viewData = range === "7d" ? dailyViews.slice(-7) : dailyViews;
+  const [business, setBusiness] = useState<Business | null>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [stats, setStats] = useState<{ totalViews: number; whatsappClicks: number; callClicks: number; mapClicks: number } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        const businessRes = await businessApi.getMyBusinesses();
+        const selectedBusiness = businessRes.success && businessRes.data?.[0] ? businessRes.data[0] : null;
+        if (!selectedBusiness) {
+          if (!cancelled) {
+            setBusiness(null);
+            setOrders([]);
+          }
+          return;
+        }
+
+        const [statsRes, ordersRes] = await Promise.all([
+          businessApi.getBusinessStats(selectedBusiness._id),
+          orderApi.getMyOrders(),
+        ]);
+
+        if (cancelled) return;
+
+        setBusiness(selectedBusiness);
+        if (statsRes.success) {
+          setStats({
+            totalViews: Number(statsRes.data?.stats?.totalViews || selectedBusiness.stats?.totalViews || 0),
+            whatsappClicks: Number(statsRes.data?.stats?.whatsappClicks || selectedBusiness.stats?.whatsappClicks || 0),
+            callClicks: Number(statsRes.data?.stats?.callClicks || selectedBusiness.stats?.callClicks || 0),
+            mapClicks: Number(statsRes.data?.stats?.mapClicks || selectedBusiness.stats?.mapClicks || 0),
+          });
+        } else {
+          setStats({
+            totalViews: Number(selectedBusiness.stats?.totalViews || 0),
+            whatsappClicks: Number(selectedBusiness.stats?.whatsappClicks || 0),
+            callClicks: Number(selectedBusiness.stats?.callClicks || 0),
+            mapClicks: Number(selectedBusiness.stats?.mapClicks || 0),
+          });
+        }
+
+        setOrders(ordersRes.success && Array.isArray(ordersRes.data) ? ordersRes.data : []);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const viewData = useMemo(() => {
+    const days = range === "7d" ? 7 : 30;
+    const dayKeys = getLastNDays(days);
+    const counts = new Map<string, number>();
+
+    for (const order of orders) {
+      const key = new Date(order.createdAt).toISOString().slice(0, 10);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+
+    const totalOrders = Math.max(1, orders.length);
+    const totalWhatsapp = Math.max(0, Number(stats?.whatsappClicks || 0));
+    const totalCalls = Math.max(0, Number(stats?.callClicks || 0));
+
+    return dayKeys.map((d) => {
+      const key = d.toISOString().slice(0, 10);
+      const dayOrders = counts.get(key) || 0;
+      const ratio = dayOrders / totalOrders;
+      return {
+        date: d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" }),
+        views: dayOrders,
+        whatsapp: Math.round(totalWhatsapp * ratio),
+        calls: Math.round(totalCalls * ratio),
+      };
+    });
+  }, [orders, range, stats]);
+
+  const funnelData = useMemo(
+    () => [
+      { name: "Views", value: Number(stats?.totalViews || 0), fill: "hsl(153, 73%, 43%)" },
+      { name: "WhatsApp", value: Number(stats?.whatsappClicks || 0), fill: "hsl(153, 73%, 55%)" },
+      { name: "Calls", value: Number(stats?.callClicks || 0), fill: "hsl(224, 76%, 53%)" },
+      { name: "Map", value: Number(stats?.mapClicks || 0), fill: "hsl(33, 100%, 50%)" },
+    ],
+    [stats]
+  );
+
+  const sourceData = useMemo(() => {
+    const website = orders.filter((o) => o.source === "website").length;
+    const whatsapp = orders.filter((o) => o.source === "whatsapp").length;
+    const manual = orders.filter((o) => o.source === "manual").length;
+    const total = Math.max(1, website + whatsapp + manual);
+
+    return [
+      { name: "Website", value: Math.round((website / total) * 100), fill: "hsl(153, 73%, 43%)" },
+      { name: "WhatsApp", value: Math.round((whatsapp / total) * 100), fill: "hsl(224, 76%, 53%)" },
+      { name: "Manual", value: Math.max(0, 100 - Math.round((website / total) * 100) - Math.round((whatsapp / total) * 100)), fill: "hsl(33, 100%, 50%)" },
+    ];
+  }, [orders]);
+
+  const hourlyActivity = useMemo(() => {
+    const data = HOUR_TEMPLATE.map((row) => ({ ...row }));
+    for (const order of orders) {
+      const hour = new Date(order.createdAt).getHours();
+      if (Number.isFinite(hour) && hour >= 0 && hour < 24) {
+        data[hour].views += 1;
+      }
+    }
+    return data;
+  }, [orders]);
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-7 w-40" />
+        <Skeleton className="h-64 w-full rounded-xl" />
+        <div className="grid lg:grid-cols-2 gap-4">
+          <Skeleton className="h-64 w-full rounded-xl" />
+          <Skeleton className="h-64 w-full rounded-xl" />
+        </div>
+        <Skeleton className="h-56 w-full rounded-xl" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -60,19 +197,19 @@ const Analytics = () => {
           </ResponsiveContainer>
         </div>
 
-        {/* Device Distribution */}
+        {/* Order Source Distribution */}
         <div className="bg-card border rounded-xl p-4">
-          <h3 className="text-sm font-bold mb-3">Device Distribution</h3>
+          <h3 className="text-sm font-bold mb-3">Order Source Distribution</h3>
           <div className="flex items-center">
             <ResponsiveContainer width="50%" height={160}>
               <PieChart>
-                <Pie data={deviceData} dataKey="value" cx="50%" cy="50%" innerRadius={40} outerRadius={65}>
-                  {deviceData.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                <Pie data={sourceData} dataKey="value" cx="50%" cy="50%" innerRadius={40} outerRadius={65}>
+                  {sourceData.map((d, i) => <Cell key={i} fill={d.fill} />)}
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
             <div className="space-y-3">
-              {deviceData.map(d => (
+              {sourceData.map(d => (
                 <div key={d.name} className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full" style={{ background: d.fill }} />
                   <span className="text-sm text-muted-foreground">{d.name}</span>
@@ -86,7 +223,7 @@ const Analytics = () => {
 
       {/* Peak Activity */}
       <div className="bg-card border rounded-xl p-4">
-        <h3 className="text-sm font-bold mb-3">Peak Activity Time</h3>
+        <h3 className="text-sm font-bold mb-3">Peak Order Time</h3>
         <ResponsiveContainer width="100%" height={180}>
           <AreaChart data={hourlyActivity}>
             <XAxis dataKey="hour" tick={{ fontSize: 9 }} interval={2} />
@@ -96,6 +233,10 @@ const Analytics = () => {
           </AreaChart>
         </ResponsiveContainer>
       </div>
+
+      {!business && (
+        <div className="text-sm text-muted-foreground">Business profile nahi mila. Analytics load nahi ho saki.</div>
+      )}
     </div>
   );
 };

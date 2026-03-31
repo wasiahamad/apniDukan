@@ -1,17 +1,34 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
-import { Eye, MessageCircle, Phone, MapPin, Package, CheckCircle2, Clock, XCircle, TrendingUp, ExternalLink, AlertCircle } from "lucide-react";
-import { mockOrders, generateDailyViews } from "@/data/mockData";
+import { Eye, MessageCircle, Phone, Package, CheckCircle2, Clock, XCircle, TrendingUp, ExternalLink, AlertCircle } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from "recharts";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEntitlements } from "@/contexts/EntitlementsContext";
 import { businessApi, type Business } from "@/lib/api/index";
-import { orderApi } from "@/lib/api/orders";
+import { orderApi, type Order } from "@/lib/api/orders";
 import { Skeleton } from "@/components/ui/skeleton";
 
-const dailyViews = generateDailyViews();
-const last7 = dailyViews.slice(-7);
+const getLastNDaysOrderTrend = (orders: Order[], days: number) => {
+  const byDate = new Map<string, number>();
+  for (const order of orders) {
+    const key = new Date(order.createdAt).toISOString().slice(0, 10);
+    byDate.set(key, (byDate.get(key) || 0) + 1);
+  }
+
+  const out: Array<{ date: string; orders: number }> = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    out.push({
+      date: d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" }),
+      orders: byDate.get(key) || 0,
+    });
+  }
+  return out;
+};
 
 const Dashboard = () => {
   const { user, isAuthenticated } = useAuth();
@@ -22,6 +39,7 @@ const Dashboard = () => {
   const [error, setError] = useState("");
   const [businessStats, setBusinessStats] = useState<any>(null);
   const [ordersSummary, setOrdersSummary] = useState<any>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -59,14 +77,21 @@ const Dashboard = () => {
     let cancelled = false;
     (async () => {
       try {
-        const [statsRes, ordersRes] = await Promise.all([
+        const [statsRes, ordersRes, listRes] = await Promise.all([
           businessApi.getBusinessStats(business._id),
           orderApi.getMyOrdersSummary(),
+          orderApi.getMyOrders(),
         ]);
 
         if (!cancelled) {
           if (statsRes.success) setBusinessStats(statsRes.data?.stats || null);
           if (ordersRes.success) setOrdersSummary(ordersRes.data || null);
+          if (listRes.success && Array.isArray(listRes.data)) {
+            const sorted = [...listRes.data].sort((a, b) =>
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            );
+            setOrders(sorted);
+          }
         }
       } catch {
         // ignore (dashboard can still render with partial data)
@@ -112,14 +137,23 @@ const Dashboard = () => {
     );
   }
 
-  if (!business) {
-    return null;
+
+  // Fallback UI: If business is still not loaded after loading=false, show a message
+  if (!business && !loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center space-y-3">
+          <AlertCircle className="w-12 h-12 text-destructive mx-auto" />
+          <p className="text-sm text-muted-foreground">Business data not found. Please try reloading or contact support.</p>
+        </div>
+      </div>
+    );
   }
 
-  const totalOrders = ordersSummary?.totalOrders ?? mockOrders.length;
-  const delivered = ordersSummary?.delivered ?? mockOrders.filter(o => o.status === "delivered").length;
-  const pending = ordersSummary?.pending ?? mockOrders.filter(o => o.status === "pending").length;
-  const cancelledOrders = ordersSummary?.cancelled ?? mockOrders.filter(o => o.status === "cancelled").length;
+  const totalOrders = ordersSummary?.totalOrders ?? orders.length;
+  const delivered = ordersSummary?.delivered ?? orders.filter((o) => o.status === "delivered").length;
+  const pending = ordersSummary?.pending ?? orders.filter((o) => o.status === "pending").length;
+  const cancelledOrders = ordersSummary?.cancelled ?? orders.filter((o) => o.status === "cancelled").length;
 
   const shopData = {
     total_views: businessStats?.totalViews ?? business.stats.totalViews ?? 0,
@@ -134,15 +168,19 @@ const Dashboard = () => {
     { name: "Map", value: shopData.map_clicks, fill: "hsl(33, 100%, 50%)" },
   ];
 
+
+  const trend7 = useMemo(() => getLastNDaysOrderTrend(orders, 7), [orders]);
+  // Defensive: ensure always at least 2 elements
+  const safeTrend7 = Array.isArray(trend7) && trend7.length >= 2 ? trend7 : [{ orders: 0 }, { orders: 0 }];
   const todayVsYesterday = [
-    { name: "Yesterday", views: last7[last7.length - 2]?.views || 0 },
-    { name: "Today", views: last7[last7.length - 1]?.views || 0 },
+    { name: "Yesterday", value: safeTrend7[safeTrend7.length - 2]?.orders || 0 },
+    { name: "Today", value: safeTrend7[safeTrend7.length - 1]?.orders || 0 },
   ];
 
   const statsCards = [
     { icon: Eye, label: "Total Views", value: shopData.total_views, iconBg: "bg-primary/10", iconColor: "text-primary" },
-    { icon: Package, label: "Total Listings", value: business.stats.totalListings, iconBg: "bg-primary/10", iconColor: "text-primary" },
-    { icon: MessageCircle, label: "Inquiries", value: business.stats.totalInquiries, iconBg: "bg-accent/10", iconColor: "text-accent" },
+    { icon: Package, label: "Total Listings", value: businessStats?.totalListings ?? business.stats.totalListings ?? 0, iconBg: "bg-primary/10", iconColor: "text-primary" },
+    { icon: MessageCircle, label: "Inquiries", value: businessStats?.totalInquiries ?? business.stats.totalInquiries ?? 0, iconBg: "bg-accent/10", iconColor: "text-accent" },
     { icon: Phone, label: "Call Clicks", value: shopData.call_clicks, iconBg: "bg-secondary/10", iconColor: "text-secondary" },
   ];
 
@@ -241,13 +279,13 @@ const Dashboard = () => {
         {/* Views Trend */}
         <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.35 }}
           className="bg-card rounded-2xl border border-border/60 p-6 hover:shadow-md transition-shadow">
-          <h3 className="text-sm font-bold text-foreground mb-4">📈 Views Trend (7 Days)</h3>
+          <h3 className="text-sm font-bold text-foreground mb-4">📈 Orders Trend (7 Days)</h3>
           <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={last7}>
+            <LineChart data={trend7}>
               <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(220, 10%, 46%)' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: 'hsl(220, 10%, 46%)' }} width={35} axisLine={false} tickLine={false} />
               <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid hsl(220, 13%, 91%)', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }} />
-              <Line type="monotone" dataKey="views" stroke="hsl(153, 73%, 43%)" strokeWidth={2.5} dot={false} />
+              <Line type="monotone" dataKey="orders" stroke="hsl(153, 73%, 43%)" strokeWidth={2.5} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </motion.div>
@@ -280,12 +318,12 @@ const Dashboard = () => {
       {/* Today vs Yesterday */}
       <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.45 }}
         className="bg-card rounded-2xl border border-border/60 p-6 hover:shadow-md transition-shadow">
-        <h3 className="text-sm font-bold text-foreground mb-4">⚡ Today vs Yesterday</h3>
+        <h3 className="text-sm font-bold text-foreground mb-4">⚡ Orders: Today vs Yesterday</h3>
         <ResponsiveContainer width="100%" height={130}>
           <BarChart data={todayVsYesterday}>
             <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'hsl(220, 10%, 46%)' }} axisLine={false} tickLine={false} />
             <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid hsl(220, 13%, 91%)', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }} />
-            <Bar dataKey="views" radius={[10, 10, 0, 0]}>
+            <Bar dataKey="value" radius={[10, 10, 0, 0]}>
               <Cell fill="hsl(220, 13%, 85%)" />
               <Cell fill="hsl(153, 73%, 43%)" />
             </Bar>
@@ -297,24 +335,31 @@ const Dashboard = () => {
       <div>
         <h2 className="text-lg font-bold text-foreground mb-4">🧾 Recent Orders</h2>
         <div className="space-y-3">
-          {mockOrders.slice(0, 5).map((o, i) => (
-            <motion.div key={o.order_id} initial={{ x: -10, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: i * 0.05 }}
+          {orders.slice(0, 5).map((o, i) => (
+            <motion.div key={o._id} initial={{ x: -10, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: i * 0.05 }}
               className="bg-card rounded-2xl border border-border/60 p-4 flex items-center gap-4 hover:shadow-md transition-shadow">
               <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center shrink-0">
                 <Package className="w-5 h-5 text-muted-foreground" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm text-foreground">{o.customer_name}</p>
-                <p className="text-xs text-muted-foreground truncate mt-0.5">{o.items.join(", ")}</p>
+                <p className="font-semibold text-sm text-foreground">{o.customer?.name || "Customer"}</p>
+                <p className="text-xs text-muted-foreground truncate mt-0.5">
+                  {(o.items || []).map((it) => `${it.title}${it.quantity > 1 ? ` x${it.quantity}` : ""}`).join(", ") || "No items"}
+                </p>
               </div>
               <div className="text-right shrink-0">
-                <p className="font-bold text-sm text-foreground">₹{o.total}</p>
+                <p className="font-bold text-sm text-foreground">₹{Number(o.total || 0).toLocaleString()}</p>
                 <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full inline-block mt-1 ${statusColors[o.status]}`}>
                   {o.status.charAt(0).toUpperCase() + o.status.slice(1)}
                 </span>
               </div>
             </motion.div>
           ))}
+          {orders.length === 0 && (
+            <div className="bg-card rounded-2xl border border-border/60 p-4 text-sm text-muted-foreground">
+              No recent orders yet.
+            </div>
+          )}
         </div>
       </div>
     </div>

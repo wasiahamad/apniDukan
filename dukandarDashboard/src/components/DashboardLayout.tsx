@@ -267,11 +267,12 @@ const DashboardLayout = () => {
     );
   }
 
+  // Always provide a stable context value shape
   const entitlementsCtx = {
-    entitlements,
-    loading: entitlementsLoading,
-    error: entitlementsError,
-    suspended,
+    entitlements: entitlements ?? null,
+    loading: !!entitlementsLoading,
+    error: entitlementsError ?? "",
+    suspended: !!suspended,
     refresh: refreshEntitlements,
   };
 
@@ -279,7 +280,6 @@ const DashboardLayout = () => {
   const showSuspendedNotice = suspended && location.pathname === "/dashboard";
   const showVerificationNotice = verificationPending && location.pathname === "/dashboard";
   const supportOnlyBlockedRoute = supportOnlyMode && location.pathname !== "/dashboard" && location.pathname !== "/dashboard/support";
-  const shouldRenderOutlet = !supportOnlyMode || location.pathname === "/dashboard/support";
 
   return (
     <EntitlementsContext.Provider value={entitlementsCtx}>
@@ -434,7 +434,27 @@ const DashboardLayout = () => {
             </Card>
           ) : null}
 
-          {shouldRenderOutlet ? <Outlet /> : null}
+          {/* Always render Outlet, but show warning if support-only mode blocks access */}
+          {supportOnlyBlockedRoute ? (
+            <Card className="border mb-4 border-destructive/30 bg-destructive/5">
+              <CardHeader>
+                <CardTitle>{suspended ? "Account Suspended" : "Verification Pending"}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  {suspended
+                    ? "Aapka account currently suspended hai. Support team se contact karne ke liye niche diye gaye button ka use karein."
+                    : "Admin verification pending hai. Verification hone tak aap sirf support team ko message kar sakte hain."}
+                </p>
+                <div className="flex gap-2">
+                  <Button asChild>
+                    <Link to="/dashboard/support">Go To Support</Link>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+          <Outlet />
         </div>
       </main>
     </div>
