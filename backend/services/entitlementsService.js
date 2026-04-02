@@ -24,6 +24,33 @@ const DEFAULT_FEATURES = {
   inquiriesEnabled: true,
 };
 
+// Features exposed when subscription is not active.
+// Keep all monetized/service features disabled; dashboard/subscription/support UX
+// is handled separately at route/UI level.
+const INACTIVE_PLAN_FEATURES = {
+  maxListings: 0,
+  publicShopEnabled: false,
+  bookingEnabled: false,
+  featuredEnabled: false,
+  maxFeaturedListings: 0,
+  customDomain: false,
+  analyticsEnabled: false,
+  prioritySupport: false,
+  whatsappIntegration: false,
+  removeWatermark: false,
+  seoTools: false,
+  apiAccess: false,
+
+  supportTicketsEnabled: false,
+  referralsEnabled: false,
+  invoicesEnabled: false,
+  brandingEnabled: false,
+  whatsappSettingsEnabled: false,
+
+  ordersEnabled: false,
+  inquiriesEnabled: false,
+};
+
 const mergeFeatures = (base, overrides) => {
   // Always start from DEFAULT_FEATURES so older plans missing new keys
   // still inherit expected defaults.
@@ -39,21 +66,6 @@ const mergeFeatures = (base, overrides) => {
   return result;
 };
 
-let cachedFallbackPlan = null;
-let cachedFallbackPlanAt = 0;
-
-const getFallbackPlan = async () => {
-  const now = Date.now();
-  if (cachedFallbackPlan && now - cachedFallbackPlanAt < 60_000) {
-    return cachedFallbackPlan;
-  }
-
-  const free = await Plan.findOne({ slug: 'free', isActive: true }).lean();
-  cachedFallbackPlan = free || null;
-  cachedFallbackPlanAt = now;
-  return cachedFallbackPlan;
-};
-
 export const getEffectiveEntitlementsForBusiness = async (businessDoc, options = {}) => {
   const now = options.now ? new Date(options.now) : new Date();
 
@@ -64,17 +76,14 @@ export const getEffectiveEntitlementsForBusiness = async (businessDoc, options =
 
   let plan = null;
   let source = 'defaults';
+  let features = { ...INACTIVE_PLAN_FEATURES };
 
   if (planIsActive) {
     plan = businessDoc.plan?.features ? businessDoc.plan : await Plan.findById(businessDoc.plan).lean();
     source = 'plan';
-  } else {
-    plan = await getFallbackPlan();
-    source = plan ? 'fallback' : 'defaults';
+    const baseFeatures = plan?.features || DEFAULT_FEATURES;
+    features = mergeFeatures(baseFeatures, businessDoc?.featureOverrides);
   }
-
-  const baseFeatures = plan?.features || DEFAULT_FEATURES;
-  const features = mergeFeatures(baseFeatures, businessDoc?.featureOverrides);
 
   return {
     plan,

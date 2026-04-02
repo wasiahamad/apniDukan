@@ -136,6 +136,10 @@ type PublicBusinessBySlugResponse = {
     workingHours?: Record<string, { open?: string; close?: string; isOpen?: boolean }>;
     openStatusMode?: 'auto' | 'open' | 'closed';
     isOpen?: boolean;
+
+    // Directory/stores fields
+    publicShopEnabled?: boolean;
+    subdomainActive?: boolean;
   };
 };
 
@@ -269,7 +273,6 @@ const getTodaySlot = (workingHours?: Record<string, { open?: string; close?: str
 export const fetchPublicShops = async (params?: { city?: string; category?: string; search?: string; lat?: number; lng?: number }): Promise<Shop[]> => {
   const q = new URLSearchParams();
   q.set("limit", "100");
-  q.set('includeAll', '1');
   if (params?.city) q.set("city", params.city);
   if (params?.category) q.set("category", params.category);
   if (params?.search) q.set("search", params.search);
@@ -293,7 +296,6 @@ export const fetchNearbyPublicShops = async (params?: { lat?: number; lng?: numb
   if (params?.lng != null && Number.isFinite(params.lng)) q.set('lng', String(params.lng));
   q.set('radiusKm', String(params?.radiusKm ?? 25));
   q.set('limit', String(params?.limit ?? 1000));
-  q.set('includeAll', '1');
 
   const response = await fetch(`${API_BASE_URL}/business/nearby?${q.toString()}`, {
     headers: getAuthHeaders(),
@@ -342,7 +344,7 @@ export const fetchRoute = async (params: { origin: { lat: number; lng: number };
 };
 
 export const fetchPublicShopBySlug = async (slug: string): Promise<Shop | null> => {
-  const response = await fetch(`${API_BASE_URL}/business/slug/${encodeURIComponent(slug)}?includeAll=1`);
+  const response = await fetch(`${API_BASE_URL}/business/directory/${encodeURIComponent(slug)}`);
   const json = (await response.json()) as PublicBusinessBySlugResponse;
 
   if (response.status === 404) return null;
@@ -400,6 +402,8 @@ export const fetchPublicShopBySlug = async (slug: string): Promise<Shop | null> 
     latitude: hasCoords ? (coords?.[1] as number) : 0,
     longitude: hasCoords ? (coords?.[0] as number) : 0,
     verified: !!business.isVerified,
+    publicShopEnabled: typeof (business as any)?.publicShopEnabled === 'boolean' ? !!(business as any).publicShopEnabled : undefined,
+    subdomainActive: typeof (business as any)?.subdomainActive === 'boolean' ? !!(business as any).subdomainActive : undefined,
   };
 };
 

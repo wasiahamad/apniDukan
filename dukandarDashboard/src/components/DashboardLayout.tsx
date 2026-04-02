@@ -62,16 +62,21 @@ const DashboardLayout = () => {
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [suspended, setSuspended] = useState(false);
   const [verificationPending, setVerificationPending] = useState(false);
+  const [subscriptionExpired, setSubscriptionExpired] = useState(false);
+  const [subscriptionDaysRemaining, setSubscriptionDaysRemaining] = useState<number | null>(null);
   const [dark, setDark] = useState(getInitialDark);
 
   const effectiveNav = useMemo(() => {
     if (suspended || verificationPending) {
       return nav.filter((n) => n.to === "/dashboard" || n.to === "/dashboard/support");
     }
+    if (subscriptionExpired) {
+      return nav.filter((n) => n.to === "/dashboard" || n.to === "/dashboard/subscription" || n.to === "/dashboard/support");
+    }
     if (entitlementsLoading) return nav;
     const f = entitlements?.features;
     return nav.filter((n) => !n.feature || f?.[n.feature] === true);
-  }, [entitlements?.features, entitlementsLoading, suspended, verificationPending]);
+  }, [entitlements?.features, entitlementsLoading, suspended, verificationPending, subscriptionExpired]);
 
   const refreshEntitlements = async () => {
     if (!business?._id) return;
@@ -150,6 +155,8 @@ const DashboardLayout = () => {
           if (!cancelled) {
             setSuspended(true);
             setVerificationPending(false);
+            setSubscriptionExpired(false);
+            setSubscriptionDaysRemaining(null);
             setEntitlements(null);
             setEntitlementsError("");
             setEntitlementsLoading(false);
@@ -163,6 +170,8 @@ const DashboardLayout = () => {
           if (!cancelled) {
             setVerificationPending(true);
             setSuspended(false);
+            setSubscriptionExpired(false);
+            setSubscriptionDaysRemaining(null);
             setEntitlements(null);
             setEntitlementsError("");
             setEntitlementsLoading(false);
@@ -174,14 +183,24 @@ const DashboardLayout = () => {
         // Load effective entitlements (plan + overrides + fallback). Dashboard should work even on free/fallback.
         const ent = await businessApi.getEntitlements(business._id);
         if (!cancelled) {
+          const now = Date.now();
+          const expiresAtMs = business.planExpiresAt ? new Date(business.planExpiresAt).getTime() : NaN;
+          const hasExpiry = Number.isFinite(expiresAtMs);
+          const isExpired = hasExpiry && expiresAtMs <= now;
+          const daysRemaining = hasExpiry ? Math.max(Math.ceil((expiresAtMs - now) / (1000 * 60 * 60 * 24)), 0) : null;
+
           if (ent.success && ent.data) {
             setEntitlements(ent.data);
             setEntitlementsError("");
             setSuspended(false);
             setVerificationPending(false);
+            setSubscriptionExpired(isExpired);
+            setSubscriptionDaysRemaining(daysRemaining);
           } else {
             setEntitlements(null);
             setEntitlementsError(ent.message || "Failed to load entitlements");
+            setSubscriptionExpired(isExpired);
+            setSubscriptionDaysRemaining(daysRemaining);
           }
           setEntitlementsLoading(false);
           setCheckingAccess(false);
@@ -193,10 +212,14 @@ const DashboardLayout = () => {
           if (isSuspended) {
             setSuspended(true);
             setVerificationPending(false);
+            setSubscriptionExpired(false);
+            setSubscriptionDaysRemaining(null);
             setEntitlementsError("");
           } else {
             setSuspended(false);
             setVerificationPending(false);
+            setSubscriptionExpired(false);
+            setSubscriptionDaysRemaining(null);
             setEntitlementsError(message);
           }
           setEntitlements(null);
@@ -212,12 +235,18 @@ const DashboardLayout = () => {
   }, [authLoading, isAuthenticated, navigate]);
 
   useEffect(() => {
-    if (!suspended && !verificationPending) return;
-    const allowed = location.pathname === "/dashboard" || location.pathname === "/dashboard/support";
+    if (!suspended && !verificationPending && !subscriptionExpired) return;
+
+    const allowedPaths = ["/dashboard", "/dashboard/support"];
+    if (subscriptionExpired && !suspended && !verificationPending) {
+      allowedPaths.push("/dashboard/subscription");
+    }
+
+    const allowed = allowedPaths.includes(location.pathname);
     if (!allowed) {
       navigate("/dashboard", { replace: true });
     }
-  }, [suspended, verificationPending, location.pathname, navigate]);
+  }, [suspended, verificationPending, subscriptionExpired, location.pathname, navigate]);
 
   useEffect(() => {
     try {
@@ -229,6 +258,21 @@ const DashboardLayout = () => {
   }, [dark]);
 
   const sidebarWidth = collapsed ? "w-[68px]" : "w-60";
+
+  // Always provide a stable context value shape
+  const entitlementsCtx = useMemo(() => ({
+    entitlements: entitlements ?? null,
+    loading: !!entitlementsLoading,
+    error: entitlementsError ?? "",
+    suspended: !!suspended,
+    refresh: refreshEntitlements,
+  }), [entitlements, entitlementsLoading, entitlementsError, suspended]);
+
+  const supportOnlyMode = suspended || verificationPending || subscriptionExpired;
+  const showSuspendedNotice = suspended && location.pathname === "/dashboard";
+  const showVerificationNotice = verificationPending && location.pathname === "/dashboard";
+  const showSubscriptionExpiredNotice = subscriptionExpired && location.pathname === "/dashboard";
+  const supportOnlyBlockedRoute = supportOnlyMode && !["/dashboard", "/dashboard/support", "/dashboard/subscription"].includes(location.pathname);
 
   if (authLoading || checkingAccess) {
     return (
@@ -266,20 +310,6 @@ const DashboardLayout = () => {
       </div>
     );
   }
-
-  // Always provide a stable context value shape
-  const entitlementsCtx = {
-    entitlements: entitlements ?? null,
-    loading: !!entitlementsLoading,
-    error: entitlementsError ?? "",
-    suspended: !!suspended,
-    refresh: refreshEntitlements,
-  };
-
-  const supportOnlyMode = suspended || verificationPending;
-  const showSuspendedNotice = suspended && location.pathname === "/dashboard";
-  const showVerificationNotice = verificationPending && location.pathname === "/dashboard";
-  const supportOnlyBlockedRoute = supportOnlyMode && location.pathname !== "/dashboard" && location.pathname !== "/dashboard/support";
 
   return (
     <EntitlementsContext.Provider value={entitlementsCtx}>
@@ -411,21 +441,40 @@ const DashboardLayout = () => {
               </CardContent>
             </Card>
           ) : null}
-          {showSuspendedNotice || showVerificationNotice || supportOnlyBlockedRoute ? (
+          {showSuspendedNotice || showVerificationNotice || showSubscriptionExpiredNotice || supportOnlyBlockedRoute ? (
             <Card className="border mb-4 border-destructive/30 bg-destructive/5">
               <CardHeader>
-                <CardTitle>{suspended ? "Account Suspended" : "Verification Pending"}</CardTitle>
+                <CardTitle>
+                  {suspended
+                    ? "Account Suspended"
+                    : verificationPending
+                      ? "Verification Pending"
+                      : "Subscription Expired"}
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-sm text-muted-foreground">
                   {suspended
                     ? "Aapka account currently suspended hai. Support team se contact karne ke liye niche diye gaye button ka use karein."
-                    : "Admin verification pending hai. Verification hone tak aap sirf support team ko message kar sakte hain."}
+                    : verificationPending
+                      ? "Admin verification pending hai. Verification hone tak aap sirf support team ko message kar sakte hain."
+                      : `Aapki subscription expire ho chuki hai${typeof subscriptionDaysRemaining === "number" ? ` (${subscriptionDaysRemaining} days remaining)` : ""}. Renewal tak sirf Dashboard, Subscription aur Support pages available rahenge; public shop bhi hidden rahegi.`}
                 </p>
                 <div className="flex gap-2">
-                  <Button asChild>
-                    <Link to="/dashboard/support">Go To Support</Link>
-                  </Button>
+                  {subscriptionExpired ? (
+                    <>
+                      <Button asChild>
+                        <Link to="/dashboard/subscription">Renew Subscription</Link>
+                      </Button>
+                      <Button variant="outline" asChild>
+                        <Link to="/dashboard/support">Contact Support</Link>
+                      </Button>
+                    </>
+                  ) : (
+                    <Button asChild>
+                      <Link to="/dashboard/support">Go To Support</Link>
+                    </Button>
+                  )}
                   {/* <Button variant="outline" asChild>
                     <Link to="/dashboard">Back To Dashboard Notice</Link>
                   </Button> */}
@@ -438,18 +487,37 @@ const DashboardLayout = () => {
           {supportOnlyBlockedRoute ? (
             <Card className="border mb-4 border-destructive/30 bg-destructive/5">
               <CardHeader>
-                <CardTitle>{suspended ? "Account Suspended" : "Verification Pending"}</CardTitle>
+                <CardTitle>
+                  {suspended
+                    ? "Account Suspended"
+                    : verificationPending
+                      ? "Verification Pending"
+                      : "Subscription Expired"}
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-sm text-muted-foreground">
                   {suspended
                     ? "Aapka account currently suspended hai. Support team se contact karne ke liye niche diye gaye button ka use karein."
-                    : "Admin verification pending hai. Verification hone tak aap sirf support team ko message kar sakte hain."}
+                    : verificationPending
+                      ? "Admin verification pending hai. Verification hone tak aap sirf support team ko message kar sakte hain."
+                      : "Subscription expire hone ki wajah se ye page temporary locked hai. Renewal ke liye Subscription page par jaiye."}
                 </p>
                 <div className="flex gap-2">
-                  <Button asChild>
-                    <Link to="/dashboard/support">Go To Support</Link>
-                  </Button>
+                  {subscriptionExpired ? (
+                    <>
+                      <Button asChild>
+                        <Link to="/dashboard/subscription">Go To Subscription</Link>
+                      </Button>
+                      <Button variant="outline" asChild>
+                        <Link to="/dashboard/support">Contact Support</Link>
+                      </Button>
+                    </>
+                  ) : (
+                    <Button asChild>
+                      <Link to="/dashboard/support">Go To Support</Link>
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>

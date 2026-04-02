@@ -74,7 +74,15 @@ export default function ShopProfile() {
     setAssignReason(String((b as any).planCompReason || ""));
   }, [b?._id]);
 
-  const status = b ? (!b.isActive ? 'suspended' : !b.isVerified ? 'inactive' : 'active') : 'inactive';
+  const status = useMemo(() => {
+    if (!b) return 'inactive';
+    if (!b.isActive) return 'suspended';
+    const backendStatus = b.effectiveEntitlements?.storefrontStatus;
+    if (backendStatus === 'active') return 'active';
+    if (backendStatus === 'inactive') return 'inactive';
+    // Fallback (older payloads)
+    return b.isVerified ? 'active' : 'inactive';
+  }, [b?.isActive, b?.isVerified, b?.effectiveEntitlements?.storefrontStatus]);
 
   const updateStatus = useMutation({
     mutationFn: async (input: { isActive?: boolean; isVerified?: boolean }) => {

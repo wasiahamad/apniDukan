@@ -30,6 +30,33 @@ const getLastNDaysOrderTrend = (orders: Order[], days: number) => {
   return out;
 };
 
+const getSubscriptionTimeline = (planExpiresAt?: string) => {
+  if (!planExpiresAt) {
+    return {
+      hasExpiry: false,
+      isExpired: false,
+      daysRemaining: null as number | null,
+    };
+  }
+
+  const expiresMs = new Date(planExpiresAt).getTime();
+  if (!Number.isFinite(expiresMs)) {
+    return {
+      hasExpiry: false,
+      isExpired: false,
+      daysRemaining: null as number | null,
+    };
+  }
+
+  const now = Date.now();
+  const daysRemaining = Math.max(Math.ceil((expiresMs - now) / (1000 * 60 * 60 * 24)), 0);
+  return {
+    hasExpiry: true,
+    isExpired: expiresMs <= now,
+    daysRemaining,
+  };
+};
+
 const Dashboard = () => {
   const { user, isAuthenticated } = useAuth();
   const { entitlements } = useEntitlements();
@@ -40,6 +67,9 @@ const Dashboard = () => {
   const [businessStats, setBusinessStats] = useState<any>(null);
   const [ordersSummary, setOrdersSummary] = useState<any>(null);
   const [orders, setOrders] = useState<Order[]>([]);
+
+  // Calculate trend data - must be before any early returns
+  const trend7 = useMemo(() => getLastNDaysOrderTrend(orders, 7), [orders]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -70,7 +100,8 @@ const Dashboard = () => {
     };
 
     fetchBusiness();
-  }, [isAuthenticated]); // Removed navigate from dependencies - it's stable
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]); // Only run when authentication status changes
 
   useEffect(() => {
     if (!business?._id) return;
@@ -168,8 +199,6 @@ const Dashboard = () => {
     { name: "Map", value: shopData.map_clicks, fill: "hsl(33, 100%, 50%)" },
   ];
 
-
-  const trend7 = useMemo(() => getLastNDaysOrderTrend(orders, 7), [orders]);
   // Defensive: ensure always at least 2 elements
   const safeTrend7 = Array.isArray(trend7) && trend7.length >= 2 ? trend7 : [{ orders: 0 }, { orders: 0 }];
   const todayVsYesterday = [
@@ -197,6 +226,8 @@ const Dashboard = () => {
     delivered: "bg-primary/10 text-primary border border-primary/20",
     cancelled: "bg-destructive/10 text-destructive border border-destructive/20",
   };
+
+  const subscriptionTimeline = getSubscriptionTimeline(business.planExpiresAt);
 
   return (
     <div className="space-y-8">
@@ -229,6 +260,31 @@ const Dashboard = () => {
           <span className="text-sm text-yellow-800">
             Your business is pending verification. You can start adding products now!
           </span>
+        </motion.div>
+      )}
+
+      {subscriptionTimeline.hasExpiry && (
+        <motion.div
+          initial={{ y: 10, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          className={`${subscriptionTimeline.isExpired ? "bg-destructive/10 border-destructive/30" : "bg-primary/10 border-primary/30"} border rounded-2xl px-5 py-4 flex items-center justify-between gap-3 flex-wrap`}
+        >
+          <div className="flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${subscriptionTimeline.isExpired ? "bg-destructive/15" : "bg-primary/15"}`}>
+              <Clock className={`w-5 h-5 ${subscriptionTimeline.isExpired ? "text-destructive" : "text-primary"}`} />
+            </div>
+            <span className={`text-sm ${subscriptionTimeline.isExpired ? "text-destructive" : "text-foreground"}`}>
+              {subscriptionTimeline.isExpired
+                ? "Subscription expire ho chuki hai. Renewal tak public website par aapki shop hidden rahegi."
+                : `Subscription ke ${subscriptionTimeline.daysRemaining} day remaining hain.`}
+            </span>
+          </div>
+          <Link
+            to="/dashboard/subscription"
+            className="text-xs font-semibold px-3 py-2 rounded-lg bg-background/80 border border-border hover:bg-background transition-colors"
+          >
+            Manage Subscription
+          </Link>
         </motion.div>
       )}
 

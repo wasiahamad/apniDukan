@@ -61,6 +61,8 @@ export interface Shop {
   latitude: number;
   longitude: number;
   verified: boolean;
+  publicShopEnabled?: boolean;
+  subdomainActive?: boolean;
   timeSlots?: TimeSlot[];
 }
 

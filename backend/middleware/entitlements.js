@@ -17,6 +17,13 @@ export const requireOwnerFeature = (featureKey) => {
       const entitlements = await getEffectiveEntitlementsForBusiness(business);
       req.entitlements = entitlements;
 
+      if (entitlements?.planIsActive !== true) {
+        return res.status(403).json({
+          success: false,
+          message: 'Your subscription is expired. Please renew your plan to continue.',
+        });
+      }
+
       if (entitlements?.features?.[featureKey] !== true) {
         return res.status(403).json({
           success: false,
@@ -56,6 +63,13 @@ export const requireBusinessFeatureByIdParam = (paramName, featureKey) => {
 
       const entitlements = await getEffectiveEntitlementsForBusiness(business);
       req.entitlements = entitlements;
+
+      if (entitlements?.planIsActive !== true) {
+        return res.status(403).json({
+          success: false,
+          message: 'Subscription is expired for this business',
+        });
+      }
 
       if (entitlements?.features?.[featureKey] !== true) {
         return res.status(403).json({

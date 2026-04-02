@@ -289,8 +289,13 @@ export const getPublicListingsByBusiness = async (req, res) => {
     }
 
     if (String(business.slug || '').toLowerCase() !== DEMO_SHOP_SLUG) {
-      const entitlements = await getEffectiveEntitlementsForBusiness(business);
-      if (entitlements?.features?.publicShopEnabled !== true) {
+      const now = new Date();
+      const planIsActive =
+        !!business.plan &&
+        !!business.planExpiresAt &&
+        new Date(business.planExpiresAt) > now;
+
+      if (!planIsActive) {
         return res.status(404).json({
           success: false,
           message: 'Shop not available',

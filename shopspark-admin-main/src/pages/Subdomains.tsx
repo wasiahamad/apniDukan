@@ -24,19 +24,31 @@ export default function Subdomains() {
   });
 
   const deriveStatus = (b: Business): "active" | "inactive" | "suspended" => {
-    const publicShopEnabled = b.effectiveEntitlements?.publicShopEnabled !== false;
+    if (b.effectiveEntitlements?.subdomainStatus) {
+      return b.effectiveEntitlements.subdomainStatus;
+    }
+    const publicShopEnabled = b.effectiveEntitlements?.publicShopEnabled === true;
+    const planIsActive = b.effectiveEntitlements?.planIsActive === true;
+    const storefrontActive = b.effectiveEntitlements?.storefrontActive === true;
     if (!b.isActive) return "suspended";
     if (!b.isVerified) return "inactive";
+    if (!planIsActive) return "inactive";
     if (!publicShopEnabled) return "inactive";
+    if (!storefrontActive) return "inactive";
     return "active";
   };
 
   const getStatusReason = (b: Business) => {
-    const publicShopEnabled = b.effectiveEntitlements?.publicShopEnabled !== false;
+    if (b.effectiveEntitlements?.subdomainReason) {
+      return b.effectiveEntitlements.subdomainReason;
+    }
+    const publicShopEnabled = b.effectiveEntitlements?.publicShopEnabled === true;
+    const planIsActive = b.effectiveEntitlements?.planIsActive === true;
     const entitlementSource = b.effectiveEntitlements?.source || "defaults";
 
     if (!b.isActive) return "Shop disabled by admin";
     if (!b.isVerified) return "Verification pending";
+    if (!planIsActive) return "Plan expired";
     if (!publicShopEnabled) {
       if (entitlementSource === "plan") return "Current plan does not allow public shop";
       if (entitlementSource === "fallback") return "Fallback plan does not allow public shop";

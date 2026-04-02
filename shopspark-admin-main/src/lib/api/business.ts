@@ -76,6 +76,12 @@ export interface Business {
     source?: 'plan' | 'fallback' | 'defaults';
     expiresAt?: string | null;
     publicShopEnabled?: boolean;
+    storefrontActive?: boolean;
+    storefrontStatus?: 'active' | 'inactive';
+    storefrontReason?: string;
+    subdomainActive?: boolean;
+    subdomainStatus?: 'active' | 'inactive';
+    subdomainReason?: string;
   };
   isActive: boolean;
   isVerified: boolean;

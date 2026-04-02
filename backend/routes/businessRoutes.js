@@ -12,6 +12,7 @@ const router = express.Router();
 
 // Public routes
 router.get('/slug/:slug', businessController.getBusinessBySlug);
+router.get('/directory/:slug', businessController.getBusinessDirectoryBySlug);
 router.post('/slug/:slug/track', businessController.trackBusinessAction);
 router.get('/public/shops', businessController.getPublicShops);
 router.get('/nearby', optionalAuth, businessController.getNearbyBusinesses);

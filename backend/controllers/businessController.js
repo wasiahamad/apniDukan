@@ -537,9 +537,14 @@ export const getBusinessBySlug = async (req, res) => {
   try {
     const { slug } = req.params;
     const normalizedSlug = String(slug || '').toLowerCase();
-    const includeAll = ['1', 'true', 'yes'].includes(String(req.query.includeAll || '').toLowerCase());
 
-    const business = await Business.findOne({ slug, isActive: true })
+    const businessQuery = {
+      slug,
+      isActive: true,
+      ...(normalizedSlug === DEMO_SHOP_SLUG ? {} : { isVerified: true }),
+    };
+
+    const business = await Business.findOne(businessQuery)
       .populate('owner', 'name email phone')
       .populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages')
       .populate('plan');
@@ -551,9 +556,24 @@ export const getBusinessBySlug = async (req, res) => {
       });
     }
 
-    if (!includeAll && normalizedSlug !== DEMO_SHOP_SLUG) {
-      const entitlements = await getEffectiveEntitlementsForBusiness(business);
-      if (entitlements?.features?.publicShopEnabled !== true) {
+    if (normalizedSlug !== DEMO_SHOP_SLUG) {
+      const now = new Date();
+      const planIsActive =
+        !!business.plan &&
+        !!business.planExpiresAt &&
+        new Date(business.planExpiresAt) > now;
+
+      if (!planIsActive) {
+        return res.status(404).json({
+          success: false,
+          message: 'Shop not available',
+        });
+      }
+
+      // Storefront (/shop/:slug) is only allowed if current plan enables public shop.
+      const effective = await getEffectiveEntitlementsForBusiness(business, { now });
+      const publicShopEnabled = !!effective?.features?.publicShopEnabled;
+      if (!publicShopEnabled) {
         return res.status(404).json({
           success: false,
           message: 'Shop not available',
@@ -580,14 +600,92 @@ export const getBusinessBySlug = async (req, res) => {
   }
 };
 
+// @desc    Get business by slug (PUBLIC - for directory/profile pages)
+// @route   GET /api/business/directory/:slug
+// @access  Public
+export const getBusinessDirectoryBySlug = async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const normalizedSlug = String(slug || '').toLowerCase();
+
+    const businessQuery = {
+      slug,
+      isActive: true,
+      ...(normalizedSlug === DEMO_SHOP_SLUG ? {} : { isVerified: true }),
+    };
+
+    const business = await Business.findOne(businessQuery)
+      .populate('owner', 'name email phone')
+      .populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages')
+      .populate('plan');
+
+    if (!business) {
+      return res.status(404).json({
+        success: false,
+        message: 'Business not found',
+      });
+    }
+
+    // Increment view count (best-effort; never block response)
+    try {
+      await business.incrementStat('totalViews');
+    } catch {
+      // ignore analytics failures
+    }
+
+    if (normalizedSlug !== DEMO_SHOP_SLUG) {
+      const now = new Date();
+      const planIsActive =
+        !!business.plan &&
+        !!business.planExpiresAt &&
+        new Date(business.planExpiresAt) > now;
+
+      if (!planIsActive) {
+        return res.status(404).json({
+          success: false,
+          message: 'Shop not available',
+        });
+      }
+
+      const effective = await getEffectiveEntitlementsForBusiness(business, { now });
+      const publicShopEnabled = !!effective?.features?.publicShopEnabled;
+      const subdomainActive = !!publicShopEnabled && !!business.isActive && !!business.isVerified && !!planIsActive;
+
+      const payload = business.toObject ? business.toObject() : business;
+      payload.isOpen = resolveBusinessIsOpen(business);
+      payload.publicShopEnabled = publicShopEnabled;
+      payload.subdomainActive = subdomainActive;
+
+      return res.status(200).json({
+        success: true,
+        data: payload,
+      });
+    }
+
+    const payload = business.toObject ? business.toObject() : business;
+    payload.isOpen = resolveBusinessIsOpen(business);
+    payload.publicShopEnabled = true;
+    payload.subdomainActive = true;
+
+    return res.status(200).json({
+      success: true,
+      data: payload,
+    });
+  } catch (error) {
+    console.error('Get business directory by slug error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error fetching business',
+    });
+  }
+};
+
 // @desc    Get all public shops (real dukandar list)
 // @route   GET /api/business/public/shops
 // @access  Public
 export const getPublicShops = async (req, res) => {
   try {
     const { city, category, search, page = 1, limit = 40, lat, lng } = req.query;
-
-    const includeAll = ['1', 'true', 'yes'].includes(String(req.query.includeAll || '').toLowerCase());
 
     const safePage = Math.max(parseInt(page, 10) || 1, 1);
     const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 40, 1), 100);
@@ -598,7 +696,7 @@ export const getPublicShops = async (req, res) => {
 
     const baseQuery = {
       isActive: true,
-      ...(includeAll ? {} : { isVerified: true }),
+      isVerified: true,
       slug: { $exists: true, $ne: null },
       ...(normalizedCity ? { 'address.city': new RegExp(normalizedCity, 'i') } : {}),
       ...(term
@@ -657,28 +755,8 @@ export const getPublicShops = async (req, res) => {
       },
     });
 
-    pipeline.push({
-      $addFields: {
-        basePublicShopEnabled: {
-          $cond: [
-            '$planIsActive',
-            { $ifNull: ['$planDoc.features.publicShopEnabled', true] },
-            true,
-          ],
-        },
-      },
-    });
-
-    pipeline.push({
-      $addFields: {
-        effectivePublicShopEnabled: {
-          $ifNull: ['$featureOverrides.publicShopEnabled', '$basePublicShopEnabled'],
-        },
-      },
-    });
-    if (!includeAll) {
-      pipeline.push({ $match: { effectivePublicShopEnabled: true } });
-    }
+    // Only show shops with an active running plan on publicWebsite.
+    pipeline.push({ $match: { planIsActive: true } });
 
     pipeline.push({
       $lookup: {
@@ -996,7 +1074,6 @@ export const getNearbyBusinesses = async (req, res) => {
         }
       }
     }
-    const includeAll = ['1', 'true', 'yes'].includes(String(req.query.includeAll || '').toLowerCase());
     const rawRadiusKm = Number(req.query.radiusKm ?? req.query.radius);
     const radiusKm = Math.max(Number.isFinite(rawRadiusKm) ? rawRadiusKm : 25, 0.1);
     const maxDistanceMeters = radiusKm * 1000;
@@ -1031,9 +1108,7 @@ export const getNearbyBusinesses = async (req, res) => {
 
     const now = new Date();
 
-    const geoQuery = includeAll
-      ? { isActive: true, slug: { $exists: true, $nin: [null, DEMO_SHOP_SLUG] } }
-      : { isActive: true, isVerified: true, slug: { $exists: true, $nin: [null, DEMO_SHOP_SLUG] } };
+    const geoQuery = { isActive: true, isVerified: true, slug: { $exists: true, $nin: [null, DEMO_SHOP_SLUG] } };
 
     const pipeline = [
       {
@@ -1077,28 +1152,13 @@ export const getNearbyBusinesses = async (req, res) => {
       },
       {
         $addFields: {
-          basePublicShopEnabled: {
-            $cond: [
-              '$planIsActive',
-              { $ifNull: ['$planDoc.features.publicShopEnabled', true] },
-              true,
-            ],
-          },
-        },
-      },
-      {
-        $addFields: {
-          effectivePublicShopEnabled: {
-            $ifNull: ['$featureOverrides.publicShopEnabled', '$basePublicShopEnabled'],
-          },
           activePlanPrice: { $cond: ['$planIsActive', { $ifNull: ['$planDoc.price', 0] }, 0] },
         },
       },
     ];
 
-    if (!includeAll) {
-      pipeline.push({ $match: { effectivePublicShopEnabled: true } });
-    }
+    // Only show shops with an active running plan on publicWebsite.
+    pipeline.push({ $match: { planIsActive: true } });
 
     pipeline.push(
       {
@@ -1347,9 +1407,59 @@ export const adminGetBusinessById = async (req, res) => {
       });
     }
 
+    const businessObj = business.toObject ? business.toObject() : business;
+    const entitlements = await getEffectiveEntitlementsForBusiness(businessObj);
+    const hasActivePlan = !!entitlements?.planIsActive;
+    const publicEnabledByPlan = entitlements?.features?.publicShopEnabled === true;
+
+    const subscriptionActive =
+      businessObj.isActive === true &&
+      businessObj.isVerified === true &&
+      hasActivePlan;
+
+    const statusReason =
+      businessObj.isActive !== true
+        ? 'Suspended'
+        : !hasActivePlan
+          ? 'Plan Expired'
+          : businessObj.isVerified !== true
+            ? 'Unverified'
+            : null;
+
+    const publicInactiveReason =
+      businessObj.isActive !== true
+        ? 'Suspended'
+        : !hasActivePlan
+          ? 'Plan Expired'
+          : businessObj.isVerified !== true
+            ? 'Unverified'
+            : !publicEnabledByPlan
+              ? 'Plan Public Off'
+              : null;
+
+    const isPublicVisible =
+      businessObj.isActive === true &&
+      businessObj.isVerified === true &&
+      hasActivePlan &&
+      publicEnabledByPlan;
+
     res.status(200).json({
       success: true,
-      data: business,
+      data: {
+        ...businessObj,
+        effectiveEntitlements: {
+          planIsActive: hasActivePlan,
+          source: entitlements?.source || 'defaults',
+          expiresAt: entitlements?.expiresAt || null,
+          publicShopEnabled: publicEnabledByPlan,
+          storefrontActive: subscriptionActive,
+          storefrontStatus: subscriptionActive ? 'active' : 'inactive',
+          storefrontReason: statusReason || 'Plan Active',
+          subdomainActive: isPublicVisible,
+          subdomainStatus: isPublicVisible ? 'active' : 'inactive',
+          subdomainReason: publicInactiveReason || 'Subdomain Live',
+        },
+      },
     });
   } catch (error) {
     console.error('Admin get business by ID error:', error);
@@ -1566,13 +1676,51 @@ export const getAllBusinesses = async (req, res) => {
     const businessesWithEntitlements = await Promise.all(
       businesses.map(async (business) => {
         const entitlements = await getEffectiveEntitlementsForBusiness(business);
+        const hasActivePlan = !!entitlements?.planIsActive;
+        const publicEnabledByPlan = entitlements?.features?.publicShopEnabled === true;
+        const subscriptionActive =
+          business.isActive === true &&
+          business.isVerified === true &&
+          hasActivePlan;
+        const statusReason =
+          business.isActive !== true
+            ? 'Suspended'
+            : !hasActivePlan
+              ? 'Plan Expired'
+              : business.isVerified !== true
+                ? 'Unverified'
+                : null;
+
+        const publicInactiveReason =
+          business.isActive !== true
+            ? 'Suspended'
+            : !hasActivePlan
+              ? 'Plan Expired'
+              : business.isVerified !== true
+                ? 'Unverified'
+                : !publicEnabledByPlan
+                  ? 'Plan Public Off'
+                  : null;
+
+        const isPublicVisible =
+          business.isActive === true &&
+          business.isVerified === true &&
+          hasActivePlan &&
+          publicEnabledByPlan;
+
         return {
           ...business,
           effectiveEntitlements: {
-            planIsActive: !!entitlements?.planIsActive,
+            planIsActive: hasActivePlan,
             source: entitlements?.source || 'defaults',
             expiresAt: entitlements?.expiresAt || null,
-            publicShopEnabled: entitlements?.features?.publicShopEnabled === true,
+            publicShopEnabled: publicEnabledByPlan,
+            storefrontActive: subscriptionActive,
+            storefrontStatus: subscriptionActive ? 'active' : 'inactive',
+            storefrontReason: statusReason || 'Plan Active',
+            subdomainActive: isPublicVisible,
+            subdomainStatus: isPublicVisible ? 'active' : 'inactive',
+            subdomainReason: publicInactiveReason || 'Subdomain Live',
           },
         };
       })

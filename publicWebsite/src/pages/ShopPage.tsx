@@ -209,6 +209,19 @@ export default function ShopPage() {
     }
   }, [shopSlug]);
 
+  const shopQuery = useQuery({
+    queryKey: ["public-shop-by-slug", shopSlug],
+    queryFn: () => fetchPublicShopBySlug(shopSlug || ""),
+    enabled: !!shopSlug,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
+  });
+
+  const websiteLink = useMemo(() => {
+    const canOpen = !!shopQuery.data?.subdomainActive;
+    return canOpen ? shopPublicUrl : "";
+  }, [shopPublicUrl, shopQuery.data?.subdomainActive]);
+
   const isNonShareableLocalUrl = (url: string) => {
     try {
       const u = new URL(url);
@@ -219,9 +232,9 @@ export default function ShopPage() {
   };
 
   const shareShopLink = async (title?: string) => {
-    if (!shopPublicUrl) return;
+    if (!websiteLink) return;
 
-    if (isNonShareableLocalUrl(shopPublicUrl)) {
+    if (isNonShareableLocalUrl(websiteLink)) {
       toast({
         title: "Link public nahi hai",
         description: "Ye link localhost pe point kar raha hai. Public share ke liye VITE_STOREFRONT_URL ko apni live website/domain par set karein.",
@@ -231,31 +244,23 @@ export default function ShopPage() {
 
     try {
       if (navigator.share) {
-        await navigator.share({ title: title || "DukaanDirect", url: shopPublicUrl });
+        await navigator.share({ title: title || "DukaanDirect", url: websiteLink });
         return;
       }
 
-      await navigator.clipboard?.writeText(shopPublicUrl);
+      await navigator.clipboard?.writeText(websiteLink);
       toast({
         title: "Link copied",
-        description: shopPublicUrl,
+        description: websiteLink,
       });
     } catch {
       toast({
         title: "Copy failed",
-        description: shopPublicUrl,
+        description: websiteLink,
         variant: "destructive",
       });
     }
   };
-
-  const shopQuery = useQuery({
-    queryKey: ["public-shop-by-slug", shopSlug],
-    queryFn: () => fetchPublicShopBySlug(shopSlug || ""),
-    enabled: !!shopSlug,
-    refetchInterval: 30_000,
-    refetchIntervalInBackground: true,
-  });
 
   const reviewsListQuery = useQuery({
     queryKey: ["public-reviews-by-slug", shopSlug],
@@ -994,7 +999,7 @@ export default function ShopPage() {
                       )}
                     </div>
                   </div>
-                  {shopPublicUrl && (
+                  {websiteLink && (
                     <>
                       <Separator />
                       <div className="flex items-start gap-3">
@@ -1002,12 +1007,12 @@ export default function ShopPage() {
                         <div className="flex-1 min-w-0">
                           <p className="text-xs text-muted-foreground">Website link</p>
                           <a
-                            href={shopPublicUrl}
+                            href={websiteLink}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-sm underline underline-offset-4 break-all"
                           >
-                            {shopPublicUrl}
+                            {websiteLink}
                           </a>
                           <div className="mt-2">
                             <Button variant="outline" size="sm" className="gap-2" onClick={() => shareShopLink(shop.name)}>

@@ -190,11 +190,11 @@ export default function HomePage() {
           >
             <Badge className="mb-4 bg-primary/10 text-primary border-primary/20">🇮🇳 India's Local Business Platform</Badge>
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight mb-4 text-foreground">
-              Apni <span className="text-primary">Neighbourhood</span> Ki
-              <br />Best <span className="text-secondary">Dukaan</span> Khojo
+              Find <span className="text-primary">the Best</span>  Shops
+              <br /> in Your <span className="text-secondary">Neighborhood</span> 
             </h1>
             <p className="text-lg text-muted-foreground mb-8 max-w-lg mx-auto">
-              Salon, restaurant, grocery, tailor — apne area ki trusted shops discover karo aur seedha WhatsApp pe connect karo.
+              Discover trusted shops in your area like salons, restaurants, grocery stores, and tailors — and connect directly via WhatsApp.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }}>
@@ -210,7 +210,7 @@ export default function HomePage() {
                     navigate("/shops");
                   }}
                 >
-                  <Search className="h-5 w-5" /> Nearby Shops Dekho
+                  <Search className="h-5 w-5" /> Explore Nearby Shops
                 </Button>
               </motion.div>
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }}>
@@ -220,7 +220,7 @@ export default function HomePage() {
                   className="gap-2 text-base border-secondary text-secondary hover:bg-secondary hover:text-secondary-foreground"
                   onClick={() => window.open(getDukandarOnboardingUrl(), "_blank", "noopener,noreferrer")}
                 >
-                  <Store className="h-5 w-5" /> Apni Dukaan Banaye
+                  <Store className="h-5 w-5" /> Register Your Shop
                 </Button>
               </motion.div>
             </div>
@@ -262,7 +262,7 @@ export default function HomePage() {
       {/* How It Works */}
       <section className="container py-16">
         <ScrollReveal>
-          <h2 className="text-2xl md:text-3xl font-bold text-center mb-10">Kaise Kaam Karta Hai?</h2>
+          <h2 className="text-2xl md:text-3xl font-bold text-center mb-10">How Does It Work 🤔?</h2>
         </ScrollReveal>
         <StaggerChildren className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {howItWorks.map((step, i) => (
