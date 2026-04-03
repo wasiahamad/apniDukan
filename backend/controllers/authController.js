@@ -1,8 +1,8 @@
-import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import { BookingSlot, Business, User } from '../models/index.js';
-import { createReferralForSignup, ensureReferralCodeForUser } from '../services/referralService.js';
 import { sendOtpEmail } from '../services/emailService.js';
+import { createReferralForSignup, ensureReferralCodeForUser } from '../services/referralService.js';
 import { verifyFacebookAccessToken, verifyGoogleAccessToken, verifyGoogleIdToken } from '../services/socialAuthService.js';
 
 /**
@@ -859,7 +859,9 @@ export const updateProfile = async (req, res) => {
 
     if (name) user.name = name;
     if (phone) user.phone = phone;
-    if (profileImage) user.profileImage = profileImage;
+    if (Object.prototype.hasOwnProperty.call(req.body, 'profileImage')) {
+      user.profileImage = profileImage || '';
+    }
 
     await user.save();
 

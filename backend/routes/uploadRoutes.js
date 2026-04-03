@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
-import { protect } from '../middleware/auth.js';
 import { uploadController } from '../controllers/index.js';
+import { protect } from '../middleware/auth.js';
 import { requireVerifiedBusinessOwnerForWrites } from '../middleware/verificationGate.js';
 
 const router = express.Router();
@@ -24,5 +24,6 @@ const upload = multer({
  * Base: /api/upload
  */
 router.post('/image', protect, requireVerifiedBusinessOwnerForWrites, upload.single('file'), uploadController.uploadImage);
+router.post('/avatar', protect, upload.single('file'), uploadController.uploadAvatar);
 
 export default router;

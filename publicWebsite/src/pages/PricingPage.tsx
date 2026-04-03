@@ -1,15 +1,15 @@
-import { Link } from "react-router-dom";
-import { CheckCircle } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import PageTransition from "@/components/PageTransition";
 import ScrollReveal from "@/components/ScrollReveal";
 import StaggerChildren, { StaggerItem } from "@/components/StaggerChildren";
-import { motion } from "framer-motion";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchPublicPlans } from "@/lib/plansApi";
+import { useQuery } from "@tanstack/react-query";
+import { motion } from "framer-motion";
+import { CheckCircle } from "lucide-react";
+import { Link } from "react-router-dom";
 
 export default function PricingPage() {
   const plansQuery = useQuery({
@@ -24,7 +24,7 @@ export default function PricingPage() {
       <div className="container py-16">
         <ScrollReveal>
           <div className="text-center mb-12">
-            <h1 className="text-3xl md:text-4xl font-bold mb-3">Simple, Transparent Pricing 💰</h1>
+            <h1 className="text-3xl md:text-4xl font-bold mb-3">Simple, Transparent Plans</h1>
             <p className="text-muted-foreground max-w-md mx-auto">
               Apne business ke size aur needs ke hisaab se plan choose karo. Start free, upgrade anytime.
             </p>
