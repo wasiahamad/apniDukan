@@ -12,10 +12,9 @@ import {
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/context/AuthContext";
-import { usePlan } from "@/context/PlanContext";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
-import { CalendarDays, CircleHelp, LogOut, MapPin, Plus, Search, Settings, Sparkles, UserCircle2, X } from "lucide-react";
+import { CalendarDays, CircleHelp, LogOut, MapPin, Plus, Search, Settings, UserCircle2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -62,7 +61,6 @@ export default function MobileDrawer({ cities, categories, defaultCitySlug, trig
     const [cityQuery, setCityQuery] = useState("");
     const navigate = useNavigate();
     const { isAuthenticated, logout } = useAuth();
-    const { currentPlan } = usePlan();
     const { toast } = useToast();
 
     const topCities = cities.slice(0, 5);
@@ -102,12 +100,6 @@ export default function MobileDrawer({ cities, categories, defaultCitySlug, trig
             label: "My Bookings",
             icon: <CalendarDays className="h-4 w-4 text-slate-500" />,
             onClick: () => onNavigate("/account?tab=bookings"),
-        },
-        {
-            key: "my-plan",
-            label: "My Plan",
-            icon: <Sparkles className="h-4 w-4 text-emerald-600" />,
-            onClick: () => onNavigate("/account?tab=plan"),
         },
         {
             key: "settings",
@@ -280,9 +272,6 @@ export default function MobileDrawer({ cities, categories, defaultCitySlug, trig
                         <div className="rounded-2xl border border-white/80 bg-white/80 p-3 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.6)]">
                             <div className="mb-3 flex items-center justify-between">
                                 <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Your Account</p>
-                                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">
-                                    <Sparkles className="h-3.5 w-3.5" /> {currentPlan.name}
-                                </span>
                             </div>
 
                             <motion.div variants={staggerContainer} initial="hidden" animate="show" className="space-y-2">

@@ -1,5 +1,3 @@
-import PlanCard from "@/components/plan/PlanCard";
-import PlanModal from "@/components/plan/PlanModal";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,7 +7,6 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
-import { usePlan } from "@/context/PlanContext";
 import type { Shop } from "@/data/mockData";
 import { useToast } from "@/hooks/use-toast";
 import { useUserLocation } from "@/hooks/useUserLocation";
@@ -29,7 +26,6 @@ import {
     MapPin,
     Navigation,
     Settings,
-    ShieldCheck,
     Store,
     Upload,
     UserCircle2
@@ -38,7 +34,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 type Role = "customer" | "business_owner" | "admin" | "staff";
-type DashboardTab = "overview" | "location" | "bookings" | "shops" | "plan" | "settings";
+type DashboardTab = "overview" | "location" | "bookings" | "shops" | "settings";
 
 type AuthUser = {
     _id: string;
@@ -442,8 +438,6 @@ export default function AccountPage() {
 
     const { userLocation, requestLocation, permissionDenied, loading: locationLoading } = useUserLocation();
     const { toast } = useToast();
-    const { plans, currentPlan, currentPlanId, planExpiry, selectPlan } = usePlan();
-    const [planModalOpen, setPlanModalOpen] = useState(false);
 
     const locationMapRef = useRef<HTMLDivElement | null>(null);
     const locationMapInstanceRef = useRef<any>(null);
@@ -541,8 +535,6 @@ export default function AccountPage() {
             setActiveTab("location");
         } else if (tab === "shops") {
             setActiveTab("shops");
-        } else if (tab === "plan") {
-            setActiveTab("plan");
         } else if (tab === "settings") {
             setActiveTab("settings");
         } else if (tab === "overview") {
@@ -1180,7 +1172,6 @@ export default function AccountPage() {
         { key: "location", label: "Live Location", icon: Navigation },
         { key: "bookings", label: "My Bookings", icon: CalendarClock },
         { key: "shops", label: "Nearby Shops", icon: Store },
-        { key: "plan", label: "My Plan", icon: ShieldCheck },
         { key: "settings", label: "Settings", icon: Settings },
     ];
 
@@ -1571,57 +1562,6 @@ export default function AccountPage() {
                                     </p>
                                 </CardContent>
                             </Card>
-                        ) : null}
-
-                        {activeTab === "plan" ? (
-                            <>
-                                <Card className="rounded-2xl border-0 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.08)]">
-                                    <CardHeader>
-                                        <CardTitle className="text-slate-900">My Plan</CardTitle>
-                                        <CardDescription>Manage your current membership and upgrade anytime.</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="space-y-5">
-                                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
-                                            <p className="text-xs uppercase tracking-wide text-emerald-700">Current Plan</p>
-                                            <p className="text-2xl font-black text-slate-900 mt-1">{currentPlan.name}</p>
-                                            <p className="text-sm text-slate-600 mt-1">
-                                                Expiry: {planExpiry ? new Date(planExpiry).toLocaleDateString() : "No expiry"}
-                                            </p>
-                                            <ul className="mt-3 space-y-1.5 text-sm text-slate-700">
-                                                {currentPlan.features.map((feature) => (
-                                                    <li key={feature}>- {feature}</li>
-                                                ))}
-                                            </ul>
-                                            <Button
-                                                className="mt-4 bg-[rgb(255,136,0)] hover:bg-[rgb(235,121,0)] text-white"
-                                                onClick={() => setPlanModalOpen(true)}
-                                            >
-                                                Upgrade Plan
-                                            </Button>
-                                        </div>
-
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                            {plans.map((plan) => (
-                                                <PlanCard
-                                                    key={plan.id}
-                                                    plan={plan}
-                                                    isCurrent={currentPlanId === plan.id}
-                                                    ctaLabel="Upgrade"
-                                                    onSelect={() => {
-                                                        selectPlan(plan.id);
-                                                        toast({
-                                                            title: "Plan switched",
-                                                            description: `${plan.name} is now your active plan.`,
-                                                        });
-                                                    }}
-                                                />
-                                            ))}
-                                        </div>
-                                    </CardContent>
-                                </Card>
-
-                                <PlanModal open={planModalOpen} onOpenChange={setPlanModalOpen} />
-                            </>
                         ) : null}
 
                         {activeTab === "settings" ? (

@@ -11,12 +11,11 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/context/AuthContext";
-import { usePlan } from "@/context/PlanContext";
 import { useToast } from "@/hooks/use-toast";
 import { getDukandarOnboardingUrl } from "@/lib/dukandarDashboard";
 import { fetchBusinessTypes, fetchPublicShops } from "@/lib/publicShopsApi";
 import { useQuery } from "@tanstack/react-query";
-import { CircleHelp, Menu, Plus, Settings, Sparkles, Store, UserCircle2 } from "lucide-react";
+import { CircleHelp, Menu, Plus, Settings, Store, UserCircle2 } from "lucide-react";
 import { useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
@@ -31,7 +30,6 @@ export default function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, isAuthenticated, logout } = useAuth();
-  const { currentPlan } = usePlan();
   const { toast } = useToast();
 
   const shopsQuery = useQuery({
@@ -184,7 +182,6 @@ export default function Header() {
               <DropdownMenuContent align="end" className="w-52">
                 <DropdownMenuLabel className="py-2">
                   <p className="text-sm font-semibold text-slate-900 truncate">{user?.name || "User"}</p>
-                  <p className="text-xs font-medium text-slate-500">{currentPlan.name}</p>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => navigate("/signup")}>
@@ -192,10 +189,6 @@ export default function Header() {
                   Add another account
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => navigate("/account?tab=plan")}>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Upgrade plan
-                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate("/account")}>
                   <UserCircle2 className="h-4 w-4 mr-2" />
                   Profile
