@@ -1,23 +1,36 @@
-import { useMemo, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { Menu, Store } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import GlobalSearch from "@/components/GlobalSearch";
-import { fetchBusinessTypes, fetchPublicShops } from "@/lib/publicShopsApi";
+import MobileDrawer from "@/components/mobile/MobileDrawer";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 import { getDukandarOnboardingUrl } from "@/lib/dukandarDashboard";
+import { fetchBusinessTypes, fetchPublicShops } from "@/lib/publicShopsApi";
+import { useQuery } from "@tanstack/react-query";
+import { CircleHelp, Menu, Plus, Settings, Store, UserCircle2 } from "lucide-react";
+import { useMemo } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+
+const getInitials = (value?: string) => {
+  const parts = String(value || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "DD";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+};
 
 export default function Header() {
-  const [open, setOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const { user, isAuthenticated, logout } = useAuth();
+  const { toast } = useToast();
 
   const shopsQuery = useQuery({
     queryKey: ["public-shops"],
@@ -54,6 +67,12 @@ export default function Header() {
   const categories = businessTypesQuery.data || [];
 
   const defaultCitySlug = cities[0]?.slug || "delhi";
+
+  const handleLogout = () => {
+    logout();
+    toast({ title: "Signed out", description: "You have been logged out." });
+    navigate("/login");
+  };
 
   return (
     <header className="sticky top-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
@@ -119,36 +138,12 @@ export default function Header() {
           </DropdownMenu>
 
           <Link
-            to="/pricing"
-            className={`text-sm font-medium transition-colors hover:text-primary ${
-              location.pathname === "/pricing" ? "text-primary" : "text-muted-foreground"
-            }`}
-          >
-            Pricing
-          </Link>
-          <Link
             to="/for-business"
             className={`text-sm font-medium transition-colors hover:text-primary ${
               location.pathname === "/for-business" ? "text-primary" : "text-muted-foreground"
             }`}
           >
             For Business
-          </Link>
-          <Link
-            to="/contact"
-            className={`text-sm font-medium transition-colors hover:text-primary ${
-              location.pathname === "/contact" ? "text-primary" : "text-muted-foreground"
-            }`}
-          >
-            Contact
-          </Link>
-          <Link
-            to="/account"
-            className={`text-sm font-medium transition-colors hover:text-primary ${
-              location.pathname === "/account" ? "text-primary" : "text-muted-foreground"
-            }`}
-          >
-            My Account
           </Link>
         </nav>
 
@@ -163,83 +158,73 @@ export default function Header() {
               Apni Dukaan Banaye
             </a>
           </Button>
+          {!isAuthenticated ? (
+            <>
+              <Button asChild variant="outline" className="border-[rgb(30,190,118)] text-[rgb(30,190,118)] hover:bg-[rgb(30,190,118)]/10">
+                <Link to="/login">Login</Link>
+              </Button>
+              <Button asChild className="bg-[rgb(255,136,0)] hover:bg-[rgb(235,121,0)] text-white transition-all duration-200 hover:-translate-y-0.5">
+                <Link to="/signup">Signup</Link>
+              </Button>
+            </>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="rounded-full transition-transform duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-[rgb(30,190,118)]/40">
+                  <Avatar className="h-10 w-10 border border-[rgb(30,190,118)]/30">
+                    <AvatarImage src={user?.avatarUrl} alt={user?.name || "User"} />
+                    <AvatarFallback className="bg-[rgb(30,190,118)]/10 text-[rgb(30,190,118)] font-semibold">
+                      {getInitials(user?.name)}
+                    </AvatarFallback>
+                  </Avatar>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuLabel className="py-2">
+                  <p className="text-sm font-semibold text-slate-900 truncate">{user?.name || "User"}</p>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => navigate("/signup")}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add another account
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => navigate("/account")}>
+                  <UserCircle2 className="h-4 w-4 mr-2" />
+                  Profile
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/account?tab=settings")}>
+                  <Settings className="h-4 w-4 mr-2" />
+                  Settings
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => navigate("/contact")}>
+                  <CircleHelp className="h-4 w-4 mr-2" />
+                  Help
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="text-red-600 focus:text-red-700" onClick={handleLogout}>
+                  <span className="mr-2">↪</span>
+                  Logout
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
 
         {/* Mobile Menu */}
         <div className="flex items-center gap-1 md:hidden">
           <GlobalSearch />
-          <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon">
+          <MobileDrawer
+            cities={cities}
+            categories={categories}
+            defaultCitySlug={defaultCitySlug}
+            trigger={
+              <Button variant="ghost" size="icon" aria-label="Open menu">
                 <Menu className="h-5 w-5" />
               </Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="w-[85vw] max-w-72 h-dvh overflow-y-auto pb-6">
-              <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
-              <div className="flex flex-col gap-4 mt-8">
-                <Link to="/" onClick={() => setOpen(false)} className="text-base font-medium py-2 hover:text-primary">
-                  Home
-                </Link>
-
-                {/* Mobile Cities */}
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Cities</p>
-                  <div className="flex flex-wrap gap-2">
-                    {cities.map(city => (
-                      <Button
-                        key={city.slug}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => { navigate(`/${city.slug}`); setOpen(false); }}
-                      >
-                        📍 {city.name}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Mobile Categories */}
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Categories</p>
-                  <div className="flex flex-wrap gap-2">
-                    {categories.map(cat => (
-                      <Button
-                        key={cat.slug}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => { navigate(`/${defaultCitySlug}/${cat.slug}`); setOpen(false); }}
-                      >
-                        {cat.icon || "🏪"} {cat.name}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <Link to="/pricing" onClick={() => setOpen(false)} className="text-base font-medium py-2 hover:text-primary">
-                  Pricing
-                </Link>
-                <Link to="/for-business" onClick={() => setOpen(false)} className="text-base font-medium py-2 hover:text-primary">
-                  For Business
-                </Link>
-                <Link to="/contact" onClick={() => setOpen(false)} className="text-base font-medium py-2 hover:text-primary">
-                  Contact
-                </Link>
-                <Link to="/account" onClick={() => setOpen(false)} className="text-base font-medium py-2 hover:text-primary">
-                  My Account
-                </Link>
-
-                <Button
-                  className="mt-4"
-                  onClick={() => {
-                    setOpen(false);
-                    window.open(getDukandarOnboardingUrl(), "_blank", "noopener,noreferrer");
-                  }}
-                >
-                  Apni Dukaan Banaye
-                </Button>
-              </div>
-            </SheetContent>
-          </Sheet>
+            }
+          />
         </div>
       </div>
     </header>

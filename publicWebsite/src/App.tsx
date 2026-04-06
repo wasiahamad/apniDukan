@@ -1,28 +1,32 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { LocationProvider } from "@/hooks/useUserLocation";
-import { useEffect } from "react";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import Layout from "@/components/Layout";
-import Index from "./pages/Index";
-import CityPage from "./pages/CityPage";
-import CityCategoryPage from "./pages/CityCategoryPage";
-import ShopPage from "./pages/ShopPage";
-import PricingPage from "./pages/PricingPage";
-import ForBusinessPage from "./pages/ForBusinessPage";
-import ContactPage from "./pages/ContactPage";
-import AboutPage from "./pages/AboutPage";
-import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
-import TermsPage from "./pages/TermsPage";
-import NotFound from "./pages/NotFound";
-import AllShopsPage from "./pages/AllShopsPage";
-import AccountPage from "./pages/AccountPage";
-import { looksLikeCitySlug } from "@/lib/publicShopsApi";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui/toaster";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { AuthProvider } from "@/context/AuthContext";
+import { PlanProvider } from "@/context/PlanContext";
+import { LocationProvider } from "@/hooks/useUserLocation";
 import { getDashboardUrl } from "@/lib/dashboardUrl";
+import { looksLikeCitySlug } from "@/lib/publicShopsApi";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import AboutPage from "./pages/AboutPage";
+import AccountPage from "./pages/AccountPage";
+import AllShopsPage from "./pages/AllShopsPage";
+import LoginPage from "./pages/auth/LoginPage";
+import SignupPage from "./pages/auth/SignupPage";
+import CityCategoryPage from "./pages/CityCategoryPage";
+import CityPage from "./pages/CityPage";
+import ContactPage from "./pages/ContactPage";
+import ForBusinessPage from "./pages/ForBusinessPage";
+import Index from "./pages/Index";
+import NotFound from "./pages/NotFound";
+import PricingPage from "./pages/PricingPage";
+import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
+import ShopPage from "./pages/ShopPage";
+import TermsPage from "./pages/TermsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -37,31 +41,40 @@ const queryClient = new QueryClient({
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <LocationProvider>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={<Index />} />
-            <Route path="/pricing" element={<PricingPage />} />
-            <Route path="/for-business" element={<ForBusinessPage />} />
-            <Route path="/contact" element={<ContactPage />} />
-            <Route path="/about" element={<AboutPage />} />
-            <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
-            <Route path="/terms" element={<TermsPage />} />
-            <Route path="/shops" element={<AllShopsPage />} />
-            <Route path="/account" element={<AccountPage />} />
-            <Route path="/:city/:category" element={<CityCategoryPage />} />
-            <Route path="/dashboard/*" element={<DashboardRedirect />} />
-            <Route path="/:shopSlug" element={<ShopOrCityPage />} />
-          </Route>
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-    </LocationProvider>
+    <AuthProvider>
+      <PlanProvider>
+        <LocationProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <Routes>
+                <Route element={<Layout />}>
+                  <Route path="/" element={<Index />} />
+                  <Route path="/plans" element={<PricingPage />} />
+                  <Route path="/pricing" element={<Navigate to="/plans" replace />} />
+                  <Route path="/for-business" element={<ForBusinessPage />} />
+                  <Route path="/contact" element={<ContactPage />} />
+                  <Route path="/about" element={<AboutPage />} />
+                  <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                  <Route path="/terms" element={<TermsPage />} />
+                  <Route path="/shops" element={<AllShopsPage />} />
+                  <Route path="/login" element={<LoginPage />} />
+                  <Route path="/signup" element={<SignupPage />} />
+                  <Route element={<ProtectedRoute />}>
+                    <Route path="/account" element={<AccountPage />} />
+                  </Route>
+                  <Route path="/:city/:category" element={<CityCategoryPage />} />
+                  <Route path="/dashboard/*" element={<DashboardRedirect />} />
+                  <Route path="/:shopSlug" element={<ShopOrCityPage />} />
+                </Route>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </TooltipProvider>
+        </LocationProvider>
+      </PlanProvider>
+    </AuthProvider>
   </QueryClientProvider>
 );
 
