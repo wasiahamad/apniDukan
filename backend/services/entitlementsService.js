@@ -3,7 +3,7 @@ import { Plan } from '../models/index.js';
 const DEFAULT_FEATURES = {
   maxListings: 10,
   publicShopEnabled: true,
-  bookingEnabled: false,
+  bookingEnabled: true,
   featuredEnabled: false,
   maxFeaturedListings: 0,
   customDomain: false,
@@ -83,6 +83,10 @@ export const getEffectiveEntitlementsForBusiness = async (businessDoc, options =
     source = 'plan';
     const baseFeatures = plan?.features || DEFAULT_FEATURES;
     features = mergeFeatures(baseFeatures, businessDoc?.featureOverrides);
+
+    // Business rule: slot booking system is available to all active subscriptions.
+    // Keep it disabled only when the plan itself is inactive/expired.
+    features.bookingEnabled = true;
   }
 
   return {

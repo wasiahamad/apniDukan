@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import connectDB from '../config/database.js';
-import { User, Business, Category, Listing, Plan, ReferralOffer } from '../models/index.js';
+import { User, Business, BusinessType, Category, Listing, Plan, ReferralOffer } from '../models/index.js';
 
 /**
  * SEED SCRIPT - Populate database with sample data
@@ -151,11 +151,25 @@ const seedDatabase = async () => {
     console.log('🗑️  Clearing existing data...');
     await User.deleteMany({});
     await Business.deleteMany({});
+    await BusinessType.deleteMany({});
     await Category.deleteMany({});
     await Listing.deleteMany({});
     await Plan.deleteMany({});
     await ReferralOffer.deleteMany({});
     console.log('✅ Existing data cleared\n');
+
+    // Create business types
+    console.log('🏷️  Creating business types...');
+    const kiranaType = await BusinessType.create({
+      name: 'Kirana Store',
+      description: 'Local grocery and daily essentials store',
+      iconName: 'Store',
+      suggestedListingType: 'product',
+      exampleCategories: ['Grocery', 'Daily Needs', 'Snacks'],
+      isActive: true,
+      displayOrder: 1,
+    });
+    console.log('✅ Business type created:', kiranaType.name);
 
     // Create admin user
     console.log('👤 Creating admin user...');
@@ -200,6 +214,7 @@ const seedDatabase = async () => {
       owner: businessOwner._id,
       name: "Raj's Kirana Store",
       slug: 'raj-kirana-store',
+      businessType: kiranaType._id,
       category: 'grocery',
       phone: '9876543210',
       whatsapp: '9876543210',

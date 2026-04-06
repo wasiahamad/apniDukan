@@ -12,6 +12,12 @@ export interface BusinessType {
   suggestedListingType?: 'product' | 'service' | 'food' | 'course' | 'rental';
   exampleCategories?: string[];
   whyChooseUsTemplates?: Array<{ title?: string; desc?: string; iconName?: string }>;
+  defaultBookingTimings?: {
+    startTime?: string;
+    endTime?: string;
+    duration?: number;
+  };
+  ownerCanEditBookingTimings?: boolean;
   isActive?: boolean;
   displayOrder?: number;
   createdAt?: string;
@@ -62,6 +68,7 @@ export interface Business {
   description?: string;
   whyChooseUs?: Array<{ title: string; desc: string; iconName?: string }>;
   workingHours?: Record<string, { open?: string; close?: string; isOpen?: boolean }>;
+  bookingTimingsOverrideEnabled?: boolean;
   plan?: {
     _id: string;
     name: string;
@@ -163,7 +170,7 @@ export const businessAdminApi = {
   },
 
   async updateWhyChooseUs(id: string, items: Array<{ title: string; desc: string; iconName?: string }>): Promise<ApiResponse<Business>> {
-    return apiClient.put<Business>(`/business/${id}`, { whyChooseUs: items }, true);
+    return apiClient.patch<Business>(`/business/admin/${id}/why-choose-us`, { whyChooseUs: items }, true);
   },
 
   async createWithOwner(input: {
@@ -185,5 +192,9 @@ export const businessAdminApi = {
     }
   ): Promise<ApiResponse<Business>> {
     return apiClient.patch<Business>(`/business/admin/${id}/plan`, input, true);
+  },
+
+  async updateBookingTimingsOverride(id: string, enabled: boolean): Promise<ApiResponse<Business>> {
+    return apiClient.patch<Business>(`/business/admin/${id}/booking-timings`, { bookingTimingsOverrideEnabled: enabled }, true);
   },
 };

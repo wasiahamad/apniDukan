@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "Apnidukan",
+    "slug": "dukanapp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "mobile",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "com.anonymous.dukanapp",
+      "supportedArchitectures": ["x86_64"]
+    },
+    "web": {
+      "favicon": "./assets/images/icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-web-browser",
+      "expo-secure-store",
+      "./plugins/withPinnedOkHttp"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

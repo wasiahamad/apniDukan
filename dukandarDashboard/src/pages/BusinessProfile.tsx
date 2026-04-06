@@ -44,6 +44,11 @@ const BusinessProfile = () => {
   const { entitlements } = useEntitlements();
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 
+  const isFreePlan = business?.plan?.slug === "free";
+
+  const [isEditingWhyChooseUs, setIsEditingWhyChooseUs] = useState(false);
+  const [whyChooseDraft, setWhyChooseDraft] = useState<Array<{ title: string; desc: string; iconName?: string }>>([]);
+
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -66,6 +71,30 @@ const BusinessProfile = () => {
   useEffect(() => {
     loadBusiness();
   }, []);
+
+  useEffect(() => {
+    if (!business) return;
+    if (isEditingWhyChooseUs) return;
+
+    const fromBusiness = Array.isArray((business as any)?.whyChooseUs) ? (business as any).whyChooseUs : [];
+    const fromType = Array.isArray((business as any)?.businessType?.whyChooseUsTemplates)
+      ? (business as any).businessType.whyChooseUsTemplates
+      : [];
+
+    const source = (fromBusiness && fromBusiness.length) ? fromBusiness : fromType;
+    const normalized = (source || [])
+      .map((x: any) => ({
+        title: String(x?.title || ""),
+        desc: String(x?.desc || ""),
+        iconName: x?.iconName ? String(x.iconName) : "",
+      }))
+      .slice(0, 12);
+
+    const padded = [...normalized];
+    while (padded.length < 4) padded.push({ title: "", desc: "", iconName: "" });
+
+    setWhyChooseDraft(padded);
+  }, [business?._id, business?.businessType, (business as any)?.whyChooseUs, isEditingWhyChooseUs]);
 
   useEffect(() => {
     const social = searchParams.get("social");
@@ -252,6 +281,21 @@ const BusinessProfile = () => {
           .map((item) => ({ label: item.label.trim(), url: item.url.trim() })),
         workingHours: workingHoursData as any,
         openStatusMode: form.openStatusMode,
+
+        ...(isFreePlan
+          ? {}
+          : (isEditingWhyChooseUs
+              ? {
+                  whyChooseUs: (whyChooseDraft || [])
+                    .map((x) => ({
+                      title: String(x?.title || "").trim(),
+                      desc: String(x?.desc || "").trim(),
+                      iconName: x?.iconName ? String(x.iconName).trim() : undefined,
+                    }))
+                    .filter((x) => x.title || x.desc)
+                    .slice(0, 12),
+                }
+              : {})),
       });
 
       if (res.success) {
@@ -260,6 +304,7 @@ const BusinessProfile = () => {
           description: "Business profile updated successfully",
         });
         await loadBusiness(); // Reload to get updated data
+        setIsEditingWhyChooseUs(false);
       }
     } catch (err: any) {
       toast({
@@ -270,6 +315,19 @@ const BusinessProfile = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const addWhyChooseCard = () => {
+    setWhyChooseDraft((prev) => {
+      const next = [...(prev || [])];
+      if (next.length >= 12) return next;
+      next.push({ title: "", desc: "", iconName: "" });
+      return next;
+    });
+  };
+
+  const removeWhyChooseCard = (index: number) => {
+    setWhyChooseDraft((prev) => (prev || []).filter((_, i) => i !== index));
   };
 
   const updateForm = (key: string, value: any) => {
@@ -669,25 +727,135 @@ const BusinessProfile = () => {
       </div>
 
       <div className="bg-card border rounded-xl p-4 space-y-4">
-        <h3 className="font-bold text-sm">Why Choose Us</h3>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="font-bold text-sm">Why Choose Us</h3>
+
+          {!isFreePlan && (
+            <div className="flex items-center gap-2">
+              {!isEditingWhyChooseUs ? (
+                <button
+                  type="button"
+                  onClick={() => setIsEditingWhyChooseUs(true)}
+                  className="px-3 py-2 text-xs font-semibold rounded-lg bg-background text-foreground border border-border"
+                >
+                  Edit
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={addWhyChooseCard}
+                    className="px-3 py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground"
+                  >
+                    <span className="inline-flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> Add</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingWhyChooseUs(false);
+                      // Reset draft back to latest saved values
+                      const fromBusiness = Array.isArray((business as any)?.whyChooseUs) ? (business as any).whyChooseUs : [];
+                      const fromType = Array.isArray((business as any)?.businessType?.whyChooseUsTemplates)
+                        ? (business as any).businessType.whyChooseUsTemplates
+                        : [];
+                      const source = (fromBusiness && fromBusiness.length) ? fromBusiness : fromType;
+                      const normalized = (source || [])
+                        .map((x: any) => ({
+                          title: String(x?.title || ""),
+                          desc: String(x?.desc || ""),
+                          iconName: x?.iconName ? String(x.iconName) : "",
+                        }))
+                        .slice(0, 12);
+                      const padded = [...normalized];
+                      while (padded.length < 4) padded.push({ title: "", desc: "", iconName: "" });
+                      setWhyChooseDraft(padded);
+                    }}
+                    className="px-3 py-2 text-xs font-semibold rounded-lg bg-background text-foreground border border-border"
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
         <p className="text-xs text-muted-foreground">
-          Auto-filled from your Business Type. Changes are managed by admin.
+          {isFreePlan
+            ? "Auto-filled from your Business Type. Free plan me edit nahi hoga."
+            : "Customize this section for your shop."}
         </p>
 
-        {Array.isArray((business as any)?.businessType?.whyChooseUsTemplates) && (business as any)?.businessType?.whyChooseUsTemplates?.length ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {(business as any).businessType.whyChooseUsTemplates
-              .filter((x: any) => String(x?.title || "").trim() || String(x?.desc || "").trim())
+        {isEditingWhyChooseUs ? (
+          <div className="space-y-3">
+            {(whyChooseDraft.length ? whyChooseDraft : Array.from({ length: 4 }, () => ({ title: "", desc: "", iconName: "" })))
               .slice(0, 12)
-              .map((c: any, idx: number) => (
-                <div key={idx} className="bg-muted/40 border rounded-xl p-3 space-y-1">
-                  <p className="text-sm font-semibold text-foreground">{String(c?.title || "—")}</p>
-                  <p className="text-xs text-muted-foreground">{String(c?.desc || "")}</p>
+              .map((item, idx) => (
+                <div key={idx} className="bg-muted/40 border rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-muted-foreground">Card {idx + 1}</p>
+                    {whyChooseDraft.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeWhyChooseCard(idx)}
+                        className="p-1.5 rounded-md border border-border bg-background text-foreground"
+                        aria-label="Remove card"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  <input
+                    value={item.title}
+                    onChange={(e) => {
+                      const next = [...whyChooseDraft];
+                      next[idx] = { ...next[idx], title: e.target.value };
+                      setWhyChooseDraft(next);
+                    }}
+                    placeholder="Title"
+                    className="w-full px-3 py-2 bg-background border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                  <textarea
+                    value={item.desc}
+                    onChange={(e) => {
+                      const next = [...whyChooseDraft];
+                      next[idx] = { ...next[idx], desc: e.target.value };
+                      setWhyChooseDraft(next);
+                    }}
+                    placeholder="Description"
+                    rows={2}
+                    className="w-full px-3 py-2 bg-background border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
                 </div>
               ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No defaults set for this Business Type.</p>
+          (() => {
+            const fromBusiness = Array.isArray((business as any)?.whyChooseUs) ? (business as any).whyChooseUs : [];
+            const fromType = Array.isArray((business as any)?.businessType?.whyChooseUsTemplates)
+              ? (business as any).businessType.whyChooseUsTemplates
+              : [];
+            const source = (fromBusiness && fromBusiness.length) ? fromBusiness : fromType;
+            const cards = (source || [])
+              .filter((x: any) => String(x?.title || "").trim() || String(x?.desc || "").trim())
+              .slice(0, 12);
+
+            if (!cards.length) {
+              return <p className="text-sm text-muted-foreground">No items set for this section.</p>;
+            }
+
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {cards.map((c: any, idx: number) => (
+                  <div key={idx} className="bg-muted/40 border rounded-xl p-3 space-y-1">
+                    <p className="text-sm font-semibold text-foreground">{String(c?.title || "—")}</p>
+                    <p className="text-xs text-muted-foreground">{String(c?.desc || "")}</p>
+                  </div>
+                ))}
+              </div>
+            );
+          })()
         )}
       </div>
 

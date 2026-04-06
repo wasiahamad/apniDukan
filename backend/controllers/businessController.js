@@ -249,6 +249,76 @@ const ensureDefaultMediaForBusiness = async ({ businessId, businessTypeDoc, muta
  * Handles: CRUD operations for businesses (slug-based routing ready)
  */
 
+const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
+
+const coerceNumber = (v) => {
+  if (v == null) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+};
+
+const isValidLat = (n) => typeof n === 'number' && Number.isFinite(n) && n >= -90 && n <= 90;
+const isValidLng = (n) => typeof n === 'number' && Number.isFinite(n) && n >= -180 && n <= 180;
+
+const normalizeLngLat = (lng, lat) => {
+  const lo = coerceNumber(lng);
+  const la = coerceNumber(lat);
+  if (!isValidLng(lo) || !isValidLat(la)) return null;
+  return [clamp(lo, -180, 180), clamp(la, -90, 90)];
+};
+
+const normalizeCoordsArray = (coords) => {
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+  const a = coerceNumber(coords[0]);
+  const b = coerceNumber(coords[1]);
+  if (a == null || b == null) return null;
+
+  // Heuristic: if [lat,lng] provided, swap to [lng,lat]
+  const absA = Math.abs(a);
+  const absB = Math.abs(b);
+  if (absA <= 90 && absB > 90 && absB <= 180) {
+    return normalizeLngLat(b, a);
+  }
+
+  return normalizeLngLat(a, b);
+};
+
+const normalizeBusinessAddressGeo = (address) => {
+  const next = address && typeof address === 'object' ? { ...address } : address;
+  if (!next || typeof next !== 'object') return next;
+
+  let lngLat = null;
+
+  // Preferred: GeoJSON Point
+  if (next.location && typeof next.location === 'object') {
+    lngLat = normalizeCoordsArray(next.location.coordinates);
+  }
+
+  // Legacy: address.coordinates.{latitude,longitude}
+  if (!lngLat && next.coordinates && typeof next.coordinates === 'object') {
+    lngLat = normalizeLngLat(next.coordinates.longitude, next.coordinates.latitude);
+  }
+
+  // Other legacy: address.latitude/address.longitude
+  if (!lngLat) {
+    lngLat = normalizeLngLat(next.longitude ?? next.lng, next.latitude ?? next.lat);
+  }
+
+  if (lngLat) {
+    next.location = { type: 'Point', coordinates: lngLat };
+    next.coordinates = { latitude: lngLat[1], longitude: lngLat[0] };
+  } else {
+    // Avoid invalid GeoJSON docs that break 2dsphere indexes
+    if (next.location) delete next.location;
+  }
+
+  return next;
+};
+
 // @desc    Create new business
 // @route   POST /api/business
 // @access  Private (business_owner)
@@ -266,21 +336,7 @@ export const createBusiness = async (req, res) => {
       workingHours,
     } = req.body;
 
-    const safeAddress = (() => {
-      const next = address && typeof address === 'object' ? { ...address } : address;
-      if (!next || typeof next !== 'object') return next;
-      const loc = next.location;
-      const coords = loc?.coordinates;
-      const hasValidCoords =
-        Array.isArray(coords) &&
-        coords.length === 2 &&
-        coords.every((n) => typeof n === 'number' && Number.isFinite(n));
-      if (!hasValidCoords) {
-        // Avoid invalid GeoJSON docs that break 2dsphere indexes
-        delete next.location;
-      }
-      return next;
-    })();
+    const safeAddress = normalizeBusinessAddressGeo(address);
 
     // Check if user already has a business (optional - remove if multiple businesses allowed)
     const existingBusiness = await Business.findOne({ owner: req.user._id });
@@ -447,18 +503,7 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
       phone: businessPhone,
       whatsapp: whatsapp || businessPhone,
       email: businessEmail,
-      address: (() => {
-        const next = address && typeof address === 'object' ? { ...address } : address;
-        if (!next || typeof next !== 'object') return next;
-        const loc = next.location;
-        const coords = loc?.coordinates;
-        const hasValidCoords =
-          Array.isArray(coords) &&
-          coords.length === 2 &&
-          coords.every((n) => typeof n === 'number' && Number.isFinite(n));
-        if (!hasValidCoords) delete next.location;
-        return next;
-      })(),
+      address: normalizeBusinessAddressGeo(address),
       description,
       workingHours,
       ...(typeof isActive === 'boolean' ? { isActive } : {}),
@@ -1037,6 +1082,7 @@ export const saveMyBusinessLocation = async (req, res) => {
       type: 'Point',
       coordinates: [lng, lat],
     };
+    business.address.coordinates = { latitude: lat, longitude: lng };
 
     await business.save();
 
@@ -1397,7 +1443,7 @@ export const adminGetBusinessById = async (req, res) => {
 
     const business = await Business.findById(id)
       .populate('owner', 'name email phone role isActive referralCode lastLogin createdAt updatedAt')
-      .populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages')
+      .populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages defaultBookingTimings ownerCanEditBookingTimings')
       .populate('plan');
 
     if (!business) {
@@ -1522,6 +1568,143 @@ export const adminUpdateBusinessStatus = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || 'Error updating business status',
+    });
+  }
+};
+
+// @desc    Admin: Toggle booking timing override access for a business
+// @route   PATCH /api/business/admin/:id/booking-timings
+// @access  Private/Admin
+export const adminUpdateBusinessBookingTimings = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { bookingTimingsOverrideEnabled } = req.body || {};
+
+    if (typeof bookingTimingsOverrideEnabled !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: 'bookingTimingsOverrideEnabled must be boolean',
+      });
+    }
+
+    const business = await Business.findById(id)
+      .populate('owner', 'name email phone role isActive referralCode lastLogin createdAt updatedAt')
+      .populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages defaultBookingTimings ownerCanEditBookingTimings')
+      .populate('plan');
+
+    if (!business) {
+      return res.status(404).json({ success: false, message: 'Business not found' });
+    }
+
+    business.bookingTimingsOverrideEnabled = bookingTimingsOverrideEnabled;
+    await business.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Booking timing access updated',
+      data: business,
+    });
+  } catch (error) {
+    console.error('Admin update business booking timings error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error updating booking timing access',
+    });
+  }
+};
+
+// @desc    Admin: Update Why Choose Us cards for a business
+// @route   PATCH /api/business/admin/:id/why-choose-us
+// @access  Private (admin only)
+export const adminUpdateBusinessWhyChooseUs = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const raw = req.body?.whyChooseUs;
+
+    if (raw !== undefined && !Array.isArray(raw)) {
+      return res.status(400).json({
+        success: false,
+        message: 'whyChooseUs must be an array',
+      });
+    }
+
+    const normalized = normalizeWhyChooseUsTemplates(raw || []).slice(0, 12);
+
+    const business = await Business.findById(id)
+      .populate('owner', 'name email phone role isActive referralCode lastLogin createdAt updatedAt')
+      .populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages')
+      .populate('plan');
+
+    if (!business) {
+      return res.status(404).json({
+        success: false,
+        message: 'Business not found',
+      });
+    }
+
+    business.whyChooseUs = normalized;
+    await business.save();
+
+    const businessObj = business.toObject ? business.toObject() : business;
+    const entitlements = await getEffectiveEntitlementsForBusiness(businessObj);
+    const hasActivePlan = !!entitlements?.planIsActive;
+    const publicEnabledByPlan = entitlements?.features?.publicShopEnabled === true;
+
+    const subscriptionActive =
+      businessObj.isActive === true &&
+      businessObj.isVerified === true &&
+      hasActivePlan;
+
+    const statusReason =
+      businessObj.isActive !== true
+        ? 'Suspended'
+        : !hasActivePlan
+          ? 'Plan Expired'
+          : businessObj.isVerified !== true
+            ? 'Unverified'
+            : null;
+
+    const publicInactiveReason =
+      businessObj.isActive !== true
+        ? 'Suspended'
+        : !hasActivePlan
+          ? 'Plan Expired'
+          : businessObj.isVerified !== true
+            ? 'Unverified'
+            : !publicEnabledByPlan
+              ? 'Plan Public Off'
+              : null;
+
+    const isPublicVisible =
+      businessObj.isActive === true &&
+      businessObj.isVerified === true &&
+      hasActivePlan &&
+      publicEnabledByPlan;
+
+    return res.status(200).json({
+      success: true,
+      message: 'Why Choose Us updated',
+      data: {
+        ...businessObj,
+        effectiveEntitlements: {
+          planIsActive: hasActivePlan,
+          source: entitlements?.source || 'defaults',
+          expiresAt: entitlements?.expiresAt || null,
+          publicShopEnabled: publicEnabledByPlan,
+          storefrontActive: subscriptionActive,
+          storefrontStatus: subscriptionActive ? 'active' : 'inactive',
+          storefrontReason: statusReason || 'Plan Active',
+          subdomainActive: isPublicVisible,
+          subdomainStatus: isPublicVisible ? 'active' : 'inactive',
+          subdomainReason: publicInactiveReason || 'Subdomain Live',
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Admin update whyChooseUs error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error updating Why Choose Us',
     });
   }
 };
@@ -1753,7 +1936,7 @@ export const getAllBusinesses = async (req, res) => {
 export const getMyBusinesses = async (req, res) => {
   try {
     const businesses = await Business.find({ owner: req.user._id })
-      .populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates')
+      .populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates defaultBookingTimings ownerCanEditBookingTimings')
       .populate('plan')
       .sort({ createdAt: -1 });
 
@@ -1803,6 +1986,10 @@ export const updateBusiness = async (req, res) => {
         updates[field] = req.body[field];
       }
     });
+
+    if (updates.address !== undefined) {
+      updates.address = normalizeBusinessAddressGeo(updates.address);
+    }
 
     // Allow partial social media updates without overwriting the whole object.
     // Accepts: { socialMedia: { facebook, instagram, twitter, youtube } }
@@ -1865,6 +2052,33 @@ export const updateBusiness = async (req, res) => {
         success: false,
         message: 'Business not found',
       });
+    }
+
+    // Why Choose Us: editable for all plans except Free (for business owners).
+    // Admin can always edit.
+    if (req.body.whyChooseUs !== undefined) {
+      if (!Array.isArray(req.body.whyChooseUs)) {
+        return res.status(400).json({
+          success: false,
+          message: 'whyChooseUs must be an array',
+        });
+      }
+
+      if (req.user?.role !== 'admin') {
+        const { Plan } = await import('../models/index.js');
+        const planId = existingBusiness?.plan;
+        const planDoc = planId ? await Plan.findById(planId).lean() : null;
+        const planSlug = planDoc?.slug || 'free';
+
+        if (planSlug === 'free') {
+          return res.status(403).json({
+            success: false,
+            message: 'Why Choose Us is not editable on the Free plan. Please upgrade to edit.',
+          });
+        }
+      }
+
+      updates.whyChooseUs = normalizeWhyChooseUsTemplates(req.body.whyChooseUs).slice(0, 12);
     }
 
     const updatedBusiness = await Business.findOneAndUpdate(

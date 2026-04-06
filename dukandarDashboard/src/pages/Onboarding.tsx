@@ -64,7 +64,9 @@ const Onboarding = () => {
     state: "",
     area: "",
     pincode: "",
-    offering: ""
+    offering: "",
+    locationLat: "",
+    locationLng: "",
   });
   
   const [businessTypes, setBusinessTypes] = useState<BusinessType[]>([]);
@@ -126,6 +128,13 @@ const Onboarding = () => {
     try {
       const pending = JSON.parse(pendingRaw);
       setData((prev) => ({ ...prev, ...pending }));
+
+      const lat = Number(pending?.locationLat);
+      const lng = Number(pending?.locationLng);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        setLiveLocation({ lat, lng });
+      }
+
       if (stepFromQuery === "1") {
         setStep(1);
       } else if (isAuthenticated) {
@@ -301,7 +310,15 @@ const Onboarding = () => {
     };
   }, [isAuthenticated, navigate]);
 
-  const update = (key: string, val: string) => setData(prev => ({ ...prev, [key]: val }));
+  const update = (key: string, val: string) =>
+    setData((prev) => {
+      const next = { ...prev, [key]: val };
+      // Keep onboarding state resilient across refreshes after OTP.
+      if (sessionStorage.getItem("pendingOnboardingData")) {
+        sessionStorage.setItem("pendingOnboardingData", JSON.stringify(next));
+      }
+      return next;
+    });
   
   const canNext = () => {
     if (step === 0) {
@@ -485,6 +502,16 @@ const Onboarding = () => {
       // Create business after verification
       const offeringLabel = OFFERING_OPTIONS.find((o) => o.value === data.offering)?.label || data.offering;
 
+      const storedLat = Number(data.locationLat);
+      const storedLng = Number(data.locationLng);
+      const effectiveLat = liveLocation?.lat ?? (Number.isFinite(storedLat) ? storedLat : null);
+      const effectiveLng = liveLocation?.lng ?? (Number.isFinite(storedLng) ? storedLng : null);
+      const hasEffectiveCoords =
+        effectiveLat != null &&
+        effectiveLng != null &&
+        Number.isFinite(effectiveLat) &&
+        Number.isFinite(effectiveLng);
+
       const businessData = {
         name: data.shop_name,
         businessType: data.businessType, // BusinessType ID
@@ -496,11 +523,11 @@ const Onboarding = () => {
           city: data.city,
           state: data.state,
           pincode: data.pincode,
-          ...(liveLocation
+          ...(hasEffectiveCoords
             ? {
                 location: {
                   type: "Point",
-                  coordinates: [liveLocation.lng, liveLocation.lat],
+                  coordinates: [effectiveLng, effectiveLat],
                 },
               }
             : {}),
@@ -575,6 +602,14 @@ const Onboarding = () => {
         const lat = clamp(pos.coords.latitude, -90, 90);
         const lng = clamp(pos.coords.longitude, -180, 180);
         setLiveLocation({ lat, lng });
+
+        setData((prev) => {
+          const next = { ...prev, locationLat: String(lat), locationLng: String(lng) };
+          if (sessionStorage.getItem("pendingOnboardingData")) {
+            sessionStorage.setItem("pendingOnboardingData", JSON.stringify(next));
+          }
+          return next;
+        });
 
         // Best-effort reverse geocode to auto-fill city/state/pincode/area.
         try {

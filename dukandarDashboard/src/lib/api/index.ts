@@ -14,6 +14,7 @@ export { orderApi } from './orders';
 export { supportApi } from './support';
 export { invoiceApi } from './invoices';
 export { reviewApi } from './reviews';
+export { bookingApi } from './bookings';
 
 export type {
 	User,
@@ -35,3 +36,4 @@ export type { Order, OrderStatus, OrderSource } from './orders';
 export type { SupportTicket, SupportTicketStatus, SupportIssueType, SupportMessage } from './support';
 export type { Invoice, InvoiceStatus } from './invoices';
 export type { ReviewSummary, PublicReview, CreateReviewPayload } from './reviews';
+export type { BookingSlot } from './bookings';

@@ -49,9 +49,14 @@ export default function ShopProfile() {
   const [assignComped, setAssignComped] = useState<boolean>(false);
   const [assignReason, setAssignReason] = useState<string>("");
 
+  const [isEditingWhyChooseUs, setIsEditingWhyChooseUs] = useState(false);
+  const [whyChooseDraft, setWhyChooseDraft] = useState<Array<{ title: string; desc: string; iconName?: string }>>([]);
+
   const whyChooseCards = useMemo(() => {
     const icons = [Truck, BadgeIndianRupee, Leaf, Award] as const;
-    const items = (b?.businessType as any)?.whyChooseUsTemplates || [];
+    const items = (Array.isArray(b?.whyChooseUs) && b?.whyChooseUs?.length)
+      ? b?.whyChooseUs
+      : ((b?.businessType as any)?.whyChooseUsTemplates || []);
     const cleaned = Array.isArray(items)
       ? items.filter((x: any) => (String(x?.title || '').trim() || String(x?.desc || '').trim()))
       : [];
@@ -65,7 +70,30 @@ export default function ShopProfile() {
       title: String(x?.title || '').trim(),
       desc: String(x?.desc || '').trim(),
     }));
-  }, [b?.businessType]);
+  }, [b?.businessType, b?.whyChooseUs]);
+
+  useEffect(() => {
+    if (!b) return;
+    if (isEditingWhyChooseUs) return;
+
+    const source = (Array.isArray(b.whyChooseUs) && b.whyChooseUs.length)
+      ? b.whyChooseUs
+      : ((b.businessType as any)?.whyChooseUsTemplates || []);
+
+    const cleaned = Array.isArray(source)
+      ? source
+        .map((x: any) => ({
+          title: String(x?.title || '').trim(),
+          desc: String(x?.desc || '').trim(),
+          iconName: String(x?.iconName || '').trim() || undefined,
+        }))
+        .filter((x) => x.title || x.desc || x.iconName)
+      : [];
+
+    const padded = [...cleaned.slice(0, 4)];
+    while (padded.length < 4) padded.push({ title: '', desc: '', iconName: undefined });
+    setWhyChooseDraft(padded);
+  }, [b?._id, b?.businessType, b?.whyChooseUs, isEditingWhyChooseUs]);
 
   useEffect(() => {
     if (!b) return;
@@ -96,6 +124,36 @@ export default function ShopProfile() {
       await qc.invalidateQueries({ queryKey: ["admin", "business", "list"] });
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to update status'),
+  });
+
+  const updateWhyChooseUsMutation = useMutation({
+    mutationFn: async (items: Array<{ title: string; desc: string; iconName?: string }>) => {
+      if (!id) throw new Error('Missing business id');
+      return businessAdminApi.updateWhyChooseUs(String(id), items);
+    },
+    onSuccess: async (res) => {
+      if (!res.success) throw new Error(res.message || 'Failed to update Why Choose Us');
+      toast.success('Why Choose Us updated');
+      setIsEditingWhyChooseUs(false);
+      await qc.invalidateQueries({ queryKey: ["admin", "business", "byId", id] });
+      await qc.invalidateQueries({ queryKey: ["admin", "business", "list"] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to update Why Choose Us'),
+  });
+
+  const updateBookingTimingsOverrideMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      if (!id) throw new Error('Missing business id');
+      const res = await businessAdminApi.updateBookingTimingsOverride(String(id), enabled);
+      if (!res.success) throw new Error(res.message || 'Failed to update booking timings permission');
+      return res.data;
+    },
+    onSuccess: async () => {
+      toast.success('Booking timings permission updated');
+      await qc.invalidateQueries({ queryKey: ['admin', 'business', 'byId', id] });
+      await qc.invalidateQueries({ queryKey: ['admin', 'business', 'list'] });
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : 'Failed to update booking timings permission'),
   });
 
   const loginAsDukandar = useMutation({
@@ -236,6 +294,7 @@ export default function ShopProfile() {
               <InfoRow icon={<Phone className="h-4 w-4" />} label="Business Phone" value={b.phone} />
               <InfoRow icon={<Phone className="h-4 w-4" />} label="WhatsApp" value={b.whatsapp || '—'} />
               <InfoRow icon={<MapPin className="h-4 w-4" />} label="Address" value={`${b.address?.street || ''} ${b.address?.city || ''} ${b.address?.state || ''} ${b.address?.pincode || ''}`.trim() || '—'} />
+              <InfoRow icon={<Award className="h-4 w-4" />} label="Business Type" value={b.businessType?.name || '—'} />
               <InfoRow icon={<CreditCard className="h-4 w-4" />} label="Plan" value={b.plan?.name || '—'} />
               <InfoRow icon={<CreditCard className="h-4 w-4" />} label="Plan Expiry" value={b.planExpiresAt ? new Date(b.planExpiresAt).toLocaleDateString() : '—'} />
             </div>
@@ -316,6 +375,23 @@ export default function ShopProfile() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader><CardTitle className="text-base">Booking Timings</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between rounded-md border p-3">
+            <div>
+              <p className="text-sm font-medium">Allow custom booking timings</p>
+              <p className="text-xs text-muted-foreground">If off, this shop uses business type default timings only.</p>
+            </div>
+            <Switch
+              checked={b.bookingTimingsOverrideEnabled === true}
+              disabled={updateBookingTimingsOverrideMutation.isPending}
+              onCheckedChange={(v) => updateBookingTimingsOverrideMutation.mutate(v)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card>
           <CardHeader><CardTitle className="text-base">Owner Details</CardTitle></CardHeader>
@@ -366,9 +442,91 @@ export default function ShopProfile() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Why Choose Us</CardTitle>
+          <div className="flex items-center gap-2">
+            {!isEditingWhyChooseUs ? (
+              <Button size="sm" variant="outline" onClick={() => setIsEditingWhyChooseUs(true)}>
+                Edit
+              </Button>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setIsEditingWhyChooseUs(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={updateWhyChooseUsMutation.isPending}
+                  onClick={() => {
+                    const cleaned = (whyChooseDraft || [])
+                      .map((x) => ({
+                        title: String(x?.title || '').trim(),
+                        desc: String(x?.desc || '').trim(),
+                        iconName: String(x?.iconName || '').trim() || undefined,
+                      }))
+                      .filter((x) => x.title || x.desc || x.iconName);
+                    updateWhyChooseUsMutation.mutate(cleaned);
+                  }}
+                >
+                  Save
+                </Button>
+              </>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground mb-4">Managed by Business Type defaults.</p>
+          <p className="text-sm text-muted-foreground mb-4">Defaults come from Business Type; admin can edit for this shop.</p>
+
+          {isEditingWhyChooseUs ? (
+            <div className="space-y-3 mb-6">
+              {(whyChooseDraft.length ? whyChooseDraft : Array.from({ length: 4 }, () => ({ title: '', desc: '', iconName: '' }))).map((item, idx) => (
+                <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-md border p-3">
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Title</p>
+                    <Input
+                      value={item.title}
+                      onChange={(e) => {
+                        const next = [...whyChooseDraft];
+                        next[idx] = { ...next[idx], title: e.target.value };
+                        setWhyChooseDraft(next);
+                      }}
+                      placeholder="e.g. Fast delivery"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Description</p>
+                    <Textarea
+                      value={item.desc}
+                      onChange={(e) => {
+                        const next = [...whyChooseDraft];
+                        next[idx] = { ...next[idx], desc: e.target.value };
+                        setWhyChooseDraft(next);
+                      }}
+                      placeholder="Short description"
+                      rows={2}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Icon (optional)</p>
+                    <Input
+                      value={item.iconName || ''}
+                      onChange={(e) => {
+                        const next = [...whyChooseDraft];
+                        next[idx] = { ...next[idx], iconName: e.target.value };
+                        setWhyChooseDraft(next);
+                      }}
+                      placeholder="Lucide icon name (e.g. Truck)"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {(whyChooseCards.length ? whyChooseCards : [
               { icon: Truck, title: '—', desc: '—' },

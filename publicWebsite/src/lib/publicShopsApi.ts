@@ -470,3 +470,76 @@ export const fetchBusinessTypes = async (): Promise<PublicBusinessType[]> => {
     icon: item.icon || fallbackTypeIcon,
   }));
 };
+
+export type PublicBookingSlot = {
+  _id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  isBooked: boolean;
+  status: string;
+  duration?: number;
+};
+
+type PublicBookingSlotsResponse = {
+  success: boolean;
+  message?: string;
+  data?: PublicBookingSlot[];
+};
+
+type BookSlotResponse = {
+  success: boolean;
+  message?: string;
+  data?: any;
+};
+
+export const fetchBookingSlotsBySlug = async (slug: string, date: string) => {
+  const q = new URLSearchParams({ date });
+  const response = await fetch(
+    `${API_BASE_URL}/bookings/slots/slug/${encodeURIComponent(slug)}?${q.toString()}`
+  );
+  const json = (await response.json()) as PublicBookingSlotsResponse;
+  if (!response.ok || !json.success) {
+    throw new Error(json.message || "Failed to load slots");
+  }
+  return json.data || [];
+};
+
+export const bookPublicSlot = async (
+  slotId: string,
+  payload: { customerName: string; customerPhone?: string; customerEmail?: string; customerNotes?: string }
+) => {
+  const response = await fetch(`${API_BASE_URL}/bookings/${encodeURIComponent(slotId)}/book`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const json = (await response.json()) as BookSlotResponse;
+  if (!response.ok || !json.success) {
+    throw new Error(json.message || "Failed to book slot");
+  }
+  return json.data;
+};
+
+export const bookPublicSlotBySlug = async (
+  slug: string,
+  input: {
+    date: string;
+    startTime: string;
+    customerName: string;
+    customerPhone?: string;
+    customerEmail?: string;
+    customerNotes?: string;
+  }
+) => {
+  const response = await fetch(`${API_BASE_URL}/bookings/book/slug/${encodeURIComponent(slug)}` , {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const json = (await response.json()) as BookSlotResponse;
+  if (!response.ok || !json.success) {
+    throw new Error(json.message || "Failed to book slot");
+  }
+  return json.data;
+};

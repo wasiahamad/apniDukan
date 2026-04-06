@@ -10,6 +10,7 @@ export { default as Category } from './Category.js';
 export { default as Listing } from './Listing.js';
 export { default as Inquiry } from './Inquiry.js';
 export { default as BookingSlot } from './BookingSlot.js';
+export { default as BookingSlotTemplate } from './BookingSlotTemplate.js';
 export { default as Plan } from './Plan.js';
 export { default as Order } from './Order.js';
 export { default as OrderCounter } from './OrderCounter.js';

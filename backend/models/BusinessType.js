@@ -81,6 +81,28 @@ const businessTypeSchema = new mongoose.Schema(
         },
       },
     ],
+
+    // Booking timings defaults (slot templates) for this business type.
+    // Owners can optionally be allowed to override these timings.
+    defaultBookingTimings: {
+      startTime: {
+        type: String,
+        default: '10:00',
+      },
+      endTime: {
+        type: String,
+        default: '18:00',
+      },
+      duration: {
+        type: Number,
+        default: 30,
+        min: 1,
+      },
+    },
+    ownerCanEditBookingTimings: {
+      type: Boolean,
+      default: false,
+    },
     isActive: {
       type: Boolean,
       default: true,

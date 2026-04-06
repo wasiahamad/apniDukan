@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Star, MessageCircle, Phone, MapPin, Clock, BadgeCheck, CreditCard, Navigation, Navigation2, Share2 } from "lucide-react";
+import { Star, MessageCircle, Phone, MapPin, Clock, BadgeCheck, CreditCard, Navigation, Navigation2, Share2, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -14,13 +14,12 @@ import PageTransition from "@/components/PageTransition";
 import ScrollReveal from "@/components/ScrollReveal";
 import StaggerChildren, { StaggerItem } from "@/components/StaggerChildren";
 import ProductDetailDialog from "@/components/ProductDetailDialog";
-import TimeSlots from "@/components/TimeSlots";
 import { motion } from "framer-motion";
 import { type Product } from "@/data/mockData";
 import { useEffect } from "react";
 import { useUserLocation, getDistanceKm, formatDistance } from "@/hooks/useUserLocation";
 import { API_BASE_URL, fetchRoute } from "@/lib/publicShopsApi";
-import { fetchBusinessDistance, fetchPublicListingsForShop, fetchPublicShopBySlug } from "@/lib/publicShopsApi";
+import { bookPublicSlotBySlug, fetchBookingSlotsBySlug, fetchBusinessDistance, fetchPublicListingsForShop, fetchPublicShopBySlug } from "@/lib/publicShopsApi";
 import { useToast } from "@/hooks/use-toast";
 import { decodePolyline, loadGoogleMaps } from "@/lib/googleMaps";
 
@@ -181,6 +180,23 @@ export default function ShopPage() {
   const { toast } = useToast();
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
+  const [bookingOpen, setBookingOpen] = useState(false);
+
+  // Booking state
+  const [bookingName, setBookingName] = useState("");
+  const [bookingPhone, setBookingPhone] = useState("");
+  const [bookingEmail, setBookingEmail] = useState("");
+  const [bookingNotes, setBookingNotes] = useState("");
+  const [bookingDate, setBookingDate] = useState(() => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  });
+  const [selectedStartTime, setSelectedStartTime] = useState<string | null>(null);
+  const [bookingSubmitting, setBookingSubmitting] = useState(false);
+
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [reviewRating, setReviewRating] = useState<number>(5);
   const [reviewCustomerName, setReviewCustomerName] = useState("");
@@ -276,6 +292,76 @@ export default function ShopPage() {
     queryFn: () => fetchPublicListingsForShop(shopQuery.data?.id || ""),
     enabled: !!shopQuery.data?.id,
   });
+
+  const slotsQuery = useQuery({
+    queryKey: ["booking-slots", shopSlug, bookingDate],
+    queryFn: () => fetchBookingSlotsBySlug(shopSlug || "", bookingDate),
+    enabled: !!shopSlug && !!bookingDate,
+    staleTime: 10_000,
+  });
+
+  useEffect(() => {
+    // Reset selected slot when date changes
+    setSelectedStartTime(null);
+  }, [bookingDate]);
+
+  const formatTime12h = (time: string) => {
+    const [h, m] = String(time || "").split(":").map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return time;
+    const ampm = h >= 12 ? "PM" : "AM";
+    const hour = h % 12 || 12;
+    return `${hour}:${String(m).padStart(2, "0")} ${ampm}`;
+  };
+
+  const submitBooking = async () => {
+    if (!shopSlug) return;
+    const name = bookingName.trim();
+    const phone = bookingPhone.trim();
+    const email = bookingEmail.trim();
+
+    if (!name) {
+      toast({ title: "Your name is required", variant: "destructive" });
+      return;
+    }
+    if (!phone && !email) {
+      toast({ title: "Phone or email is required", variant: "destructive" });
+      return;
+    }
+    if (!bookingDate) {
+      toast({ title: "Date is required", variant: "destructive" });
+      return;
+    }
+    if (!selectedStartTime) {
+      toast({ title: "Please select a time slot", variant: "destructive" });
+      return;
+    }
+
+    try {
+      setBookingSubmitting(true);
+        await bookPublicSlotBySlug(shopSlug, {
+          date: bookingDate,
+          startTime: selectedStartTime,
+          customerName: name,
+          customerPhone: phone || undefined,
+          customerEmail: email || undefined,
+          customerNotes: bookingNotes.trim() || undefined,
+        });
+      toast({ title: "Booking confirmed", description: "Your appointment has been booked." });
+        setSelectedStartTime(null);
+      setBookingNotes("");
+      await slotsQuery.refetch();
+
+      setBookingOpen(false);
+    } catch (err: any) {
+      toast({
+        title: "Booking failed",
+        description: err?.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setBookingSubmitting(false);
+    }
+  };
 
   const distanceEtaQuery = useQuery({
     queryKey: ["public-shop-distance", shopQuery.data?.id, userLocation?.latitude ?? null, userLocation?.longitude ?? null],
@@ -769,6 +855,127 @@ export default function ShopPage() {
                     )}
                   </Button>
                 </motion.div>
+
+                <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} className="flex-1">
+                  <Dialog open={bookingOpen} onOpenChange={(open) => !bookingSubmitting && setBookingOpen(open)}>
+                    <DialogTrigger asChild>
+                      <Button className="gap-2 w-full">
+                        <Calendar className="h-4 w-4" /> Book
+                      </Button>
+                    </DialogTrigger>
+
+                    <DialogContent className="w-[calc(100%-1.5rem)] sm:w-full sm:max-w-lg max-h-[85vh] overflow-y-auto p-0">
+                      <div className="p-6">
+                        <DialogHeader>
+                          <DialogTitle>Book Appointment</DialogTitle>
+                        </DialogHeader>
+
+                        <div className="mt-1 text-sm text-muted-foreground">{shop.name}</div>
+
+                        <div className="mt-6 space-y-5">
+                          <div className="space-y-4">
+                            <div>
+                              <div className="text-sm font-medium">Your Name</div>
+                              <Input
+                                className="mt-2"
+                                value={bookingName}
+                                onChange={(e) => setBookingName(e.target.value)}
+                                placeholder="Your name"
+                              />
+                            </div>
+
+                            <div>
+                              <div className="text-sm font-medium">Phone Number</div>
+                              <Input
+                                className="mt-2"
+                                value={bookingPhone}
+                                onChange={(e) => setBookingPhone(e.target.value)}
+                                placeholder="e.g. +91 98765 43210"
+                              />
+                            </div>
+
+                            <div>
+                              <div className="text-sm font-medium">Date</div>
+                              <Input
+                                className="mt-2"
+                                type="date"
+                                value={bookingDate}
+                                onChange={(e) => setBookingDate(e.target.value)}
+                              />
+                            </div>
+                          </div>
+
+                          <Separator />
+
+                          <div>
+                            <div className="text-sm font-medium">Time Slot</div>
+                            <div className="mt-3">
+                              {!bookingDate ? (
+                                <p className="text-sm text-muted-foreground">Select a date to see available slots.</p>
+                              ) : slotsQuery.isLoading ? (
+                                <p className="text-sm text-muted-foreground">Loading slots...</p>
+                              ) : slotsQuery.isError ? (
+                                <p className="text-sm text-destructive">
+                                  {String((slotsQuery.error as any)?.message || "Failed to load slots")}
+                                </p>
+                              ) : (slotsQuery.data || []).length === 0 ? (
+                                <p className="text-sm text-muted-foreground">No available slots for this date.</p>
+                              ) : (
+                                <div className="flex flex-wrap gap-2">
+                                  {(slotsQuery.data || []).map((s) => {
+                                    const isAvailable = !s.isBooked && String(s.status || "") === "available";
+                                    const selected = selectedStartTime === s.startTime;
+                                    return (
+                                      <button
+                                        key={s._id}
+                                        type="button"
+                                        onClick={() => isAvailable && setSelectedStartTime(s.startTime)}
+                                        disabled={!isAvailable}
+                                        className={`px-3 py-2 rounded-xl border text-sm transition-colors ${
+                                          isAvailable
+                                            ? selected
+                                              ? "border-primary bg-primary/10 text-primary"
+                                              : "hover:bg-muted"
+                                            : "opacity-50 cursor-not-allowed bg-muted/30"
+                                        }`}
+                                      >
+                                        <span className="font-medium">{formatTime12h(s.startTime)}</span>
+                                        <span
+                                          className={`ml-2 text-xs ${isAvailable ? "text-muted-foreground" : "text-destructive"}`}
+                                        >
+                                          {isAvailable ? "Available" : "Unavailable"}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="text-sm font-medium">Notes (optional)</div>
+                            <Textarea
+                              className="mt-2"
+                              value={bookingNotes}
+                              onChange={(e) => setBookingNotes(e.target.value)}
+                              placeholder="Any special requirements..."
+                            />
+                          </div>
+
+                          <Button
+                            type="button"
+                            className="w-full py-6 rounded-xl font-semibold"
+                            onClick={submitBooking}
+                            disabled={bookingSubmitting}
+                          >
+                            {bookingSubmitting ? "Booking..." : "Confirm Booking"}
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </motion.div>
               </div>
             </CardContent>
           </Card>
@@ -836,13 +1043,6 @@ export default function ShopPage() {
                 </CardContent>
               </Card>
             </ScrollReveal>
-
-            {/* Time Slots */}
-            {shop.timeSlots && shop.timeSlots.length > 0 && (
-              <ScrollReveal delay={0.05}>
-                <TimeSlots slots={shop.timeSlots} />
-              </ScrollReveal>
-            )}
 
             {/* About */}
             <ScrollReveal delay={0.1}>

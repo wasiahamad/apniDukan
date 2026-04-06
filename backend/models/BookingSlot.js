@@ -76,6 +76,12 @@ bookingSlotSchema.index({ business: 1, status: 1 });
 bookingSlotSchema.index({ date: 1, startTime: 1 });
 bookingSlotSchema.index({ customerPhone: 1 });
 
+// Prevent duplicate slots for the same business/date/time window
+bookingSlotSchema.index(
+  { business: 1, date: 1, startTime: 1, endTime: 1 },
+  { unique: true }
+);
+
 // Compound index for finding available slots
 bookingSlotSchema.index({
   business: 1,

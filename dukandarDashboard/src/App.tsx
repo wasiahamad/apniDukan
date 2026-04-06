@@ -29,6 +29,7 @@ import Support from "./pages/Support";
 import SettingsPage from "./pages/SettingsPage";
 import Referrals from "./pages/Referrals";
 import Orders from "./pages/Orders";
+import Bookings from "./pages/Bookings";
 import RequireFeature from "./components/RequireFeature";
 
 const queryClient = new QueryClient();
@@ -99,6 +100,7 @@ const App = () => (
               <Route path="listings" element={<Products />} />
               <Route path="listings/:listingId" element={<ProductDetail />} />
               <Route path="orders" element={<RequireFeature feature="ordersEnabled" title="Orders are not enabled"><Orders /></RequireFeature>} />
+              <Route path="bookings" element={<Bookings />} />
               <Route path="whatsapp" element={<RequireFeature feature="whatsappSettingsEnabled" title="WhatsApp settings are not enabled"><WhatsAppSettings /></RequireFeature>} />
               <Route path="location" element={<LocationPage />} />
               <Route path="analytics" element={<RequireFeature feature="analyticsEnabled" title="Analytics is not enabled"><Analytics /></RequireFeature>} />

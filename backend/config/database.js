@@ -8,6 +8,14 @@ import dns from 'dns';
 
 const connectDB = async () => {
   try {
+    // Prefer IPv4 results first. This avoids some Windows/IPv6 resolver edge-cases
+    // that can manifest as SRV lookup timeouts for MongoDB Atlas.
+    try {
+      dns.setDefaultResultOrder('ipv4first');
+    } catch {
+      // Ignore if not supported in current Node version
+    }
+
     const mongoUri = process.env.MONGO_URI;
     if (!mongoUri || !String(mongoUri).trim()) {
       throw new Error('MONGO_URI not set');
@@ -64,28 +72,17 @@ const connectDB = async () => {
           console.warn('⚠️  Failed to set custom DNS servers:', e?.message || e);
         }
       }
-    } else if (process.env.NODE_ENV === 'development' && isSrv) {
-      // If Node is using a local DNS proxy (often 127.0.0.1) that refuses SRV, Atlas will fail.
-      // Auto-switch to public resolvers (best-effort) to keep dev environment running.
-      try {
-        const current = dns.getServers();
-        const isLocalOnly =
-          current.length === 1 &&
-          (current[0] === '127.0.0.1' || current[0] === '::1');
-
-        if (isLocalOnly) {
-          const fallbackDns = ['1.1.1.1', '8.8.8.8'];
-          applyDnsServers(fallbackDns, 'public fallback');
-        }
-      } catch (e) {
-        console.warn('⚠️  Atlas DNS auto-fix failed:', e?.message || e);
-      }
     }
 
+    console.log(`🔌 Connecting to MongoDB (${isSrv ? clusterHost : 'direct URI'})...`);
+
     const conn = await mongoose.connect(String(mongoUri).trim(), {
-      // Mongoose 6+ no longer requires these options:
-      // useNewUrlParser: true,
-      // useUnifiedTopology: true,
+      // Fail fast with a clear error instead of hanging indefinitely.
+      serverSelectionTimeoutMS: Number(process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS || 20000),
+      connectTimeoutMS: Number(process.env.MONGO_CONNECT_TIMEOUT_MS || 20000),
+      socketTimeoutMS: Number(process.env.MONGO_SOCKET_TIMEOUT_MS || 45000),
+      // Prefer IPv4 at the driver level as well (in addition to dns.setDefaultResultOrder).
+      family: 4,
     });
 
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);

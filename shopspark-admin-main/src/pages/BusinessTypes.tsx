@@ -26,6 +26,10 @@ type FormState = {
   suggestedListingType: "product" | "service" | "food" | "course" | "rental";
   exampleCategoriesText: string;
   whyChooseUsTemplates: Array<{ title: string; desc: string; iconName?: string }>;
+  defaultBookingStartTime: string;
+  defaultBookingEndTime: string;
+  defaultBookingDuration: number;
+  ownerCanEditBookingTimings: boolean;
   displayOrder: number;
   isActive: boolean;
 };
@@ -40,6 +44,10 @@ const emptyForm: FormState = {
   suggestedListingType: "product",
   exampleCategoriesText: "",
   whyChooseUsTemplates: [],
+  defaultBookingStartTime: "10:00",
+  defaultBookingEndTime: "18:00",
+  defaultBookingDuration: 30,
+  ownerCanEditBookingTimings: false,
   displayOrder: 0,
   isActive: true,
 };
@@ -132,6 +140,12 @@ export default function BusinessTypes() {
         suggestedListingType: form.suggestedListingType,
         exampleCategories: toExampleCategories(form.exampleCategoriesText),
         whyChooseUsTemplates: normalizeWhyChooseUsTemplates(form.whyChooseUsTemplates),
+        defaultBookingTimings: {
+          startTime: form.defaultBookingStartTime,
+          endTime: form.defaultBookingEndTime,
+          duration: Number(form.defaultBookingDuration) || 30,
+        },
+        ownerCanEditBookingTimings: form.ownerCanEditBookingTimings,
         displayOrder: Number.isFinite(form.displayOrder) ? form.displayOrder : 0,
         isActive: form.isActive,
       });
@@ -162,6 +176,12 @@ export default function BusinessTypes() {
         suggestedListingType: form.suggestedListingType,
         exampleCategories: toExampleCategories(form.exampleCategoriesText),
         whyChooseUsTemplates: normalizeWhyChooseUsTemplates(form.whyChooseUsTemplates),
+        defaultBookingTimings: {
+          startTime: form.defaultBookingStartTime,
+          endTime: form.defaultBookingEndTime,
+          duration: Number(form.defaultBookingDuration) || 30,
+        },
+        ownerCanEditBookingTimings: form.ownerCanEditBookingTimings,
         displayOrder: Number.isFinite(form.displayOrder) ? form.displayOrder : 0,
         isActive: form.isActive,
       });
@@ -264,6 +284,7 @@ export default function BusinessTypes() {
 
   const startEdit = (bt: BusinessType) => {
     setEditing(bt);
+    const defaults = bt.defaultBookingTimings || {};
     setForm({
       name: bt.name || "",
       description: bt.description || "",
@@ -274,6 +295,10 @@ export default function BusinessTypes() {
       suggestedListingType: bt.suggestedListingType || "product",
       exampleCategoriesText: (bt.exampleCategories || []).join(", "),
       whyChooseUsTemplates: normalizeWhyChooseUsTemplates(bt.whyChooseUsTemplates),
+      defaultBookingStartTime: String(defaults.startTime || "10:00"),
+      defaultBookingEndTime: String(defaults.endTime || "18:00"),
+      defaultBookingDuration: Number(defaults.duration ?? 30) || 30,
+      ownerCanEditBookingTimings: bt.ownerCanEditBookingTimings === true,
       displayOrder: bt.displayOrder ?? 0,
       isActive: bt.isActive ?? true,
     });
@@ -393,6 +418,47 @@ export default function BusinessTypes() {
                 onChange={(e) => setForm((f) => ({ ...f, displayOrder: Number(e.target.value) }))}
                 min={0}
               />
+            </div>
+
+            <div className="space-y-2 md:col-span-2">
+              <Label>Default Booking Timings</Label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Start</p>
+                  <Input
+                    type="time"
+                    value={form.defaultBookingStartTime}
+                    onChange={(e) => setForm((f) => ({ ...f, defaultBookingStartTime: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">End</p>
+                  <Input
+                    type="time"
+                    value={form.defaultBookingEndTime}
+                    onChange={(e) => setForm((f) => ({ ...f, defaultBookingEndTime: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Duration (min)</p>
+                  <Input
+                    type="number"
+                    min={5}
+                    value={form.defaultBookingDuration}
+                    onChange={(e) => setForm((f) => ({ ...f, defaultBookingDuration: Number(e.target.value) }))}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-between rounded-md border p-3 mt-3">
+                <div>
+                  <p className="text-sm font-medium">Owners can edit timings</p>
+                  <p className="text-xs text-muted-foreground">If off, owners need admin permission per shop.</p>
+                </div>
+                <Switch
+                  checked={form.ownerCanEditBookingTimings}
+                  onCheckedChange={(v) => setForm((f) => ({ ...f, ownerCanEditBookingTimings: v }))}
+                />
+              </div>
             </div>
 
             <div className="space-y-2 md:col-span-2">

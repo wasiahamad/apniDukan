@@ -5,7 +5,7 @@ import {
   LayoutDashboard, User, Palette, Package, MessageCircle, MapPin,
   BarChart3, CreditCard, Receipt, HelpCircle, Settings, Menu, X,
   ShoppingBag, ExternalLink, Sun, Moon, ChevronLeft, ChevronRight,
-  ShoppingCart, Gift
+  ShoppingCart, Gift, CalendarClock
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Business, businessApi } from "@/lib/api/index";
@@ -37,6 +37,7 @@ const nav: Array<{ to: string; icon: any; label: string; feature?: keyof Entitle
   { to: "/dashboard/business-profile", icon: User, label: "Business Profile" },
   { to: "/dashboard/branding", icon: Palette, label: "Branding", feature: "brandingEnabled" },
   { to: "/dashboard/listings", icon: Package, label: "Listings" },
+  { to: "/dashboard/bookings", icon: CalendarClock, label: "Bookings", feature: "bookingEnabled" },
   { to: "/dashboard/orders", icon: ShoppingCart, label: "Orders", feature: "ordersEnabled" },
   { to: "/dashboard/whatsapp", icon: MessageCircle, label: "WhatsApp", feature: "whatsappSettingsEnabled" },
   { to: "/dashboard/location", icon: MapPin, label: "Location" },

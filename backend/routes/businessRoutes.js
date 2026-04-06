@@ -28,6 +28,8 @@ router.post('/admin/create', protect, authorize('admin'), businessController.adm
 // Admin: business details + status controls
 router.get('/admin/:id', protect, authorize('admin'), businessController.adminGetBusinessById);
 router.patch('/admin/:id/status', protect, authorize('admin'), businessController.adminUpdateBusinessStatus);
+router.patch('/admin/:id/booking-timings', protect, authorize('admin'), businessController.adminUpdateBusinessBookingTimings);
+router.patch('/admin/:id/why-choose-us', protect, authorize('admin'), businessController.adminUpdateBusinessWhyChooseUs);
 router.patch('/admin/:id/plan', protect, authorize('admin'), businessController.adminUpdateBusinessPlan);
 
 // Admin only - see ALL businesses

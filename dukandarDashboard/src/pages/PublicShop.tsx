@@ -260,6 +260,7 @@ const formatTime = (time: string) => {
   return `${displayHour}:${minutes} ${ampm}`;
 };
 
+
 const getWorkingHoursText = (business?: Business | null) => {
   if (!business?.workingHours) return "9:00 AM – 8:00 PM";
   

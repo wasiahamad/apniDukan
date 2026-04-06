@@ -121,6 +121,20 @@ const businessSchema = new mongoose.Schema(
         required: [true, 'State is required'],
       },
       pincode: String,
+      // Legacy/compat coordinates used by some clients.
+      // Source of truth remains GeoJSON `address.location`.
+      coordinates: {
+        latitude: {
+          type: Number,
+          min: -90,
+          max: 90,
+        },
+        longitude: {
+          type: Number,
+          min: -180,
+          max: 180,
+        },
+      },
       landmark: String,
       location: {
         type: new mongoose.Schema(
@@ -176,6 +190,12 @@ const businessSchema = new mongoose.Schema(
       friday: { open: String, close: String, isOpen: { type: Boolean, default: true } },
       saturday: { open: String, close: String, isOpen: { type: Boolean, default: true } },
       sunday: { open: String, close: String, isOpen: { type: Boolean, default: false } },
+    },
+
+    // Booking timings override access (admin-granted). If false, owners can only use defaults.
+    bookingTimingsOverrideEnabled: {
+      type: Boolean,
+      default: false,
     },
     openStatusMode: {
       type: String,
@@ -318,11 +338,19 @@ businessSchema.pre('validate', function (next) {
     if (!validCoords) {
       if (this.address && typeof this.address === 'object') {
         this.address.location = undefined;
+        // If location is invalid, also clear derived legacy coordinates.
+        if (this.address.coordinates && typeof this.address.coordinates === 'object') {
+          this.address.coordinates = undefined;
+        }
       }
       return next();
     }
 
     loc.type = 'Point';
+    // Keep legacy coordinates in sync for clients that expect it.
+    if (this.address && typeof this.address === 'object') {
+      this.address.coordinates = { latitude: coords[1], longitude: coords[0] };
+    }
     return next();
   } catch (e) {
     return next(e);

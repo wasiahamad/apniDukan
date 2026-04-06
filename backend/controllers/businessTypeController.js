@@ -41,6 +41,25 @@ const normalizeImageList = (raw, { limit = 12 } = {}) => {
   return out;
 };
 
+const normalizeDefaultBookingTimings = (raw) => {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const startTime = String(raw.startTime || '').trim();
+  const endTime = String(raw.endTime || '').trim();
+  const duration = Number(raw.duration);
+
+  // Allow partial updates by returning only valid provided fields.
+  const out = {};
+  if (startTime) out.startTime = startTime;
+  if (endTime) out.endTime = endTime;
+  if (Number.isFinite(duration) && duration > 0) out.duration = duration;
+
+  // Basic sanity: if both provided, ensure order.
+  if (out.startTime && out.endTime && String(out.startTime) >= String(out.endTime)) {
+    throw new Error('defaultBookingTimings.startTime must be before endTime');
+  }
+  return Object.keys(out).length ? out : undefined;
+};
+
 /**
  * BUSINESS TYPE CONTROLLER
  * Admin manages business types (Kirana Store, Restaurant, etc.)
@@ -154,6 +173,8 @@ export const createBusinessType = async (req, res) => {
       defaultCoverImage,
       defaultImages,
       whyChooseUsTemplates,
+      defaultBookingTimings,
+      ownerCanEditBookingTimings,
       displayOrder,
       isActive,
     } = req.body;
@@ -180,6 +201,10 @@ export const createBusinessType = async (req, res) => {
       defaultCoverImage: String(defaultCoverImage || '').trim() || undefined,
       defaultImages: normalizeImageList(defaultImages),
       whyChooseUsTemplates: normalizeWhyChooseUsTemplates(whyChooseUsTemplates),
+      ...(defaultBookingTimings !== undefined
+        ? { defaultBookingTimings: normalizeDefaultBookingTimings(defaultBookingTimings) }
+        : {}),
+      ...(typeof ownerCanEditBookingTimings === 'boolean' ? { ownerCanEditBookingTimings } : {}),
       displayOrder,
       ...(typeof isActive === 'boolean' ? { isActive } : {}),
     });
@@ -214,6 +239,8 @@ export const updateBusinessType = async (req, res) => {
       defaultCoverImage,
       defaultImages,
       whyChooseUsTemplates,
+      defaultBookingTimings,
+      ownerCanEditBookingTimings,
       isActive,
       displayOrder,
     } = req.body;
@@ -252,6 +279,16 @@ export const updateBusinessType = async (req, res) => {
     if (defaultCoverImage !== undefined) businessType.defaultCoverImage = String(defaultCoverImage || '').trim();
     if (defaultImages !== undefined) businessType.defaultImages = normalizeImageList(defaultImages);
     if (whyChooseUsTemplates !== undefined) businessType.whyChooseUsTemplates = normalizeWhyChooseUsTemplates(whyChooseUsTemplates);
+    if (defaultBookingTimings !== undefined) {
+      const normalized = normalizeDefaultBookingTimings(defaultBookingTimings);
+      if (normalized) {
+        businessType.defaultBookingTimings = {
+          ...(businessType.defaultBookingTimings?.toObject ? businessType.defaultBookingTimings.toObject() : businessType.defaultBookingTimings || {}),
+          ...normalized,
+        };
+      }
+    }
+    if (ownerCanEditBookingTimings !== undefined) businessType.ownerCanEditBookingTimings = !!ownerCanEditBookingTimings;
     if (isActive !== undefined) businessType.isActive = isActive;
     if (displayOrder !== undefined) businessType.displayOrder = displayOrder;
 

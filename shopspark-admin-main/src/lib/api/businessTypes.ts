@@ -17,6 +17,8 @@ export type AdminBusinessTypeInput = {
   suggestedListingType?: 'product' | 'service' | 'food' | 'course' | 'rental';
   exampleCategories?: string[];
   whyChooseUsTemplates?: Array<{ title?: string; desc?: string; iconName?: string }>;
+  defaultBookingTimings?: { startTime?: string; endTime?: string; duration?: number };
+  ownerCanEditBookingTimings?: boolean;
   isActive?: boolean;
   displayOrder?: number;
 };

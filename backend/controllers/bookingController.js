@@ -1,4 +1,4 @@
-import { BookingSlot, Business } from '../models/index.js';
+import { BookingSlot, BookingSlotTemplate, Business, BusinessType } from '../models/index.js';
 import { getEffectiveEntitlementsForBusiness } from '../services/entitlementsService.js';
 
 /**
@@ -6,6 +6,141 @@ import { getEffectiveEntitlementsForBusiness } from '../services/entitlementsSer
  * For: Salons, Coaching, Doctors, Consultations, Rental visits
  * CRITICAL: Multi-tenant scoped
  */
+
+const generateSlotsFromTemplate = ({ startTime, endTime, duration }) => {
+  const slotDuration = Number(duration);
+  if (!startTime || !endTime || !Number.isFinite(slotDuration) || slotDuration <= 0) return [];
+
+  const slots = [];
+  let current = startTime;
+  while (current < endTime) {
+    const [hours, minutes] = current.split(':').map(Number);
+    const nextHours = hours + Math.floor((minutes + slotDuration) / 60);
+    const nextMinutes = (minutes + slotDuration) % 60;
+    const next = `${String(nextHours).padStart(2, '0')}:${String(nextMinutes).padStart(2, '0')}`;
+
+    if (next <= endTime) {
+      slots.push({ startTime: current, endTime: next, duration: slotDuration });
+    }
+    current = next;
+  }
+  return slots;
+};
+
+const getDayBounds = (date) => {
+  const startOfDay = new Date(date);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(date);
+  endOfDay.setHours(23, 59, 59, 999);
+  return { startOfDay, endOfDay };
+};
+
+const resolveDefaultTimings = async (business) => {
+  const globalDefault = { startTime: '10:00', endTime: '18:00', duration: 30 };
+  if (!business?.businessType) return globalDefault;
+  const bt = await BusinessType.findById(business.businessType)
+    .select('defaultBookingTimings ownerCanEditBookingTimings')
+    .lean();
+  const t = bt?.defaultBookingTimings || {};
+  const startTime = String(t?.startTime || '').trim() || globalDefault.startTime;
+  const endTime = String(t?.endTime || '').trim() || globalDefault.endTime;
+  const duration = Number(t?.duration);
+  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : globalDefault.duration;
+  return {
+    startTime,
+    endTime,
+    duration: safeDuration,
+    ownerCanEditBookingTimings: bt?.ownerCanEditBookingTimings === true,
+  };
+};
+
+// @desc    Replace slot templates for a business (recurring timings, no date)
+// @route   POST /api/bookings/templates/replace
+// @access  Private (business owner)
+export const replaceSlotTemplates = async (req, res) => {
+  try {
+    const { businessId, listing, startTime, endTime, slotDuration, duration, price, notes } = req.body;
+
+    const business = await Business.findById(businessId);
+    if (!business) {
+      return res.status(404).json({ success: false, message: 'Business not found' });
+    }
+    if (business.owner.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Not authorized to update templates for this business' });
+    }
+
+    const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (entitlements.planIsActive !== true) {
+      return res.status(403).json({ success: false, message: 'Your subscription is not active. Please renew to use bookings.' });
+    }
+
+    // Permission: admin can always set; owners need businessType permission or admin-granted override.
+    if (req.user?.role !== 'admin') {
+      const defaults = await resolveDefaultTimings(business);
+      const canEditByType = defaults.ownerCanEditBookingTimings === true;
+      const canEditByOverride = business.bookingTimingsOverrideEnabled === true;
+      if (!canEditByType && !canEditByOverride) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have permission to change booking timings. Please contact support.',
+        });
+      }
+    }
+
+    const resolvedDuration = Number(slotDuration ?? duration);
+    if (!startTime || !endTime || !Number.isFinite(resolvedDuration) || resolvedDuration <= 0) {
+      return res.status(400).json({ success: false, message: 'startTime, endTime and slotDuration are required' });
+    }
+    if (String(startTime) >= String(endTime)) {
+      return res.status(400).json({ success: false, message: 'startTime must be before endTime' });
+    }
+
+    // Replace all templates for simplicity (single source of truth).
+    await BookingSlotTemplate.deleteMany({ business: businessId });
+    const tpl = await BookingSlotTemplate.create({
+      business: businessId,
+      listing: listing || undefined,
+      startTime,
+      endTime,
+      duration: resolvedDuration,
+      price: Number.isFinite(Number(price)) ? Number(price) : undefined,
+      notes: notes || undefined,
+      isActive: true,
+    });
+
+    return res.status(200).json({ success: true, message: 'Slot timings saved', data: [tpl] });
+  } catch (error) {
+    console.error('Replace slot templates error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Error saving slot timings' });
+  }
+};
+
+// @desc    Get slot templates for a business
+// @route   GET /api/bookings/templates/business/:businessId
+// @access  Private (business owner)
+export const getSlotTemplatesForBusiness = async (req, res) => {
+  try {
+    const { businessId } = req.params;
+
+    const business = await Business.findById(businessId);
+    if (!business) {
+      return res.status(404).json({ success: false, message: 'Business not found' });
+    }
+    if (business.owner.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Not authorized to view templates for this business' });
+    }
+
+    const templates = await BookingSlotTemplate.find({ business: businessId, isActive: true })
+      .select('_id startTime endTime duration price notes')
+      .sort({ startTime: 1 })
+      .lean();
+
+    return res.status(200).json({ success: true, data: templates });
+  } catch (error) {
+    console.error('Get slot templates error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Error fetching templates' });
+  }
+};
 
 // @desc    Create booking slot(s)
 // @route   POST /api/bookings
@@ -31,10 +166,10 @@ export const createBookingSlot = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
-    if (entitlements.features?.bookingEnabled !== true) {
+    if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
-        message: 'Bookings are not enabled in your plan. Please upgrade.',
+        message: 'Your subscription is not active. Please renew to use bookings.',
       });
     }
 
@@ -87,10 +222,26 @@ export const createBulkSlots = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
-    if (entitlements.features?.bookingEnabled !== true) {
+    if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
-        message: 'Bookings are not enabled in your plan. Please upgrade.',
+        message: 'Your subscription is not active. Please renew to use bookings.',
+      });
+    }
+
+    // Prevent accidental duplicate generation for the same day.
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+    const existingCount = await BookingSlot.countDocuments({
+      business: businessId,
+      date: { $gte: startOfDay, $lte: endOfDay },
+    });
+    if (existingCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Slots already exist for this date. Please choose another date.',
       });
     }
 
@@ -126,7 +277,7 @@ export const getAvailableSlots = async (req, res) => {
     }
 
     const business = await Business.findById(businessId);
-    if (!business || !business.isActive) {
+    if (!business || !business.isActive || business.isVerified === false) {
       return res.status(404).json({
         success: false,
         message: 'Business not found',
@@ -134,7 +285,7 @@ export const getAvailableSlots = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
-    if (entitlements.features?.bookingEnabled !== true) {
+    if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
         message: 'Bookings are not available for this business',
@@ -153,6 +304,276 @@ export const getAvailableSlots = async (req, res) => {
       success: false,
       message: error.message || 'Error fetching available slots',
     });
+  }
+};
+
+// @desc    Get available slots for a business on a date (by slug)
+// @route   GET /api/bookings/available/slug/:slug
+// @access  Public
+export const getAvailableSlotsBySlug = async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        message: 'Date is required',
+      });
+    }
+
+    const business = await Business.findOne({ slug }).lean();
+    if (!business || !business.isActive || business.isVerified === false) {
+      return res.status(404).json({
+        success: false,
+        message: 'Business not found',
+      });
+    }
+
+    const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (entitlements.planIsActive !== true) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bookings are not available for this business',
+      });
+    }
+
+    const slots = await BookingSlot.getAvailableSlots(business._id, date);
+    return res.status(200).json({
+      success: true,
+      data: slots,
+    });
+  } catch (error) {
+    console.error('Get available slots by slug error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error fetching available slots',
+    });
+  }
+};
+
+// @desc    Get all slots (available + booked) for a business on a date (by slug)
+//          NOTE: Does not expose customer PII.
+// @route   GET /api/bookings/slots/slug/:slug
+// @access  Public
+export const getSlotsBySlug = async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        message: 'Date is required',
+      });
+    }
+
+    const business = await Business.findOne({ slug }).lean();
+    if (!business || !business.isActive || business.isVerified === false) {
+      return res.status(404).json({
+        success: false,
+        message: 'Business not found',
+      });
+    }
+
+    const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (entitlements.planIsActive !== true) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bookings are not available for this business',
+      });
+    }
+
+    const { startOfDay, endOfDay } = getDayBounds(date);
+
+    // If templates exist, generate slots for the requested date.
+    const templates = await BookingSlotTemplate.find({ business: business._id, isActive: true })
+      .select('_id startTime endTime duration')
+      .sort({ startTime: 1 })
+      .lean();
+
+    const existing = await BookingSlot.find({
+      business: business._id,
+      date: { $gte: startOfDay, $lte: endOfDay },
+    })
+      .select('_id date startTime endTime isBooked status duration')
+      .sort({ startTime: 1 })
+      .lean();
+
+    // Fallback to businessType defaults when no templates exist.
+    const hasTemplates = templates && templates.length > 0;
+    const defaultTimings = !hasTemplates ? await resolveDefaultTimings(business) : null;
+    const sources = hasTemplates
+      ? templates.map((t) => ({ startTime: t.startTime, endTime: t.endTime, duration: t.duration }))
+      : [{ startTime: defaultTimings.startTime, endTime: defaultTimings.endTime, duration: defaultTimings.duration }];
+
+    const byWindow = new Map();
+    existing.forEach((s) => byWindow.set(`${s.startTime}-${s.endTime}`, s));
+
+    const computed = [];
+    sources.forEach((t) => {
+      const gen = generateSlotsFromTemplate({ startTime: t.startTime, endTime: t.endTime, duration: t.duration });
+      gen.forEach((g) => {
+        const key = `${g.startTime}-${g.endTime}`;
+        const found = byWindow.get(key);
+        const isBooked = !!found?.isBooked || String(found?.status || '') === 'booked';
+        computed.push({
+          _id: String(found?._id || key),
+          date: found?.date || startOfDay,
+          startTime: g.startTime,
+          endTime: g.endTime,
+          duration: g.duration,
+          isBooked,
+          status: isBooked ? 'booked' : 'available',
+        });
+      });
+    });
+
+    computed.sort((a, b) => String(a.startTime).localeCompare(String(b.startTime)));
+    return res.status(200).json({ success: true, data: computed });
+  } catch (error) {
+    console.error('Get slots by slug error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error fetching slots',
+    });
+  }
+};
+
+// @desc    Book a slot by business slug + date + startTime (template-based)
+// @route   POST /api/bookings/book/slug/:slug
+// @access  Public (or Private for logged-in users)
+export const bookSlotBySlug = async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const { date, startTime, customerName, customerPhone, customerEmail, customerNotes } = req.body;
+
+    const resolvedCustomerName = customerName || req.user?.name;
+    const resolvedCustomerPhone = customerPhone || req.user?.phone;
+    const resolvedCustomerEmail = customerEmail || req.user?.email;
+
+    if (!date) {
+      return res.status(400).json({ success: false, message: 'Date is required' });
+    }
+    if (!startTime) {
+      return res.status(400).json({ success: false, message: 'Start time is required' });
+    }
+    if (!resolvedCustomerName) {
+      return res.status(400).json({ success: false, message: 'Customer name is required' });
+    }
+    if (!resolvedCustomerPhone && !resolvedCustomerEmail) {
+      return res.status(400).json({ success: false, message: 'Customer phone or email is required' });
+    }
+
+    const business = await Business.findOne({ slug });
+    if (!business || !business.isActive || business.isVerified === false) {
+      return res.status(404).json({ success: false, message: 'Business not found' });
+    }
+
+    const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (entitlements.planIsActive !== true) {
+      return res.status(403).json({ success: false, message: 'Bookings are not available for this business' });
+    }
+
+    const templates = await BookingSlotTemplate.find({ business: business._id, isActive: true })
+      .select('startTime endTime duration listing price notes')
+      .sort({ startTime: 1 })
+      .lean();
+
+    const hasTemplates = templates && templates.length > 0;
+    const defaultTimings = !hasTemplates ? await resolveDefaultTimings(business) : null;
+
+    // Find the matching slot window from templates or defaults.
+    let match = null;
+    if (hasTemplates) {
+      for (const t of templates) {
+        const generated = generateSlotsFromTemplate({ startTime: t.startTime, endTime: t.endTime, duration: t.duration });
+        const found = generated.find((g) => g.startTime === startTime);
+        if (found) {
+          match = { ...found, listing: t.listing, price: t.price, notes: t.notes };
+          break;
+        }
+      }
+    } else {
+      const generated = generateSlotsFromTemplate({
+        startTime: defaultTimings.startTime,
+        endTime: defaultTimings.endTime,
+        duration: defaultTimings.duration,
+      });
+      const found = generated.find((g) => g.startTime === startTime);
+      if (found) {
+        match = { ...found, listing: null, price: null, notes: null };
+      }
+    }
+
+    if (!match) {
+      return res.status(400).json({ success: false, message: 'Invalid slot time for this business' });
+    }
+
+    const { startOfDay, endOfDay } = getDayBounds(date);
+
+    // Try to book an existing available slot for this day/time (supports legacy pre-generated slots).
+    const updated = await BookingSlot.findOneAndUpdate(
+      {
+        business: business._id,
+        date: { $gte: startOfDay, $lte: endOfDay },
+        startTime: match.startTime,
+        endTime: match.endTime,
+        isBooked: false,
+        status: 'available',
+      },
+      {
+        $set: {
+          isBooked: true,
+          status: 'booked',
+          customerName: resolvedCustomerName,
+          customerPhone: resolvedCustomerPhone,
+          customerEmail: resolvedCustomerEmail || null,
+          customerNotes: customerNotes || null,
+          bookedAt: new Date(),
+          bookedBy: req.user?._id || null,
+          duration: match.duration,
+          listing: match.listing || undefined,
+          price: match.price,
+          notes: match.notes,
+        },
+      },
+      { new: true }
+    );
+
+    if (updated) {
+      return res.status(200).json({ success: true, message: 'Slot booked successfully', data: updated });
+    }
+
+    // Otherwise create a booked slot record for this day/time.
+    const slotDate = new Date(date);
+    const created = await BookingSlot.create({
+      business: business._id,
+      listing: match.listing || undefined,
+      date: slotDate,
+      startTime: match.startTime,
+      endTime: match.endTime,
+      duration: match.duration,
+      isBooked: true,
+      status: 'booked',
+      customerName: resolvedCustomerName,
+      customerPhone: resolvedCustomerPhone,
+      customerEmail: resolvedCustomerEmail || null,
+      customerNotes: customerNotes || null,
+      bookedAt: new Date(),
+      bookedBy: req.user?._id || null,
+      price: match.price,
+      notes: match.notes,
+    });
+
+    return res.status(200).json({ success: true, message: 'Slot booked successfully', data: created });
+  } catch (error) {
+    // Duplicate means already booked for that day/time window.
+    if (String(error?.code) === '11000') {
+      return res.status(409).json({ success: false, message: 'This slot has already been booked' });
+    }
+    console.error('Book slot by slug error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Error booking slot' });
   }
 };
 
@@ -181,7 +602,7 @@ export const bookSlot = async (req, res) => {
       });
     }
 
-    const slot = await BookingSlot.findById(id);
+    const slot = await BookingSlot.findById(id).lean();
     if (!slot) {
       return res.status(404).json({
         success: false,
@@ -190,7 +611,7 @@ export const bookSlot = async (req, res) => {
     }
 
     const business = await Business.findById(slot.business);
-    if (!business || !business.isActive) {
+    if (!business || !business.isActive || business.isVerified === false) {
       return res.status(404).json({
         success: false,
         message: 'Business not found',
@@ -198,25 +619,37 @@ export const bookSlot = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
-    if (entitlements.features?.bookingEnabled !== true) {
+    if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
         message: 'Bookings are not available for this business',
       });
     }
 
-    // Book the slot using model method
-    await slot.book(
+    // Atomic booking: prevent double booking under concurrency.
+    const bookedSlot = await BookingSlot.findOneAndUpdate(
+      { _id: id, isBooked: false, status: 'available' },
       {
-        name: resolvedCustomerName,
-        phone: resolvedCustomerPhone,
-        email: resolvedCustomerEmail,
-        notes: customerNotes,
+        $set: {
+          isBooked: true,
+          status: 'booked',
+          customerName: resolvedCustomerName,
+          customerPhone: resolvedCustomerPhone,
+          customerEmail: resolvedCustomerEmail || null,
+          customerNotes: customerNotes || null,
+          bookedAt: new Date(),
+          bookedBy: req.user?._id || null,
+        },
       },
-      req.user?._id // Optional user ID if logged in
-    );
+      { new: true }
+    ).populate('business', 'name phone whatsapp');
 
-    const bookedSlot = await BookingSlot.findById(id).populate('business', 'name phone whatsapp');
+    if (!bookedSlot) {
+      return res.status(409).json({
+        success: false,
+        message: 'This slot has already been booked',
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -318,10 +751,10 @@ export const cancelBooking = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
-    if (entitlements.features?.bookingEnabled !== true) {
+    if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
-        message: 'Bookings are not enabled in your plan. Please upgrade.',
+        message: 'Your subscription is not active. Please renew to use bookings.',
       });
     }
 
@@ -366,10 +799,10 @@ export const getBusinessBookings = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
-    if (entitlements.features?.bookingEnabled !== true) {
+    if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
-        message: 'Bookings are not enabled in your plan. Please upgrade.',
+        message: 'Your subscription is not active. Please renew to use bookings.',
       });
     }
 
@@ -453,10 +886,10 @@ export const updateBookingStatus = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
-    if (entitlements.features?.bookingEnabled !== true) {
+    if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
-        message: 'Bookings are not enabled in your plan. Please upgrade.',
+        message: 'Your subscription is not active. Please renew to use bookings.',
       });
     }
 
@@ -502,10 +935,10 @@ export const getBookingStats = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
-    if (entitlements.features?.bookingEnabled !== true) {
+    if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
-        message: 'Bookings are not enabled in your plan. Please upgrade.',
+        message: 'Your subscription is not active. Please renew to use bookings.',
       });
     }
 
