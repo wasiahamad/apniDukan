@@ -28,7 +28,7 @@ const visitorLocationSchema = new mongoose.Schema(
       ipAddress: String,
       referrer: String,
     },
-    expiresAt: { type: Date, required: true, index: true },
+    expiresAt: { type: Date, required: true },
   },
   { timestamps: true }
 );

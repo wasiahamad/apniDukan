@@ -14,7 +14,6 @@ const referralCodeSchema = new mongoose.Schema(
       required: true,
       unique: true,
       uppercase: true,
-      index: true,
       trim: true,
     },
     stats: {
@@ -31,8 +30,6 @@ const referralCodeSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
-
-referralCodeSchema.index({ code: 1 }, { unique: true });
 
 const ReferralCode = mongoose.model('ReferralCode', referralCodeSchema);
 

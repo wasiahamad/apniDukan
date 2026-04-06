@@ -25,9 +25,7 @@ export default function Layout() {
         </AnimatePresence>
       </main>
       <MobileBottomNav />
-      <div className="hidden md:block">
-        <Footer />
-      </div>
+      <Footer />
     </div>
   );
 }
