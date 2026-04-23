@@ -1,18 +1,135 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Edit2, Trash2, Eye, EyeOff, Search, Package, X, Loader2, AlertCircle, Star, Tag, FolderPlus } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Plus, Edit2, Trash2, Eye, EyeOff, Search, Package, X, Loader2, AlertCircle, Star, Tag, FolderPlus, Camera, Film } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEntitlements } from "@/contexts/EntitlementsContext";
-import { businessApi, listingApi, uploadApi, categoryApi, type Business, type Listing, type Category } from "@/lib/api/index";
+import { aiApi, businessApi, listingApi, uploadApi, categoryApi, storiesApi, type Business, type Listing, type Category } from "@/lib/api/index";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const Products = () => {
+  const { t } = useTranslation();
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const { entitlements, loading: entitlementsLoading } = useEntitlements();
+
+  const editFromQuery = useRef<string | null>(null);
+
+  useEffect(() => {
+    const qs = new URLSearchParams(location.search || "");
+    const id = (qs.get("edit") || "").trim();
+    editFromQuery.current = id || null;
+  }, [location.search]);
+
+  const offersEnabled = entitlements?.features?.offersEnabled === true;
+  const aiToolsEnabled = entitlements?.features?.aiDukandarAgentEnabled === true;
+
+  const handleAiError = (err: any, fallbackMsg: string) => {
+    const status = err?.status;
+    if (status === 403) {
+      toast({
+        title: t('products.errorTitle'),
+        description: err?.message || t('subscription.aiNotAvailable', { defaultValue: 'AI tools are not available for your current plan.' }),
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (status === 429) {
+      toast({
+        title: t('products.errorTitle'),
+        description: err?.message || t('subscription.aiDailyLimit', { defaultValue: 'Daily AI limit reached. Try tomorrow.' }),
+        variant: 'destructive',
+      });
+      return;
+    }
+    toast({
+      title: t('products.errorTitle'),
+      description: err?.message || fallbackMsg,
+      variant: 'destructive',
+    });
+  };
+
+  const generateListingDescriptionAi = async () => {
+    if (!aiToolsEnabled) {
+      toast({
+        title: t('products.errorTitle'),
+        description: t('subscription.aiNotAvailable', { defaultValue: 'AI tools are not available for your current plan.' }),
+        variant: 'destructive',
+      });
+      return;
+    }
+    const title = String(form.title || '').trim();
+    if (!title) {
+      toast({
+        title: t('products.validationErrorTitle'),
+        description: t('products.titleRequired', { defaultValue: 'Title is required' }),
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const businessType = (business?.businessType as any)?.name;
+      const res = await aiApi.generate({ mode: 'listing', title, businessType });
+      if (!res.success || !res.data) throw new Error(res.message || 'AI generate failed');
+
+      const draft: any = res.data;
+      const draftTitle = String(draft?.title || '').trim();
+      const short = String(draft?.shortDescription || '').trim();
+      const desc = String(draft?.description || '').trim();
+      const features = Array.isArray(draft?.features) ? draft.features.map((x: any) => String(x || '').trim()).filter(Boolean) : [];
+
+      const featuresText = features.length
+        ? `\n\nHighlights:\n${features.slice(0, 8).map((f: string) => `- ${f}`).join('\n')}`
+        : '';
+
+      const mergedDescription = [short, desc].filter(Boolean).join('\n\n') + featuresText;
+
+      // If backend provided structured attributes, prefer them.
+      const attrsRaw = Array.isArray(draft?.attributes) ? draft.attributes : [];
+      const attrsFromAi = attrsRaw
+        .map((a: any) => ({ name: String(a?.name || '').trim(), value: String(a?.value || '').trim() }))
+        .filter((a: any) => a.name && a.value)
+        .slice(0, 12);
+
+      // If no attributes, derive some from features.
+      const attrsFallback = features
+        .slice(0, 6)
+        .map((f: string, idx: number) => ({ name: `Point ${idx + 1}`, value: f }))
+        .filter((a) => a.value);
+
+      const poRaw = Array.isArray(draft?.pricingOptions) ? draft.pricingOptions : [];
+      const pricingOptionsFromAi = poRaw
+        .map((p: any) => ({
+          label: String(p?.label || '').trim(),
+          price: String(Number(p?.price) || '').trim(),
+        }))
+        .filter((p: any) => p.label && p.price)
+        .slice(0, 12);
+
+      setForm((prev) => ({
+        ...prev,
+        title: draftTitle || prev.title,
+        description: mergedDescription.trim() || prev.description,
+        attributes: attrsFromAi.length ? attrsFromAi : (prev.attributes?.length ? prev.attributes : attrsFallback),
+        pricingOptions: pricingOptionsFromAi.length ? pricingOptionsFromAi : prev.pricingOptions,
+      }));
+
+      toast({
+        title: t('products.successTitle'),
+        description: t('products.aiGenerated', { defaultValue: 'AI listing draft generated.' }),
+      });
+    } catch (err: any) {
+      handleAiError(err, t('products.saveFailed'));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const [business, setBusiness] = useState<Business | null>(null);
   const [listings, setListings] = useState<Listing[]>([]);
@@ -34,10 +151,15 @@ const Products = () => {
     description: ""
   });
   const [savingCategory, setSavingCategory] = useState(false);
+
+  const [postingListingId, setPostingListingId] = useState<string | null>(null);
+  const [pendingReel, setPendingReel] = useState<{ listingId: string; caption?: string } | null>(null);
+  const reelInputRef = useRef<HTMLInputElement | null>(null);
   
   const [form, setForm] = useState({ 
     title: "", 
     price: "", 
+    oldPrice: "",
     description: "",
     listingType: undefined as undefined | Listing['listingType'],
     priceType: "fixed" as "fixed" | "per_day" | "per_month" | "per_hour" | "starting_from" | "inquiry",
@@ -46,7 +168,7 @@ const Products = () => {
     isFeatured: false,
     stock: "",
     sku: "",
-    pricingOptions: [] as { label: string; price: string }[],
+    pricingOptions: [] as { label: string; price: string; oldPrice?: string }[],
     attributes: [] as { name: string; value: string }[],
     images: [] as { url: string; alt?: string }[],
   });
@@ -59,12 +181,12 @@ const Products = () => {
 
   // Get appropriate field labels based on listing type
   const getFieldLabels = (type: Listing['listingType']) => {
-    const labels = {
-      product: { title: 'Product Name', price: 'Price' },
-      service: { title: 'Service Name', price: 'Service Fee' },
-      food: { title: 'Food Item Name', price: 'Price' },
-      course: { title: 'Course Name', price: 'Course Fee' },
-      rental: { title: 'Item Name', price: 'Rent (per day/month)' }
+    const labels: Record<Listing['listingType'], { title: string; price: string }> = {
+      product: { title: t('products.fieldLabels.product.title'), price: t('products.fieldLabels.product.price') },
+      service: { title: t('products.fieldLabels.service.title'), price: t('products.fieldLabels.service.price') },
+      food: { title: t('products.fieldLabels.food.title'), price: t('products.fieldLabels.food.price') },
+      course: { title: t('products.fieldLabels.course.title'), price: t('products.fieldLabels.course.price') },
+      rental: { title: t('products.fieldLabels.rental.title'), price: t('products.fieldLabels.rental.price') },
     };
 
     return labels[type] || labels.product;
@@ -102,10 +224,10 @@ const Products = () => {
           navigate("/onboarding");
         }
       } catch (err: any) {
-        setError(err.message || "Failed to fetch data");
+        setError(err.message || t('products.fetchFailed'));
         toast({
-          title: "Error",
-          description: err.message || "Failed to fetch data",
+          title: t('products.errorTitle'),
+          description: err.message || t('products.fetchFailed'),
           variant: "destructive"
         });
       } finally {
@@ -115,6 +237,48 @@ const Products = () => {
 
     fetchData();
   }, [isAuthenticated, navigate, toast]);
+
+  const startEdit = (listing: Listing) => {
+    const derivedListingType = listing.listingType || getSuggestedListingType(business);
+    const categoryId = typeof listing.category === 'string' ? listing.category : (listing.category as any)?._id || "";
+    setForm({
+      title: listing.title,
+      price: String(listing.price),
+      oldPrice: listing.oldPrice !== undefined && listing.oldPrice !== null ? String(listing.oldPrice) : "",
+      description: listing.description || "",
+      listingType: derivedListingType,
+      priceType: listing.priceType,
+      category: categoryId,
+      isActive: listing.isActive,
+      isFeatured: listing.isFeatured,
+      stock: listing.stock ? String(listing.stock) : "",
+      sku: listing.sku || "",
+      pricingOptions: (listing.pricingOptions || []).map((o: any) => ({
+        label: o.label,
+        price: String(o.price),
+        oldPrice: o.oldPrice !== undefined && o.oldPrice !== null ? String(o.oldPrice) : "",
+      })),
+      attributes: (listing.attributes || []).map(a => ({ name: a.name, value: a.value })),
+      images: (listing.images || []).map(img => ({ url: img.url || "", alt: img.alt })),
+    });
+    setEditId(listing._id);
+    setShowAdd(true);
+  };
+
+  // Auto-open edit modal when coming from detail page with `?edit=<listingId>`.
+  // Must be defined before early returns to keep hook order stable.
+  useEffect(() => {
+    const pending = editFromQuery.current;
+    if (!pending) return;
+    if (loading) return;
+    if (showAdd) return;
+    const l = listings.find((x) => x._id === pending);
+    if (!l) return;
+    startEdit(l);
+    editFromQuery.current = null;
+    // Clean the URL so refresh/back doesn't re-open edit.
+    navigate('/dashboard/listings', { replace: true });
+  }, [loading, listings, navigate, showAdd]);
 
   // Loading state
   if (loading) {
@@ -140,7 +304,7 @@ const Products = () => {
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center space-y-3">
           <AlertCircle className="w-12 h-12 text-destructive mx-auto" />
-          <p className="text-sm text-muted-foreground">{error || "Business not found"}</p>
+          <p className="text-sm text-muted-foreground">{error || t('products.businessNotFound')}</p>
         </div>
       </div>
     );
@@ -153,6 +317,7 @@ const Products = () => {
   const activeListings = listings.filter(l => l.isActive).length;
 
   const features = entitlements?.features;
+  const listingStoriesEnabled = features?.storiesEnabled === true && features?.listingStoriesEnabled === true;
   const maxListings = features?.maxListings;
   const maxListingsReached =
     !entitlementsLoading &&
@@ -184,14 +349,14 @@ const Products = () => {
       if (response.success && response.data) {
         setListings(prev => prev.map(l => l._id === id ? response.data! : l));
         toast({
-          title: "Success",
-          description: `Listing ${response.data.isActive ? 'activated' : 'deactivated'} successfully`
+          title: t('products.successTitle'),
+          description: response.data.isActive ? t('products.listingActivated') : t('products.listingDeactivated'),
         });
       }
     } catch (err: any) {
       toast({
-        title: "Error",
-        description: err.message || "Failed to update listing",
+        title: t('products.errorTitle'),
+        description: err.message || t('products.listingUpdateFailed'),
         variant: "destructive"
       });
     }
@@ -206,8 +371,8 @@ const Products = () => {
       if (nextIsFeatured && features) {
         if (features.featuredEnabled !== true) {
           toast({
-            title: "Upgrade required",
-            description: "Featured listings are not enabled in your plan",
+            title: t('products.upgradeRequired'),
+            description: t('products.featuredNotEnabled'),
             variant: "destructive",
           });
           return;
@@ -218,8 +383,8 @@ const Products = () => {
           const currentFeaturedCount = listings.filter(l => l.isFeatured).length;
           if (currentFeaturedCount >= limit) {
             toast({
-              title: "Limit reached",
-              description: `Your plan allows maximum ${limit} featured listings`,
+              title: t('products.limitReachedTitle'),
+              description: t('products.planMaxFeatured', { limit }),
               variant: "destructive",
             });
             return;
@@ -231,35 +396,105 @@ const Products = () => {
       if (response.success && response.data) {
         setListings(prev => prev.map(l => l._id === id ? response.data! : l));
         toast({
-          title: "Success",
-          description: response.data.isFeatured ? "Marked as featured" : "Removed from featured",
+          title: t('products.successTitle'),
+          description: response.data.isFeatured ? t('products.markedFeatured') : t('products.removedFeatured'),
         });
       }
     } catch (err: any) {
       toast({
-        title: "Error",
-        description: err.message || "Failed to update featured",
+        title: t('products.errorTitle'),
+        description: err.message || t('products.listingUpdateFailed'),
         variant: "destructive",
       });
     }
   };
 
+  const postListingAsStory = async (listing: Listing) => {
+    if (!listingStoriesEnabled) {
+      toast({
+        title: t('products.notAvailableTitle'),
+        description: t('products.storiesNotAllowed'),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setPostingListingId(listing._id);
+      const res = await storiesApi.createFromListing({
+        listingId: listing._id,
+        kind: "story",
+        caption: listing.title,
+      });
+      if (!res.success) throw new Error(res.message || t('products.postStoryFailed'));
+      toast({ title: t('products.postedTitle'), description: t('products.storyCreated') });
+    } catch (err: any) {
+      toast({
+        title: t('products.errorTitle'),
+        description: err?.message || t('products.postStoryFailed'),
+        variant: "destructive",
+      });
+    } finally {
+      setPostingListingId(null);
+    }
+  };
+
+  const startPostListingAsReel = (listing: Listing) => {
+    if (!listingStoriesEnabled) {
+      toast({
+        title: t('products.notAvailableTitle'),
+        description: t('products.storiesNotAllowed'),
+        variant: "destructive",
+      });
+      return;
+    }
+    setPendingReel({ listingId: listing._id, caption: listing.title });
+    reelInputRef.current?.click();
+  };
+
+  const handleReelFilePicked = async (files: FileList | null) => {
+    const file = files?.[0];
+    const pending = pendingReel;
+    if (!file || !pending?.listingId) return;
+
+    try {
+      setPostingListingId(pending.listingId);
+      const res = await storiesApi.createFromListing({
+        listingId: pending.listingId,
+        kind: "reel",
+        caption: pending.caption,
+        file,
+      });
+      if (!res.success) throw new Error(res.message || t('products.postReelFailed'));
+      toast({ title: t('products.postedTitle'), description: t('products.reelCreated') });
+    } catch (err: any) {
+      toast({
+        title: t('products.errorTitle'),
+        description: err?.message || t('products.postReelFailed'),
+        variant: "destructive",
+      });
+    } finally {
+      setPostingListingId(null);
+      setPendingReel(null);
+    }
+  };
+
   const deleteListing = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this listing?")) return;
+    if (!confirm(t('products.confirmDeleteListing'))) return;
     
     try {
       const response = await listingApi.deleteListing(id);
       if (response.success) {
         setListings(prev => prev.filter(l => l._id !== id));
         toast({
-          title: "Success",
-          description: "Listing deleted successfully"
+          title: t('products.successTitle'),
+          description: t('products.listingDeleted'),
         });
       }
     } catch (err: any) {
       toast({
-        title: "Error",
-        description: err.message || "Failed to delete listing",
+        title: t('products.errorTitle'),
+        description: err.message || t('products.listingDeleteFailed'),
         variant: "destructive"
       });
     }
@@ -268,8 +503,8 @@ const Products = () => {
   const handleSave = async () => {
     if (!form.title || !form.price || !form.description) {
       toast({
-        title: "Validation Error",
-        description: "Please fill in all required fields",
+        title: t('products.validationErrorTitle'),
+        description: t('products.validationRequiredFields'),
         variant: "destructive"
       });
       return;
@@ -277,8 +512,8 @@ const Products = () => {
 
     if ((form.images || []).length === 0) {
       toast({
-        title: "Validation Error",
-        description: "Please upload at least 1 image",
+        title: t('products.validationErrorTitle'),
+        description: t('products.validationMinImage'),
         variant: "destructive",
       });
       return;
@@ -286,8 +521,8 @@ const Products = () => {
 
     if (uploadingImages) {
       toast({
-        title: "Please wait",
-        description: "Images are still uploading",
+        title: t('products.pleaseWaitTitle'),
+        description: t('products.imagesStillUploading'),
         variant: "destructive",
       });
       return;
@@ -299,8 +534,8 @@ const Products = () => {
         if (typeof limit === "number" && limit >= 0) {
           if (listings.length >= limit) {
             toast({
-              title: "Limit reached",
-              description: `Your plan allows maximum ${limit} listings. Please upgrade.`,
+              title: t('products.limitReachedTitle'),
+              description: t('products.planMaxListings', { limit }),
               variant: "destructive",
             });
             return;
@@ -311,8 +546,8 @@ const Products = () => {
       if (form.isFeatured) {
         if (features.featuredEnabled !== true) {
           toast({
-            title: "Upgrade required",
-            description: "Featured listings are not enabled in your plan",
+            title: t('products.upgradeRequired'),
+            description: t('products.featuredNotEnabled'),
             variant: "destructive",
           });
           return;
@@ -326,8 +561,8 @@ const Products = () => {
             const currentFeaturedCount = listings.filter(l => l.isFeatured).length;
             if (currentFeaturedCount >= limit) {
               toast({
-                title: "Limit reached",
-                description: `Your plan allows maximum ${limit} featured listings`,
+                title: t('products.limitReachedTitle'),
+                description: t('products.planMaxFeatured', { limit }),
                 variant: "destructive",
               });
               return;
@@ -346,7 +581,11 @@ const Products = () => {
         .filter(a => a.name && a.value);
 
       const pricingOptions = (form.pricingOptions || [])
-        .map(o => ({ label: String(o.label || '').trim(), price: Number(o.price) }))
+        .map(o => ({
+          label: String(o.label || '').trim(),
+          price: Number(o.price),
+          ...(offersEnabled && o.oldPrice !== undefined && o.oldPrice !== null && o.oldPrice !== '' ? { oldPrice: Number(o.oldPrice) } : {}),
+        }))
         .filter(o => o.label && Number.isFinite(o.price) && o.price >= 0);
 
       const images = (form.images || [])
@@ -360,6 +599,7 @@ const Products = () => {
           description: form.description,
           listingType,
           price: Number(form.price),
+          ...(offersEnabled && form.oldPrice !== '' ? { oldPrice: Number(form.oldPrice) } : {}),
           priceType: form.priceType,
           pricingOptions,
           attributes,
@@ -377,8 +617,8 @@ const Products = () => {
         if (response.success && response.data) {
           setListings(prev => prev.map(l => l._id === editId ? response.data! : l));
           toast({
-            title: "Success",
-            description: "Listing updated successfully"
+            title: t('products.successTitle'),
+            description: t('products.listingUpdated'),
           });
         }
       } else {
@@ -389,6 +629,7 @@ const Products = () => {
           description: form.description,
           listingType,
           price: Number(form.price),
+          ...(offersEnabled && form.oldPrice !== '' ? { oldPrice: Number(form.oldPrice) } : {}),
           priceType: form.priceType,
           pricingOptions,
           attributes,
@@ -406,16 +647,16 @@ const Products = () => {
         if (response.success && response.data) {
           setListings(prev => [response.data!, ...prev]);
           toast({
-            title: "Success",
-            description: "Listing created successfully"
+            title: t('products.successTitle'),
+            description: t('products.listingCreated'),
           });
         }
       }
       closeForm();
     } catch (err: any) {
       toast({
-        title: "Error",
-        description: err.message || "Failed to save listing",
+        title: t('products.errorTitle'),
+        description: err.message || t('products.saveFailed'),
         variant: "destructive"
       });
     } finally {
@@ -427,8 +668,8 @@ const Products = () => {
   const handleSaveCategory = async () => {
     if (!categoryForm.name.trim()) {
       toast({
-        title: "Validation Error",
-        description: "Category name is required",
+        title: t('products.validationErrorTitle'),
+        description: t('products.categories.validationNameRequired'),
         variant: "destructive"
       });
       return;
@@ -445,8 +686,8 @@ const Products = () => {
         if (response.success && response.data) {
           setCategories(prev => prev.map(c => c._id === editCategoryId ? response.data! : c));
           toast({
-            title: "Success",
-            description: "Category updated successfully"
+            title: t('products.successTitle'),
+            description: t('products.categories.updated'),
           });
           closeCategoryForm();
         }
@@ -460,16 +701,16 @@ const Products = () => {
         if (response.success && response.data) {
           setCategories(prev => [...prev, response.data!]);
           toast({
-            title: "Success",
-            description: "Category created successfully"
+            title: t('products.successTitle'),
+            description: t('products.categories.created'),
           });
           closeCategoryForm();
         }
       }
     } catch (err: any) {
       toast({
-        title: "Error",
-        description: err.message || "Failed to save category",
+        title: t('products.errorTitle'),
+        description: err.message || t('products.categories.saveFailed'),
         variant: "destructive"
       });
     } finally {
@@ -478,21 +719,21 @@ const Products = () => {
   };
 
   const deleteCategory = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this category? Listings using this category will need to be updated.")) return;
+    if (!confirm(t('products.categories.deleteConfirm'))) return;
     
     try {
       const response = await categoryApi.deleteCategory(id);
       if (response.success) {
         setCategories(prev => prev.filter(c => c._id !== id));
         toast({
-          title: "Success",
-          description: "Category deleted successfully"
+          title: t('products.successTitle'),
+          description: t('products.categories.deleted'),
         });
       }
     } catch (err: any) {
       toast({
-        title: "Error",
-        description: err.message || "Failed to delete category",
+        title: t('products.errorTitle'),
+        description: err.message || t('products.categories.deleteFailed'),
         variant: "destructive"
       });
     }
@@ -513,34 +754,13 @@ const Products = () => {
     setCategoryForm({ name: "", description: "" });
   };
 
-  const startEdit = (listing: Listing) => {
-    const derivedListingType = listing.listingType || getSuggestedListingType(business);
-    const categoryId = typeof listing.category === 'string' ? listing.category : (listing.category as any)?._id || "";
-    setForm({
-      title: listing.title,
-      price: String(listing.price),
-      description: listing.description || "",
-      listingType: derivedListingType,
-      priceType: listing.priceType,
-      category: categoryId,
-      isActive: listing.isActive,
-      isFeatured: listing.isFeatured,
-      stock: listing.stock ? String(listing.stock) : "",
-      sku: listing.sku || "",
-      pricingOptions: (listing.pricingOptions || []).map((o) => ({ label: o.label, price: String(o.price) })),
-      attributes: (listing.attributes || []).map(a => ({ name: a.name, value: a.value })),
-      images: (listing.images || []).map(img => ({ url: img.url || "", alt: img.alt })),
-    });
-    setEditId(listing._id);
-    setShowAdd(true);
-  };
-
   const closeForm = () => {
     setShowAdd(false);
     setEditId(null);
     setForm({ 
       title: "", 
       price: "", 
+      oldPrice: "",
       description: "",
       listingType: undefined,
       priceType: "fixed",
@@ -567,7 +787,7 @@ const Products = () => {
         fileArray.map(async (file) => {
           const res = await uploadApi.uploadImage(file, 'apnidukan/listings');
           if (!res.success || !res.data?.url) {
-            throw new Error(res.message || 'Upload failed');
+            throw new Error(res.message || t('products.failedToUploadImages'));
           }
           return { url: res.data.url, alt: res.data.alt || file.name };
         })
@@ -581,7 +801,7 @@ const Products = () => {
           uploaded.push(r.value);
         } else {
           failed += 1;
-          const msg = (r.reason && (r.reason.message || String(r.reason))) || 'Upload failed';
+          const msg = (r.reason && (r.reason.message || String(r.reason))) || t('products.failedToUploadImages');
           errorMessages.push(msg);
         }
       }
@@ -595,15 +815,17 @@ const Products = () => {
 
       if (failed > 0) {
         toast({
-          title: 'Upload Error',
-          description: errorMessages[0] ? `${failed} image(s) failed: ${errorMessages[0]}` : `${failed} image(s) failed to upload`,
+          title: t('products.uploadErrorTitle'),
+          description: errorMessages[0]
+            ? t('products.imageUploadFailed', { count: failed, message: errorMessages[0] })
+            : t('products.imageUploadFailedGeneric', { count: failed }),
           variant: 'destructive',
         });
       }
     } catch (err: any) {
       toast({
-        title: 'Upload Error',
-        description: err.message || 'Failed to upload images',
+        title: t('products.uploadErrorTitle'),
+        description: err.message || t('products.failedToUploadImages'),
         variant: 'destructive',
       });
     } finally {
@@ -649,11 +871,11 @@ const Products = () => {
   const addPricingOption = () => {
     setForm(prev => ({
       ...prev,
-      pricingOptions: [...(prev.pricingOptions || []), { label: "", price: "" }]
+      pricingOptions: [...(prev.pricingOptions || []), { label: "", price: "", oldPrice: "" }]
     }));
   };
 
-  const updatePricingOption = (index: number, key: "label" | "price", value: string) => {
+  const updatePricingOption = (index: number, key: "label" | "price" | "oldPrice", value: string) => {
     setForm(prev => ({
       ...prev,
       pricingOptions: (prev.pricingOptions || []).map((o, i) => (i === index ? { ...o, [key]: value } : o))
@@ -669,51 +891,58 @@ const Products = () => {
 
   return (
     <div className="space-y-6">
+      <input
+        ref={reelInputRef}
+        type="file"
+        accept="video/*"
+        className="hidden"
+        onChange={(e) => {
+          void handleReelFilePicked(e.target.files);
+          // reset to allow picking same file again
+          e.currentTarget.value = "";
+        }}
+      />
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">
-            {listingType === 'product' ? 'Products' : 
-             listingType === 'service' ? 'Services' : 
-             listingType === 'food' ? 'Menu Items' : 
-             listingType === 'course' ? 'Courses' : 
-             'Rental Items'}
+            {t(`products.listingType.${listingType}`)}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {typeof maxListings === 'number' ? (
               maxListings < 0 ? (
                 <>
-                  {listings.length} listings · Unlimited · {activeListings} active
+                  {t('products.summary.listings', { count: listings.length })} · {t('products.summary.unlimited')} · {t('products.summary.active', { count: activeListings })}
                   {!entitlementsLoading && featuredEnabled && (
                     <>
                       {maxFeaturedListings < 0
-                        ? ` · Featured: ${featuredCount}/Unlimited`
-                        : ` · Featured: ${featuredCount}/${maxFeaturedListings}`}
+                        ? ` · ${t('products.summary.featuredUnlimited', { count: featuredCount })}`
+                        : ` · ${t('products.summary.featuredLimited', { count: featuredCount, limit: maxFeaturedListings })}`}
                     </>
                   )}
                 </>
               ) : (
                 <>
-                  {listings.length}/{maxListings} listings
-                  {maxListingsReached && <span className="text-destructive"> · Limit reached</span>}
-                  {` · ${activeListings} active`}
+                  {t('products.summary.listings', { count: `${listings.length}/${maxListings}` })}
+                  {maxListingsReached && <span className="text-destructive"> · {t('products.summary.limitReached')}</span>}
+                  {` · ${t('products.summary.active', { count: activeListings })}`}
                   {!entitlementsLoading && featuredEnabled && (
                     <>
                       {maxFeaturedListings < 0
-                        ? ` · Featured: ${featuredCount}/Unlimited`
-                        : ` · Featured: ${featuredCount}/${maxFeaturedListings}`}
+                        ? ` · ${t('products.summary.featuredUnlimited', { count: featuredCount })}`
+                        : ` · ${t('products.summary.featuredLimited', { count: featuredCount, limit: maxFeaturedListings })}`}
                     </>
                   )}
                 </>
               )
             ) : (
               <>
-                {listings.length} listings · {activeListings} active
+                {t('products.summary.listings', { count: listings.length })} · {t('products.summary.active', { count: activeListings })}
                 {!entitlementsLoading && featuredEnabled && (
                   <>
                     {maxFeaturedListings < 0
-                      ? ` · Featured: ${featuredCount}/Unlimited`
-                      : ` · Featured: ${featuredCount}/${maxFeaturedListings}`}
+                      ? ` · ${t('products.summary.featuredUnlimited', { count: featuredCount })}`
+                      : ` · ${t('products.summary.featuredLimited', { count: featuredCount, limit: maxFeaturedListings })}`}
                   </>
                 )}
               </>
@@ -725,26 +954,26 @@ const Products = () => {
             whileTap={{ scale: 0.95 }} 
             onClick={() => setShowCategoryManagement(!showCategoryManagement)}
             className="flex items-center justify-center gap-2 bg-secondary text-secondary-foreground px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm">
-            <Tag className="w-4 h-4" /> Categories ({categories.length})
+            <Tag className="w-4 h-4" /> {t('products.buttons.categories', { count: categories.length })}
           </motion.button>
           <motion.button 
             whileTap={{ scale: 0.95 }} 
             onClick={() => { 
               if (maxListingsReached) {
                 toast({
-                  title: "Limit reached",
-                  description: `Your plan allows maximum ${maxListings} listings. Please upgrade.`,
+                  title: t('products.limitReachedTitle'),
+                  description: t('products.planMaxListings', { limit: maxListings }),
                   variant: "destructive",
                 });
                 return;
               }
               setShowAdd(true); 
               setEditId(null); 
-              const businessTypeSlug = (business.businessType as any)?.slug ?? '';
-              const defaultListingType = getListingType(businessTypeSlug);
+              const defaultListingType = getSuggestedListingType(business);
               setForm({ 
                 title: "", 
                 price: "", 
+                oldPrice: "",
                 description: "",
                 listingType: defaultListingType,
                 priceType: "fixed",
@@ -760,11 +989,7 @@ const Products = () => {
             }}
             disabled={maxListingsReached}
             className={`flex items-center justify-center gap-2 bg-primary text-primary-foreground px-5 py-2.5 rounded-xl text-sm font-semibold shadow-lg shadow-primary/20 ${maxListingsReached ? "opacity-60 cursor-not-allowed" : ""}`}>
-            <Plus className="w-4 h-4" /> Add {listingType === 'product' ? 'Product' : 
-                                                listingType === 'service' ? 'Service' : 
-                                                listingType === 'food' ? 'Item' : 
-                                                listingType === 'course' ? 'Course' : 
-                                                'Item'}
+            <Plus className="w-4 h-4" /> {t('products.buttons.add', { item: t(`products.itemType.${listingType}`) })}
           </motion.button>
         </div>
       </div>
@@ -781,8 +1006,8 @@ const Products = () => {
             <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-bold text-foreground">Manage Categories</h3>
-                  <p className="text-sm text-muted-foreground">Create categories to organize your products/services</p>
+                  <h3 className="text-lg font-bold text-foreground">{t('products.categories.manageTitle')}</h3>
+                  <p className="text-sm text-muted-foreground">{t('products.categories.manageDesc')}</p>
                 </div>
                 <motion.button
                   whileTap={{ scale: 0.95 }}
@@ -792,14 +1017,14 @@ const Products = () => {
                   }}
                   className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-semibold"
                 >
-                  <FolderPlus className="w-4 h-4" /> New Category
+                  <FolderPlus className="w-4 h-4" /> {t('products.categories.newCategory')}
                 </motion.button>
               </div>
 
               {categories.length === 0 ? (
                 <div className="text-center py-8">
                   <Tag className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
-                  <p className="text-sm text-muted-foreground">No categories yet. Create one to get started!</p>
+                  <p className="text-sm text-muted-foreground">{t('products.categories.noneYet')}</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -860,7 +1085,11 @@ const Products = () => {
             >
               <div className="bg-card border border-border rounded-2xl p-6 space-y-4 w-full max-w-md shadow-2xl pointer-events-auto">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-lg">{editCategoryId ? "Edit" : "Add"} Category</h3>
+                  <h3 className="font-bold text-lg">
+                    {t('products.categories.modalTitle', {
+                      mode: editCategoryId ? t('products.categories.modeEdit') : t('products.categories.modeAdd'),
+                    })}
+                  </h3>
                   <button onClick={closeCategoryForm}>
                     <X className="w-5 h-5 text-muted-foreground" />
                   </button>
@@ -869,7 +1098,9 @@ const Products = () => {
                 {/* Example Categories Suggestions */}
                 {!editCategoryId && business.businessType?.exampleCategories && business.businessType.exampleCategories.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-sm font-medium text-muted-foreground">Suggested Categories for {business.businessType.name}:</p>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      {t('products.categories.suggestedFor', { businessType: business.businessType.name })}
+                    </p>
                     <div className="flex flex-wrap gap-2">
                       {business.businessType.exampleCategories.map((example, idx) => (
                         <motion.button
@@ -888,14 +1119,14 @@ const Products = () => {
                 )}
 
                 <input
-                  placeholder="Category Name *"
+                  placeholder={t('products.categories.namePlaceholder')}
                   value={categoryForm.name}
                   onChange={e => setCategoryForm({ ...categoryForm, name: e.target.value })}
                   className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
 
                 <textarea
-                  placeholder="Description (optional)"
+                  placeholder={t('products.categories.descPlaceholder')}
                   value={categoryForm.description}
                   onChange={e => setCategoryForm({ ...categoryForm, description: e.target.value })}
                   className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-sm resize-none h-20 focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -908,13 +1139,13 @@ const Products = () => {
                     className="flex-1 bg-primary text-primary-foreground py-3 rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {savingCategory && <Loader2 className="w-4 h-4 animate-spin" />}
-                    {editCategoryId ? "Update" : "Create"} Category
+                    {editCategoryId ? t('products.categories.update') : t('products.categories.create')}
                   </button>
                   <button
                     onClick={closeCategoryForm}
                     className="px-6 py-3 border border-border rounded-xl text-sm hover:bg-muted transition-colors"
                   >
-                    Cancel
+                    {t('products.categories.cancel')}
                   </button>
                 </div>
               </div>
@@ -927,7 +1158,7 @@ const Products = () => {
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <input 
-          placeholder="Search listings..." 
+          placeholder={t('products.searchPlaceholder')}
           value={search} 
           onChange={e => setSearch(e.target.value)}
           className="w-full pl-10 pr-4 py-3 bg-card border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" 
@@ -950,12 +1181,12 @@ const Products = () => {
                     {(form.images || []).length > 0 ? (
                       <img
                         src={(form.images || [])[0]?.url}
-                        alt={(form.images || [])[0]?.alt || form.title || 'Listing image'}
+                        alt={(form.images || [])[0]?.alt || form.title || t('products.listingImageAlt')}
                         className="h-full w-full object-cover"
                       />
                     ) : (
                       <div className="h-full w-full flex items-center justify-center text-sm text-muted-foreground">
-                        Upload at least 1 image
+                        {t('products.uploadAtLeastOne')}
                       </div>
                     )}
 
@@ -963,14 +1194,14 @@ const Products = () => {
 
                     <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold text-foreground">Images *</p>
+                        <p className="text-xs font-semibold text-foreground">{t('products.imagesLabel')}</p>
                         <p className="text-[11px] text-muted-foreground truncate">
-                          {(form.images || []).length} uploaded
+                          {t('products.uploadedCount', { count: (form.images || []).length })}
                         </p>
                       </div>
                       <label className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold border border-border bg-card ${uploadingImages ? 'text-muted-foreground' : 'text-foreground hover:bg-muted'} cursor-pointer`}>
                         {uploadingImages && <Loader2 className="w-4 h-4 animate-spin" />}
-                        {uploadingImages ? 'Uploading…' : 'Upload images'}
+                        {uploadingImages ? t('products.uploading') : t('products.uploadImages')}
                         <input
                           type="file"
                           accept="image/*"
@@ -988,7 +1219,7 @@ const Products = () => {
                     {uploadingImages && (
                       <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
                         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                          <Loader2 className="w-5 h-5 animate-spin" /> Uploading…
+                          <Loader2 className="w-5 h-5 animate-spin" /> {t('products.uploading')}
                         </div>
                       </div>
                     )}
@@ -1015,8 +1246,8 @@ const Products = () => {
                               });
                             }}
                             className={`h-12 w-12 rounded-lg overflow-hidden border ${idx === 0 ? 'border-primary' : 'border-border'} bg-muted`}
-                            title={idx === 0 ? 'Main image' : 'Set as main'}>
-                            <img src={img.url} alt={img.alt || 'Listing image'} className="h-full w-full object-cover" />
+                            title={idx === 0 ? t('products.mainImage') : t('products.setAsMain')}>
+                            <img src={img.url} alt={img.alt || t('products.listingImageAlt')} className="h-full w-full object-cover" />
                           </button>
                         </div>
                       ))}
@@ -1025,7 +1256,9 @@ const Products = () => {
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-lg">{editId ? "Edit" : "Add"} {getFieldLabels(form.listingType || listingType).title}</h3>
+                  <h3 className="font-bold text-lg">
+                    {editId ? t('products.update') : t('products.add')} {getFieldLabels(form.listingType || listingType).title}
+                  </h3>
                   <button onClick={closeForm}><X className="w-5 h-5 text-muted-foreground" /></button>
                 </div>
 
@@ -1037,41 +1270,52 @@ const Products = () => {
 
                 {/* Category Selector */}
                 <div>
-                  <label className="text-sm font-medium text-foreground mb-2 block">Category (optional)</label>
+                  <label className="text-sm font-medium text-foreground mb-2 block">{t('products.categoryOptional')}</label>
                   <select
                     value={form.category}
                     onChange={e => setForm({ ...form, category: e.target.value })}
                     className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                   >
-                    <option value="">No category</option>
+                    <option value="">{t('products.noCategory')}</option>
                     {categories.map(cat => (
                       <option key={cat._id} value={cat._id}>{cat.name}</option>
                     ))}
                   </select>
                   {categories.length === 0 && (
                     <p className="text-xs text-muted-foreground mt-1">
-                      Create categories using the "Categories" button to organize your listings
+                      {t('products.noCategoriesHint')}
                     </p>
                   )}
                 </div>
                 
                 <input 
-                  placeholder={`${getFieldLabels(form.listingType || listingType).title} *`} 
+                  placeholder={t('products.titlePlaceholder', { title: getFieldLabels(form.listingType || listingType).title })}
                   value={form.title} 
                   onChange={e => setForm({ ...form, title: e.target.value })}
                   className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" 
                 />
                 
                 <textarea 
-                  placeholder="Description *" 
+                  placeholder={t('products.descriptionPlaceholder')}
                   value={form.description} 
                   onChange={e => setForm({ ...form, description: e.target.value })}
                   className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-sm resize-none h-20 focus:outline-none focus:ring-2 focus:ring-primary/30" 
                 />
+
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => void generateListingDescriptionAi()}
+                    disabled={saving || !aiToolsEnabled}
+                    className="px-3 py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground disabled:opacity-50"
+                  >
+                    {t('products.aiGenerate', { defaultValue: 'Generate with AI' })}
+                  </button>
+                </div>
                 
                 <div className="grid grid-cols-2 gap-3">
                   <input 
-                    placeholder={`${getFieldLabels(form.listingType || listingType).price} (₹) *`} 
+                    placeholder={t('products.pricePlaceholder', { price: getFieldLabels(form.listingType || listingType).price })}
                     type="number" 
                     value={form.price} 
                     onChange={e => setForm({ ...form, price: e.target.value })}
@@ -1081,26 +1325,51 @@ const Products = () => {
                     value={form.priceType} 
                     onChange={e => setForm({ ...form, priceType: e.target.value as any })}
                     className="px-4 py-3 bg-muted border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30">
-                    <option value="fixed">Fixed</option>
-                    <option value="starting_from">Starting From</option>
-                    <option value="per_hour">Per Hour</option>
-                    <option value="per_day">Per Day</option>
-                    <option value="per_month">Per Month</option>
-                    <option value="inquiry">Inquiry / Call</option>
+                    <option value="fixed">{t('products.priceType.fixed')}</option>
+                    <option value="starting_from">{t('products.priceType.starting_from')}</option>
+                    <option value="per_hour">{t('products.priceType.per_hour')}</option>
+                    <option value="per_day">{t('products.priceType.per_day')}</option>
+                    <option value="per_month">{t('products.priceType.per_month')}</option>
+                    <option value="inquiry">{t('products.priceType.inquiry')}</option>
                   </select>
                 </div>
+
+                {offersEnabled && (
+                  <div className="space-y-1">
+                    <input
+                      placeholder={t('products.oldPricePlaceholder')}
+                      type="number"
+                      value={form.oldPrice}
+                      onChange={e => setForm({ ...form, oldPrice: e.target.value })}
+                      className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                    {(() => {
+                      const price = Number(form.price);
+                      const oldPrice = Number(form.oldPrice);
+                      if (!Number.isFinite(price) || !Number.isFinite(oldPrice)) return null;
+                      if (oldPrice <= price || oldPrice <= 0) return null;
+                      const percent = Math.round(((oldPrice - price) / oldPrice) * 100);
+                      if (percent <= 0) return null;
+                      return (
+                        <p className="text-xs text-muted-foreground">
+                          {t('products.discountPreview', { percent })}
+                        </p>
+                      );
+                    })()}
+                  </div>
+                )}
                 
                 {(form.listingType || listingType) === 'product' && (
                   <div className="grid grid-cols-2 gap-3">
                     <input 
-                      placeholder="Stock/Quantity" 
+                      placeholder={t('products.stockPlaceholder')}
                       type="number" 
                       value={form.stock} 
                       onChange={e => setForm({ ...form, stock: e.target.value })}
                       className="px-4 py-3 bg-muted border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" 
                     />
                     <input 
-                      placeholder="SKU" 
+                      placeholder={t('products.skuPlaceholder')}
                       value={form.sku} 
                       onChange={e => setForm({ ...form, sku: e.target.value })}
                       className="px-4 py-3 bg-muted border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" 
@@ -1116,7 +1385,7 @@ const Products = () => {
                       onChange={e => setForm({ ...form, isActive: e.target.checked })}
                       className="h-4 w-4"
                     />
-                    Active
+                    {t('products.active')}
                   </label>
                   <label className="flex items-center gap-2 px-4 py-3 bg-muted border border-border rounded-xl text-sm">
                     <input
@@ -1124,12 +1393,11 @@ const Products = () => {
                       checked={form.isFeatured}
                       onChange={e => {
                         if (!form.isFeatured && disableFeaturedCheckbox) {
-                          const limitText = !featuredEnabled
-                            ? "Featured listings are not enabled in your plan"
-                            : `Your plan allows maximum ${maxFeaturedListings} featured listings`;
                           toast({
-                            title: "Not available",
-                            description: limitText,
+                            title: t('products.notAvailableTitle'),
+                            description: !featuredEnabled
+                              ? t('products.featuredNotEnabled')
+                              : t('products.planMaxFeatured', { limit: maxFeaturedListings }),
                             variant: "destructive",
                           });
                           return;
@@ -1139,41 +1407,53 @@ const Products = () => {
                       disabled={disableFeaturedCheckbox}
                       className="h-4 w-4"
                     />
-                    Featured
+                    {t('products.featured')}
                   </label>
                 </div>
 
                 {/* Pricing Options */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-foreground">Pricing options (optional)</p>
+                    <p className="text-sm font-semibold text-foreground">{t('products.pricingOptionsTitle')}</p>
                     <button
                       type="button"
                       onClick={addPricingOption}
                       className="text-xs font-semibold text-primary hover:underline">
-                      + Add option
+                      {t('products.addOption')}
                     </button>
                   </div>
 
                   {(form.pricingOptions || []).length === 0 ? (
-                    <p className="text-xs text-muted-foreground">Add selectable options like Half / Full, Basic / Premium, 1 hour / 2 hours, etc.</p>
+                    <p className="text-xs text-muted-foreground">{t('products.pricingOptionsHint')}</p>
                   ) : (
                     <div className="space-y-2">
                       {(form.pricingOptions || []).map((opt, idx) => (
-                        <div key={idx} className="grid grid-cols-[1fr_140px_auto] gap-2">
+                        <div
+                          key={idx}
+                          className={offersEnabled ? "grid grid-cols-[1fr_140px_140px_auto] gap-2" : "grid grid-cols-[1fr_140px_auto] gap-2"}
+                        >
                           <input
-                            placeholder="label (e.g. Half plate)"
+                            placeholder={t('products.optionLabelPlaceholder')}
                             value={opt.label}
                             onChange={e => updatePricingOption(idx, "label", e.target.value)}
                             className="px-3 py-2.5 bg-muted border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                           />
                           <input
-                            placeholder="price"
+                            placeholder={t('products.optionPricePlaceholder')}
                             inputMode="decimal"
                             value={opt.price}
                             onChange={e => updatePricingOption(idx, "price", e.target.value)}
                             className="px-3 py-2.5 bg-muted border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                           />
+                          {offersEnabled && (
+                            <input
+                              placeholder={t('products.optionOldPricePlaceholder')}
+                              inputMode="decimal"
+                              value={opt.oldPrice || ''}
+                              onChange={e => updatePricingOption(idx, "oldPrice", e.target.value)}
+                              className="px-3 py-2.5 bg-muted border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                            />
+                          )}
                           <button
                             type="button"
                             onClick={() => removePricingOption(idx)}
@@ -1189,29 +1469,29 @@ const Products = () => {
                 {/* Dynamic Attributes */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-foreground">Attributes</p>
+                    <p className="text-sm font-semibold text-foreground">{t('products.attributesTitle')}</p>
                     <button
                       type="button"
                       onClick={addAttribute}
                       className="text-xs font-semibold text-primary hover:underline">
-                      + Add attribute
+                      {t('products.addAttribute')}
                     </button>
                   </div>
 
                   {(form.attributes || []).length === 0 ? (
-                    <p className="text-xs text-muted-foreground">Add details like size, color, duration, brand, etc.</p>
+                    <p className="text-xs text-muted-foreground">{t('products.attributesHint')}</p>
                   ) : (
                     <div className="space-y-2">
                       {(form.attributes || []).map((attr, idx) => (
                         <div key={idx} className="grid grid-cols-[1fr_1fr_auto] gap-2">
                           <input
-                            placeholder="name (e.g. size)"
+                            placeholder={t('products.attrNamePlaceholder')}
                             value={attr.name}
                             onChange={e => updateAttribute(idx, "name", e.target.value)}
                             className="px-3 py-2.5 bg-muted border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                           />
                           <input
-                            placeholder="value (e.g. XL)"
+                            placeholder={t('products.attrValuePlaceholder')}
                             value={attr.value}
                             onChange={e => updateAttribute(idx, "value", e.target.value)}
                             className="px-3 py-2.5 bg-muted border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -1234,13 +1514,10 @@ const Products = () => {
                     disabled={saving || uploadingImages}
                     className="flex-1 bg-primary text-primary-foreground py-3 rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2">
                     {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                    {editId ? "Update" : "Add"} {(form.listingType || listingType) === 'product' ? 'Product' : 
-                                                   (form.listingType || listingType) === 'service' ? 'Service' : 
-                                                   (form.listingType || listingType) === 'food' ? 'Item' : 
-                                                   (form.listingType || listingType) === 'course' ? 'Course' : 
-                                                   'Item'}
+                    {(editId ? t('products.update') : t('products.add'))}{" "}
+                    {t(`products.itemType.${(form.listingType || listingType) as any}`)}
                   </button>
-                  <button onClick={closeForm} className="px-6 py-3 border border-border rounded-xl text-sm hover:bg-muted transition-colors">Cancel</button>
+                  <button onClick={closeForm} className="px-6 py-3 border border-border rounded-xl text-sm hover:bg-muted transition-colors">{t('products.cancel')}</button>
                 </div>
               </div>
             </motion.div>
@@ -1270,7 +1547,7 @@ const Products = () => {
                 <div className="relative bg-muted/50 aspect-[4/3] flex items-center justify-center">
                   {listing.isFeatured && (
                     <span className="absolute top-3 left-3 text-[10px] font-bold px-2.5 py-1 rounded-full bg-primary/10 text-primary">
-                      FEATURED
+                      {t('products.featuredBadge')}
                     </span>
                   )}
                   {listing.images?.[0]?.url ? (
@@ -1290,7 +1567,7 @@ const Products = () => {
                   )}
                   {!listing.isActive && (
                     <div className="absolute inset-0 bg-background/60 flex items-center justify-center">
-                      <span className="text-xs font-bold text-destructive bg-destructive/10 px-3 py-1.5 rounded-full">Inactive</span>
+                      <span className="text-xs font-bold text-destructive bg-destructive/10 px-3 py-1.5 rounded-full">{t('products.inactive')}</span>
                     </div>
                   )}
                 </div>
@@ -1301,8 +1578,8 @@ const Products = () => {
                     <div className="min-w-0">
                       <h3 className="font-semibold text-sm text-foreground truncate">{listing.title}</h3>
                       <p className="text-xs text-muted-foreground">
-                        {listing.listingType.charAt(0).toUpperCase() + listing.listingType.slice(1)}
-                        {listing.stock !== undefined && ` · Stock: ${listing.stock}`}
+                        {t(`products.itemType.${listing.listingType}`)}
+                        {listing.stock !== undefined && ` · ${t('products.stockLabel', { count: listing.stock })}`}
                       </p>
                     </div>
                   </div>
@@ -1313,12 +1590,29 @@ const Products = () => {
                   
                   <div className="flex items-end gap-2">
                     {listing.priceType === 'inquiry' ? (
-                      <span className="text-sm font-bold text-primary">Inquiry / Call</span>
+                      <span className="text-sm font-bold text-primary">{t('products.inquiryCall')}</span>
                     ) : (
                       <>
                         <span className="text-lg font-bold text-primary">₹{listing.price}</span>
+                        {(() => {
+                          const price = Number(listing.price);
+                          const oldPrice = Number((listing as any)?.oldPrice);
+                          if (!Number.isFinite(price) || !Number.isFinite(oldPrice)) return null;
+                          if (oldPrice <= price || oldPrice <= 0) return null;
+                          const rawPercent = Number((listing as any)?.discountPercent);
+                          const percent = Number.isFinite(rawPercent) && rawPercent > 0
+                            ? Math.round(rawPercent)
+                            : Math.round(((oldPrice - price) / oldPrice) * 100);
+                          if (!Number.isFinite(percent) || percent <= 0) return null;
+                          return (
+                            <>
+                              <span className="text-xs text-muted-foreground line-through">₹{oldPrice}</span>
+                              <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">-{percent}%</span>
+                            </>
+                          );
+                        })()}
                         {listing.priceType !== 'fixed' && (
-                          <span className="text-[10px] text-muted-foreground">({String(listing.priceType).replace('_', ' ')})</span>
+                          <span className="text-[10px] text-muted-foreground">({t(`products.priceType.${listing.priceType}`)})</span>
                         )}
                       </>
                     )}
@@ -1349,7 +1643,7 @@ const Products = () => {
                         }`}
                       >
                         {listing.isActive ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                        {listing.isActive ? "Active" : "Hidden"}
+                        {listing.isActive ? t('products.active') : t('products.hidden')}
                       </button>
 
                       <button
@@ -1357,10 +1651,10 @@ const Products = () => {
                           e.stopPropagation();
                           if (!listing.isFeatured && !!features && (!featuredEnabled || maxFeaturedReached)) {
                             toast({
-                              title: "Not available",
+                              title: t('products.notAvailableTitle'),
                               description: !featuredEnabled
-                                ? "Featured listings are not enabled in your plan"
-                                : `Your plan allows maximum ${maxFeaturedListings} featured listings`,
+                                ? t('products.featuredNotEnabled')
+                                : t('products.planMaxFeatured', { limit: maxFeaturedListings }),
                               variant: "destructive",
                             });
                             return;
@@ -1371,10 +1665,36 @@ const Products = () => {
                         className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
                           listing.isFeatured ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
                         } ${!listing.isFeatured && !!features && (!featuredEnabled || maxFeaturedReached) ? "opacity-60 cursor-not-allowed" : ""}`}
-                        title={listing.isFeatured ? "Unfeature" : "Feature"}
+                        title={listing.isFeatured ? t('products.unfeature') : t('products.feature')}
                       >
                         <Star className={`w-3.5 h-3.5 ${listing.isFeatured ? 'fill-primary text-primary' : ''}`} />
-                        Featured
+                        {t('products.featured')}
+                      </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void postListingAsStory(listing);
+                        }}
+                        disabled={postingListingId === listing._id}
+                        className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors bg-muted text-muted-foreground hover:bg-muted/80 ${postingListingId === listing._id ? "opacity-60 cursor-not-allowed" : ""}`}
+                        title={t('products.postAsStory')}
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        {t('products.story')}
+                      </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startPostListingAsReel(listing);
+                        }}
+                        disabled={postingListingId === listing._id}
+                        className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors bg-muted text-muted-foreground hover:bg-muted/80 ${postingListingId === listing._id ? "opacity-60 cursor-not-allowed" : ""}`}
+                        title={t('products.postAsReel')}
+                      >
+                        <Film className="w-3.5 h-3.5" />
+                        {t('products.reel')}
                       </button>
                     </div>
                     <div className="flex items-center gap-1">
@@ -1408,7 +1728,7 @@ const Products = () => {
       {filtered.length === 0 && (
         <div className="text-center py-16">
           <Package className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
-          <p className="text-muted-foreground">No listings found</p>
+          <p className="text-muted-foreground">{t('products.empty')}</p>
         </div>
       )}
     </div>

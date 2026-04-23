@@ -1,13 +1,14 @@
 import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
-import { Eye, MessageCircle, Phone, Package, CheckCircle2, Clock, XCircle, TrendingUp, ExternalLink, AlertCircle } from "lucide-react";
+import { Eye, MessageCircle, Phone, Package, CheckCircle2, Clock, XCircle, TrendingUp, ExternalLink, AlertCircle, Film } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from "recharts";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEntitlements } from "@/contexts/EntitlementsContext";
-import { businessApi, type Business } from "@/lib/api/index";
+import { businessApi, bookingApi, reviewApi, type Business } from "@/lib/api/index";
 import { orderApi, type Order } from "@/lib/api/orders";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTranslation } from "react-i18next";
 
 const getLastNDaysOrderTrend = (orders: Order[], days: number) => {
   const byDate = new Map<string, number>();
@@ -58,6 +59,7 @@ const getSubscriptionTimeline = (planExpiresAt?: string) => {
 };
 
 const Dashboard = () => {
+  const { t } = useTranslation();
   const { user, isAuthenticated } = useAuth();
   const { entitlements } = useEntitlements();
   const navigate = useNavigate();
@@ -67,6 +69,8 @@ const Dashboard = () => {
   const [businessStats, setBusinessStats] = useState<any>(null);
   const [ordersSummary, setOrdersSummary] = useState<any>(null);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [ratingsSummary, setRatingsSummary] = useState<{ avgRating: number; reviewsCount: number }>({ avgRating: 0, reviewsCount: 0 });
+  const [bookingsTotal, setBookingsTotal] = useState(0);
 
   // Calculate trend data - must be before any early returns
   const trend7 = useMemo(() => getLastNDaysOrderTrend(orders, 7), [orders]);
@@ -93,7 +97,7 @@ const Dashboard = () => {
           navigate("/onboarding");
         }
       } catch (err: any) {
-        setError(err.message || "Failed to fetch business data");
+        setError(err.message || t('dashboard.fetchBusinessFailed'));
       } finally {
         setLoading(false);
       }
@@ -114,6 +118,11 @@ const Dashboard = () => {
           orderApi.getMyOrders(),
         ]);
 
+        const [bookingsRes, ratingRes] = await Promise.all([
+          bookingApi.getBusinessBookings({ businessId: business._id }),
+          business.slug ? reviewApi.getSummaryByBusinessSlug(business.slug) : Promise.resolve({ success: true, data: { avgRating: 0, reviewsCount: 0 } } as any),
+        ]);
+
         if (!cancelled) {
           if (statsRes.success) setBusinessStats(statsRes.data?.stats || null);
           if (ordersRes.success) setOrdersSummary(ordersRes.data || null);
@@ -122,6 +131,15 @@ const Dashboard = () => {
               new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
             );
             setOrders(sorted);
+          }
+          if (bookingsRes.success) {
+            setBookingsTotal(Number(bookingsRes.data?.pagination?.total || 0));
+          }
+          if (ratingRes.success && ratingRes.data) {
+            setRatingsSummary({
+              avgRating: Number(ratingRes.data.avgRating || 0),
+              reviewsCount: Number(ratingRes.data.reviewsCount || 0),
+            });
           }
         }
       } catch {
@@ -175,7 +193,7 @@ const Dashboard = () => {
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center space-y-3">
           <AlertCircle className="w-12 h-12 text-destructive mx-auto" />
-          <p className="text-sm text-muted-foreground">Business data not found. Please try reloading or contact support.</p>
+          <p className="text-sm text-muted-foreground">{t('dashboard.businessDataNotFound')}</p>
         </div>
       </div>
     );
@@ -202,22 +220,22 @@ const Dashboard = () => {
   // Defensive: ensure always at least 2 elements
   const safeTrend7 = Array.isArray(trend7) && trend7.length >= 2 ? trend7 : [{ orders: 0 }, { orders: 0 }];
   const todayVsYesterday = [
-    { name: "Yesterday", value: safeTrend7[safeTrend7.length - 2]?.orders || 0 },
-    { name: "Today", value: safeTrend7[safeTrend7.length - 1]?.orders || 0 },
+    { name: t('dashboard.yesterday'), value: safeTrend7[safeTrend7.length - 2]?.orders || 0 },
+    { name: t('dashboard.today'), value: safeTrend7[safeTrend7.length - 1]?.orders || 0 },
   ];
 
   const statsCards = [
-    { icon: Eye, label: "Total Views", value: shopData.total_views, iconBg: "bg-primary/10", iconColor: "text-primary" },
-    { icon: Package, label: "Total Listings", value: businessStats?.totalListings ?? business.stats.totalListings ?? 0, iconBg: "bg-primary/10", iconColor: "text-primary" },
-    { icon: MessageCircle, label: "Inquiries", value: businessStats?.totalInquiries ?? business.stats.totalInquiries ?? 0, iconBg: "bg-accent/10", iconColor: "text-accent" },
-    { icon: Phone, label: "Call Clicks", value: shopData.call_clicks, iconBg: "bg-secondary/10", iconColor: "text-secondary" },
+    { icon: Eye, label: t('dashboard.stats.totalViews'), value: shopData.total_views, iconBg: "bg-primary/10", iconColor: "text-primary" },
+    { icon: Package, label: t('dashboard.stats.totalListings'), value: businessStats?.totalListings ?? business.stats.totalListings ?? 0, iconBg: "bg-primary/10", iconColor: "text-primary" },
+    { icon: MessageCircle, label: t('dashboard.stats.inquiries'), value: businessStats?.totalInquiries ?? business.stats.totalInquiries ?? 0, iconBg: "bg-accent/10", iconColor: "text-accent" },
+    { icon: Phone, label: t('dashboard.stats.callClicks'), value: shopData.call_clicks, iconBg: "bg-secondary/10", iconColor: "text-secondary" },
   ];
 
   const orderStats = [
-    { icon: Package, label: "Total Orders", value: totalOrders, iconBg: "bg-primary/10", iconColor: "text-primary" },
-    { icon: CheckCircle2, label: "Delivered", value: delivered, iconBg: "bg-primary/10", iconColor: "text-primary" },
-    { icon: Clock, label: "Pending", value: pending, iconBg: "bg-yellow-50", iconColor: "text-yellow-500" },
-    { icon: XCircle, label: "Cancelled", value: cancelledOrders, iconBg: "bg-destructive/10", iconColor: "text-destructive" },
+    { icon: Package, label: t('dashboard.orderStats.totalOrders'), value: totalOrders, iconBg: "bg-primary/10", iconColor: "text-primary" },
+    { icon: CheckCircle2, label: t('dashboard.orderStats.delivered'), value: delivered, iconBg: "bg-primary/10", iconColor: "text-primary" },
+    { icon: Clock, label: t('dashboard.orderStats.pending'), value: pending, iconBg: "bg-yellow-50", iconColor: "text-yellow-500" },
+    { icon: XCircle, label: t('dashboard.orderStats.cancelled'), value: cancelledOrders, iconBg: "bg-destructive/10", iconColor: "text-destructive" },
   ];
 
   const statusColors: Record<string, string> = {
@@ -234,20 +252,34 @@ const Dashboard = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Welcome, {user?.name} 👋</h1>
+          <h1 className="text-2xl font-bold text-foreground">{t('dashboard.welcome', { name: user?.name || '' })}</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {business.name} · {business.businessType?.name} · {business.plan?.name || "Free"} Plan
+            {t('dashboard.planLine', {
+              businessName: business.name,
+              businessType: business.businessType?.name || '',
+              plan: business.plan?.name || t('dashboard.freePlan'),
+            })}
           </p>
         </div>
-        {entitlements?.features?.publicShopEnabled === true && (
-          <Link
-            to={`/shop/${business.slug}`}
-            target="_blank"
-            className="hidden sm:flex items-center gap-2 text-sm font-semibold text-primary border border-primary/30 bg-primary/5 px-4 py-2.5 rounded-xl hover:bg-primary/10 transition-colors"
-          >
-            <ExternalLink className="w-4 h-4" /> View Shop
-          </Link>
-        )}
+        <div className="hidden sm:flex items-center gap-2">
+          {entitlements?.features?.storiesEnabled === true && (
+            <Link
+              to="/dashboard/stories"
+              className="flex items-center gap-2 text-sm font-semibold text-primary border border-primary/30 bg-primary/5 px-4 py-2.5 rounded-xl hover:bg-primary/10 transition-colors"
+            >
+              <Film className="w-4 h-4" /> {t('dashboard.postStoryReel')}
+            </Link>
+          )}
+          {entitlements?.features?.publicShopEnabled === true && (
+            <Link
+              to={`/shop/${business.slug}`}
+              target="_blank"
+              className="flex items-center gap-2 text-sm font-semibold text-primary border border-primary/30 bg-primary/5 px-4 py-2.5 rounded-xl hover:bg-primary/10 transition-colors"
+            >
+              <ExternalLink className="w-4 h-4" /> {t('common.viewShop')}
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Status Banner */}
@@ -258,7 +290,7 @@ const Dashboard = () => {
             <Clock className="w-5 h-5 text-yellow-600" />
           </div>
           <span className="text-sm text-yellow-800">
-            Your business is pending verification. You can start adding products now!
+            {t('dashboard.pendingVerificationBanner')}
           </span>
         </motion.div>
       )}
@@ -275,15 +307,15 @@ const Dashboard = () => {
             </div>
             <span className={`text-sm ${subscriptionTimeline.isExpired ? "text-destructive" : "text-foreground"}`}>
               {subscriptionTimeline.isExpired
-                ? "Subscription expire ho chuki hai. Renewal tak public website par aapki shop hidden rahegi."
-                : `Subscription ke ${subscriptionTimeline.daysRemaining} day remaining hain.`}
+                ? t('dashboard.subscriptionExpiredBanner')
+                : t('dashboard.subscriptionRemainingBanner', { count: subscriptionTimeline.daysRemaining ?? 0 })}
             </span>
           </div>
           <Link
             to="/dashboard/subscription"
             className="text-xs font-semibold px-3 py-2 rounded-lg bg-background/80 border border-border hover:bg-background transition-colors"
           >
-            Manage Subscription
+            {t('dashboard.manageSubscription')}
           </Link>
         </motion.div>
       )}
@@ -295,7 +327,7 @@ const Dashboard = () => {
           <TrendingUp className="w-5 h-5 text-secondary" />
         </div>
         <span className="text-sm text-foreground">
-          Start adding products to make your shop visible to customers!
+          {t('dashboard.addProductsBanner')}
         </span>
       </motion.div>
 
@@ -313,9 +345,29 @@ const Dashboard = () => {
         ))}
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="bg-card rounded-2xl border border-border/60 p-5">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-foreground">{t('dashboard.bookingsTitle')}</h3>
+            <Link to="/dashboard/bookings" className="text-xs text-primary hover:underline">{t('dashboard.open')}</Link>
+          </div>
+          <p className="mt-2 text-3xl font-bold">{bookingsTotal}</p>
+          <p className="text-xs text-muted-foreground mt-1">{t('dashboard.totalBookingRecords')}</p>
+        </motion.div>
+
+        <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="bg-card rounded-2xl border border-border/60 p-5">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-foreground">{t('dashboard.ratingsTitle')}</h3>
+            <Link to="/dashboard/ratings" className="text-xs text-primary hover:underline">{t('dashboard.open')}</Link>
+          </div>
+          <p className="mt-2 text-3xl font-bold">{ratingsSummary.avgRating.toFixed(1)}</p>
+          <p className="text-xs text-muted-foreground mt-1">{t('dashboard.totalReviews', { count: ratingsSummary.reviewsCount })}</p>
+        </motion.div>
+      </div>
+
       {/* Order Stats */}
       <div>
-        <h2 className="text-lg font-bold text-foreground mb-4">📦 Orders Overview</h2>
+        <h2 className="text-lg font-bold text-foreground mb-4">{t('dashboard.ordersOverview')}</h2>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {orderStats.map((s, i) => (
             <motion.div key={s.label} initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.25 + i * 0.06 }}
@@ -335,7 +387,7 @@ const Dashboard = () => {
         {/* Views Trend */}
         <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.35 }}
           className="bg-card rounded-2xl border border-border/60 p-6 hover:shadow-md transition-shadow">
-          <h3 className="text-sm font-bold text-foreground mb-4">📈 Orders Trend (7 Days)</h3>
+          <h3 className="text-sm font-bold text-foreground mb-4">{t('dashboard.ordersTrend7Days')}</h3>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={trend7}>
               <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'hsl(220, 10%, 46%)' }} axisLine={false} tickLine={false} />
@@ -349,7 +401,7 @@ const Dashboard = () => {
         {/* Actions Breakdown */}
         <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.4 }}
           className="bg-card rounded-2xl border border-border/60 p-6 hover:shadow-md transition-shadow">
-          <h3 className="text-sm font-bold text-foreground mb-4">🎯 Customer Actions</h3>
+          <h3 className="text-sm font-bold text-foreground mb-4">{t('dashboard.customerActions')}</h3>
           <div className="flex items-center">
             <ResponsiveContainer width="50%" height={180}>
               <PieChart>
@@ -374,7 +426,7 @@ const Dashboard = () => {
       {/* Today vs Yesterday */}
       <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.45 }}
         className="bg-card rounded-2xl border border-border/60 p-6 hover:shadow-md transition-shadow">
-        <h3 className="text-sm font-bold text-foreground mb-4">⚡ Orders: Today vs Yesterday</h3>
+        <h3 className="text-sm font-bold text-foreground mb-4">{t('dashboard.ordersTodayVsYesterday')}</h3>
         <ResponsiveContainer width="100%" height={130}>
           <BarChart data={todayVsYesterday}>
             <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'hsl(220, 10%, 46%)' }} axisLine={false} tickLine={false} />
@@ -389,7 +441,7 @@ const Dashboard = () => {
 
       {/* Recent Orders */}
       <div>
-        <h2 className="text-lg font-bold text-foreground mb-4">🧾 Recent Orders</h2>
+        <h2 className="text-lg font-bold text-foreground mb-4">{t('dashboard.recentOrders')}</h2>
         <div className="space-y-3">
           {orders.slice(0, 5).map((o, i) => (
             <motion.div key={o._id} initial={{ x: -10, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: i * 0.05 }}
@@ -398,9 +450,9 @@ const Dashboard = () => {
                 <Package className="w-5 h-5 text-muted-foreground" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm text-foreground">{o.customer?.name || "Customer"}</p>
+                <p className="font-semibold text-sm text-foreground">{o.customer?.name || t('dashboard.customerFallback')}</p>
                 <p className="text-xs text-muted-foreground truncate mt-0.5">
-                  {(o.items || []).map((it) => `${it.title}${it.quantity > 1 ? ` x${it.quantity}` : ""}`).join(", ") || "No items"}
+                  {(o.items || []).map((it) => `${it.title}${it.quantity > 1 ? ` x${it.quantity}` : ""}`).join(", ") || t('dashboard.noItems')}
                 </p>
               </div>
               <div className="text-right shrink-0">
@@ -413,7 +465,7 @@ const Dashboard = () => {
           ))}
           {orders.length === 0 && (
             <div className="bg-card rounded-2xl border border-border/60 p-4 text-sm text-muted-foreground">
-              No recent orders yet.
+              {t('dashboard.noRecentOrders')}
             </div>
           )}
         </div>

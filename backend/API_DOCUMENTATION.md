@@ -808,6 +808,129 @@ Content-Type: application/json
 
 ---
 
+## 8️⃣ AI Agent API (Cloudflare Worker)
+
+These AI endpoints are served by the **Cloudflare Worker** in `ai-worker/`.
+
+### Base URL
+
+Use your Worker domain, for example:
+
+```
+https://<your-worker>.workers.dev
+```
+
+or a custom domain like:
+
+```
+https://ai.apnidukan.com
+```
+
+### Rate Limits (Daily)
+
+Limits are enforced **per day** inside the Worker and are configurable in `ai-worker/wrangler.toml`:
+
+- Public customers: IP-based daily limit (`AI_LIMIT_PUBLIC`)
+- Business owners: userId daily limit based on subscription (`AI_LIMIT_OWNER_*`)
+- Admin: no limit
+
+**Limit exceeded (429):**
+```json
+{
+  "error": "Daily AI limit reached. Upgrade your plan for more usage."
+}
+```
+
+---
+
+### 8.1 Customer Chatbot (Public)
+
+```http
+POST /api/ai/chat
+Content-Type: application/json
+
+{
+  "businessId": "<business-id>",
+  "userMessage": "Aapke yaha basmati rice hai kya?"
+}
+```
+
+**Response (200):**
+```json
+{
+  "reply": "Hinglish reply..."
+}
+```
+
+Notes:
+- Reply is **simple Hinglish**, max **6 lines**
+- AI is instructed to avoid hallucinations; if unsure it asks user to contact call/WhatsApp
+
+---
+
+### 8.2 Dukandar AI (Content Generator - Plan Based)
+
+```http
+POST /api/ai/generate
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+
+{
+  "title": "Premium Basmati Rice 5kg",
+  "businessType": "kirana"
+}
+```
+
+**Response (200):**
+```json
+{
+  "title": "...",
+  "description": "...",
+  "shortDescription": "...",
+  "features": ["..."],
+  "tags": ["..."]
+}
+```
+
+---
+
+### 8.3 Business Insights AI
+
+```http
+POST /api/ai/insights
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+
+{
+  "businessId": "<business-id>"
+}
+```
+
+**Response (200):**
+```json
+{
+  "businessId": "...",
+  "date": "2026-04-18",
+  "summary_hi": "...",
+  "insights": ["..."],
+  "suggestions": ["..."],
+  "important": false
+}
+```
+
+Also saved to D1 table: `daily_summaries`.
+
+---
+
+### 8.4 Cron (Daily)
+
+- Runs daily at **17:30 UTC (11 PM IST)**
+- Generates insights for all `businesses.status='active'`
+- Stores `ai:insights:last_run_timestamp` in KV
+- Optionally emails owners when `important=true` (MailChannels)
+
+---
+
 ## 📊 Error Responses
 
 ### Validation Error (400)

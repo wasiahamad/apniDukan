@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { MessageCircle, Clock } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -8,24 +9,42 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { autoHindiText, hasDevanagari } from "@/lib/publicShopsApi";
+import { createPublicOrder } from "@/lib/ordersApi";
 import type { Product } from "@/data/mockData";
 
 interface ProductDetailDialogProps {
   product: Product | null;
+  businessId: string;
+  shopSlug: string;
+  customerName?: string;
+  customerPhone?: string;
   shopWhatsapp: string;
   shopName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onBook?: (product: Product) => void;
 }
 
 export default function ProductDetailDialog({
   product,
+  businessId,
+  shopSlug,
+  customerName,
+  customerPhone,
   shopWhatsapp,
   shopName,
   open,
   onOpenChange,
+  onBook,
 }: ProductDetailDialogProps) {
-  if (!product) return null;
+  const { t, i18n } = useTranslation();
+
+  // Important: do NOT early-return before hooks below; otherwise React will throw
+  // "Rendered more hooks than during the previous render" when product becomes non-null.
+  const dialogOpen = open && !!product;
+  const safeProduct: Product =
+    product || ({ id: "", name: "", price: 0, image: "" } satisfies Product);
 
   const trackAction = async (action: "whatsapp" | "call" | "map") => {
     try {
@@ -49,88 +68,175 @@ export default function ProductDetailDialog({
   };
 
   const images = useMemo(() => {
-    const maybeImages = (product as Product & { images?: string[] }).images;
+    const maybeImages = (safeProduct as Product & { images?: string[] }).images;
     const fromArray = Array.isArray(maybeImages) ? maybeImages.filter(Boolean) : [];
-    const fromSingle = product.image ? [product.image] : [];
+    const fromSingle = safeProduct.image ? [safeProduct.image] : [];
     return (fromArray.length > 0 ? fromArray : fromSingle).filter(Boolean);
-  }, [product]);
+  }, [safeProduct.image, product]);
 
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
   useEffect(() => {
     setSelectedImageIndex(0);
-  }, [product, open]);
+  }, [product, dialogOpen]);
 
   const typeLabel =
-    product.type === "service"
-      ? "Service"
-      : product.type === "food"
-        ? "Food"
-        : product.type === "course"
-          ? "Course"
-          : product.type === "rental"
-            ? "Rental"
-            : "Product";
-  const attrs = Array.isArray(product.attributes) ? product.attributes : [];
-  const hasDetails = Boolean(product.duration || product.type || attrs.length > 0);
+    safeProduct.type === "service"
+      ? t("shopPage.listingType.service")
+      : safeProduct.type === "food"
+        ? t("shopPage.listingType.food")
+        : safeProduct.type === "course"
+          ? t("shopPage.listingType.course")
+          : safeProduct.type === "rental"
+            ? t("shopPage.listingType.rental")
+            : t("shopPage.listingType.product");
+  const attrs = Array.isArray(safeProduct.attributes) ? safeProduct.attributes : [];
+  const hasDetails = Boolean(safeProduct.duration || safeProduct.type || attrs.length > 0);
+
+  const canBook = useMemo(() => {
+    return !!onBook;
+  }, [onBook]);
 
   const selectableOptions = useMemo(() => {
-    const direct = Array.isArray(product.pricingOptions) ? product.pricingOptions : [];
+    const direct = Array.isArray(safeProduct.pricingOptions) ? safeProduct.pricingOptions : [];
     const directOptions = direct
-      .map((o) => ({ name: String(o?.label || "").trim(), price: Number(o?.price) }))
+      .map((o) => {
+        const rawOld = Number((o as any)?.oldPrice);
+        return {
+          name: String((o as any)?.label || "").trim(),
+          price: Number((o as any)?.price),
+          oldPrice: Number.isFinite(rawOld) && rawOld > 0 ? rawOld : undefined,
+          discountPercent: (() => {
+            const raw = Number((o as any)?.discountPercent);
+            return Number.isFinite(raw) && raw > 0 ? raw : undefined;
+          })(),
+        };
+      })
       .filter((o) => o.name && Number.isFinite(o.price) && o.price >= 0);
     if (directOptions.length > 0) return directOptions;
 
     // Backward-compat: food listings might have price options encoded as attributes.
-    if (product.type !== "food") return [] as { name: string; price: number }[];
+    if (safeProduct.type !== "food") return [] as { name: string; price: number }[];
     return attrs
       .map((a) => ({ name: String(a?.name || "").trim(), price: parseMaybePrice(a?.value) }))
       .filter((o) => o.name && o.price !== null)
       .map((o) => ({ name: o.name, price: o.price as number }));
-  }, [attrs, product.pricingOptions, product.type]);
+  }, [attrs, safeProduct.pricingOptions, safeProduct.type]);
 
   const detailsAttributes = useMemo(() => {
-    const hasDirectPricingOptions = Array.isArray(product.pricingOptions) && product.pricingOptions.length > 0;
+    const hasDirectPricingOptions = Array.isArray(safeProduct.pricingOptions) && safeProduct.pricingOptions.length > 0;
     if (hasDirectPricingOptions) return attrs;
 
     const optionNames = new Set(selectableOptions.map((o) => o.name));
     return attrs.filter((a) => !optionNames.has(String(a?.name || "").trim()));
-  }, [attrs, product.pricingOptions, selectableOptions]);
+  }, [attrs, safeProduct.pricingOptions, selectableOptions]);
 
   const [selectedOptionName, setSelectedOptionName] = useState<string>("");
 
   useEffect(() => {
-    if (!open) return;
+    if (!dialogOpen) return;
     if (selectableOptions.length === 0) {
       setSelectedOptionName("");
       return;
     }
     setSelectedOptionName((prev) => prev || selectableOptions[0].name);
-  }, [open, selectableOptions]);
+  }, [dialogOpen, selectableOptions]);
 
   const selectedOption = useMemo(() => {
     if (!selectedOptionName) return null;
     return selectableOptions.find((o) => o.name === selectedOptionName) || null;
   }, [selectableOptions, selectedOptionName]);
 
-  const effectivePrice = selectedOption?.price ?? product.price;
+  const effectivePrice = selectedOption?.price ?? safeProduct.price;
+  const effectiveOldPrice = (selectedOption as any)?.oldPrice ?? (safeProduct as any)?.oldPrice;
+  const effectiveDiscountPercent = (() => {
+    const direct = Number((selectedOption as any)?.discountPercent ?? (safeProduct as any)?.discountPercent);
+    if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
+    const price = Number(effectivePrice);
+    const oldPrice = Number(effectiveOldPrice);
+    if (!Number.isFinite(price) || !Number.isFinite(oldPrice)) return null;
+    if (oldPrice <= price || oldPrice <= 0) return null;
+    const computed = Math.round(((oldPrice - price) / oldPrice) * 100);
+    return computed > 0 ? computed : null;
+  })();
   const requiresSelection = selectableOptions.length > 0;
   const canOrder = !requiresSelection || !!selectedOption;
 
   const whatsappHref = useMemo(() => {
     const parts = [
-      `Hi, I want to order ${product.name} (₹${effectivePrice}) from ${shopName} via DukaanDirect`,
-      selectedOption ? `Option: ${selectedOption.name}` : null,
+      t("shopPage.productDialog.whatsappPrefill", {
+        item: safeProduct.name,
+        price: effectivePrice,
+        shopName,
+      }),
+      selectedOption
+        ? t("shopPage.productDialog.whatsappOptionLine", { option: selectedOption.name })
+        : null,
     ].filter(Boolean);
     return `https://wa.me/${shopWhatsapp}?text=${encodeURIComponent(parts.join("\n"))}`;
-  }, [effectivePrice, product.name, selectedOption, shopName, shopWhatsapp]);
+  }, [effectivePrice, safeProduct.name, selectedOption, shopName, shopWhatsapp]);
+
+  const getLastMapOrigin = (): "map" | "website" => {
+    try {
+      const raw = sessionStorage.getItem('publicdukan:last_map_click');
+      if (!raw) return 'website';
+      const parsed = JSON.parse(raw);
+      const ts = Number(parsed?.ts);
+      const slug = String(parsed?.shopSlug || '').trim();
+      if (!Number.isFinite(ts) || !slug) return 'website';
+      if (slug !== String(shopSlug || '').trim()) return 'website';
+      // Consider map-origin only if within last 10 minutes
+      if (Date.now() - ts > 10 * 60 * 1000) return 'website';
+      return 'map';
+    } catch {
+      return 'website';
+    }
+  };
+
+  const saveOrderBestEffort = () => {
+    const bid = String(businessId || '').trim();
+    const listingId = String(safeProduct.id || '').trim();
+    if (!bid || !listingId) return;
+
+    const origin = getLastMapOrigin();
+
+    createPublicOrder({
+      businessId: bid,
+      source: 'whatsapp',
+      origin,
+      items: [
+        {
+          listingId,
+          quantity: 1,
+          ...(selectedOption ? { pricingOptionLabel: selectedOption.name } : {}),
+        },
+      ],
+      customer: {
+        name: String(customerName || '').trim() || undefined,
+        phone: String(customerPhone || '').trim() || undefined,
+      },
+    }).catch(() => null);
+  };
+
+  const rawDescription = String(safeProduct.description || "");
+  const displayDescription =
+    i18n.language === "hi" && rawDescription && !hasDevanagari(rawDescription)
+      ? (() => {
+          const converted = autoHindiText(rawDescription);
+          return hasDevanagari(converted)
+            ? converted
+            : t("shopPage.productDialog.autoDescriptionFallback");
+        })()
+      : rawDescription;
+
+  if (!product) return null;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={dialogOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <div className="text-xs font-semibold text-muted-foreground">{typeLabel}</div>
-          <DialogTitle>{product.name}</DialogTitle>
+          <DialogTitle>{safeProduct.name}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="bg-card border border-border rounded-2xl overflow-hidden">
@@ -138,11 +244,11 @@ export default function ProductDetailDialog({
               {images.length > 0 ? (
                 <img
                   src={images[selectedImageIndex]}
-                  alt={product.name}
+                  alt={safeProduct.name}
                   className="w-full h-48 object-cover"
                 />
               ) : (
-                <div className="text-muted-foreground text-sm">No image</div>
+                <div className="text-muted-foreground text-sm">{t("shopPage.productDialog.noImage")}</div>
               )}
             </div>
 
@@ -160,7 +266,7 @@ export default function ProductDetailDialog({
                       }`}
                       aria-label={`View image ${idx + 1}`}
                     >
-                      <img src={src} alt={product.name} className="h-full w-full object-cover" loading="lazy" />
+                      <img src={src} alt={safeProduct.name} className="h-full w-full object-cover" loading="lazy" />
                     </button>
                   );
                 })}
@@ -168,24 +274,48 @@ export default function ProductDetailDialog({
             )}
           </div>
           <div className="space-y-2">
-            <p className="text-2xl font-bold text-primary">₹{effectivePrice}</p>
-            <div className="text-sm text-muted-foreground">Sold by {shopName}</div>
-            {product.type && <Badge variant="secondary">{typeLabel}</Badge>}
+            <div className="flex items-center gap-2">
+              <p className="text-2xl font-bold text-primary">₹{effectivePrice}</p>
+              {(() => {
+                const oldPrice = Number(effectiveOldPrice);
+                if (!Number.isFinite(oldPrice) || oldPrice <= 0) return null;
+                if (oldPrice <= Number(effectivePrice)) return null;
+                return <span className="text-sm text-muted-foreground line-through">₹{oldPrice}</span>;
+              })()}
+              {typeof effectiveDiscountPercent === 'number' && effectiveDiscountPercent > 0 ? (
+                <Badge variant="secondary" className="text-[10px]">-{effectiveDiscountPercent}%</Badge>
+              ) : null}
+            </div>
+            <div className="text-sm text-muted-foreground">
+              {t("shopPage.productDialog.soldBy", { shopName })}
+            </div>
+            {safeProduct.type && <Badge variant="secondary">{typeLabel}</Badge>}
           </div>
 
-          {product.description && (
+          {rawDescription && (
             <div className="bg-card border border-border rounded-2xl p-4">
-              <h2 className="text-sm font-bold mb-2">Description</h2>
-              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line">{product.description}</p>
+              <h2 className="text-sm font-bold mb-2">{t("shopPage.productDialog.descriptionTitle")}</h2>
+              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line">
+                {displayDescription}
+              </p>
             </div>
           )}
 
           {selectableOptions.length > 0 && (
             <div className="bg-card border border-border rounded-2xl p-4">
-              <h2 className="text-sm font-bold mb-3">Choose option</h2>
+              <h2 className="text-sm font-bold mb-3">{t("shopPage.productDialog.chooseOptionTitle")}</h2>
               <div className="space-y-2">
                 {selectableOptions.map((opt) => {
                   const active = opt.name === selectedOptionName;
+                  const optOld = Number((opt as any)?.oldPrice);
+                  const showOld = Number.isFinite(optOld) && optOld > 0 && optOld > Number(opt.price);
+                  const optPercent = (() => {
+                    const direct = Number((opt as any)?.discountPercent);
+                    if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
+                    if (!showOld) return null;
+                    const computed = Math.round(((optOld - Number(opt.price)) / optOld) * 100);
+                    return computed > 0 ? computed : null;
+                  })();
                   return (
                     <button
                       key={opt.name}
@@ -196,7 +326,15 @@ export default function ProductDetailDialog({
                       }`}
                     >
                       <span className="text-sm font-semibold text-foreground">{opt.name}</span>
-                      <span className="text-sm font-bold text-foreground">₹{opt.price}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-foreground">₹{opt.price}</span>
+                        {showOld ? (
+                          <span className="text-xs text-muted-foreground line-through">₹{optOld}</span>
+                        ) : null}
+                        {typeof optPercent === 'number' && optPercent > 0 ? (
+                          <Badge variant="secondary" className="text-[10px]">-{optPercent}%</Badge>
+                        ) : null}
+                      </span>
                     </button>
                   );
                 })}
@@ -206,7 +344,7 @@ export default function ProductDetailDialog({
 
           {hasDetails && (
             <div className="bg-card border border-border rounded-2xl p-4">
-              <h2 className="text-sm font-bold mb-2">Details</h2>
+              <h2 className="text-sm font-bold mb-2">{t("shopPage.productDialog.detailsTitle")}</h2>
               <div className="space-y-2">
                 {detailsAttributes.map((a, idx) => (
                   <div key={`${a.name}-${idx}`} className="flex items-start justify-between gap-3">
@@ -214,18 +352,18 @@ export default function ProductDetailDialog({
                     <div className="text-sm font-semibold text-right">{String(a.value)}</div>
                   </div>
                 ))}
-                {product.duration && (
+                {safeProduct.duration && (
                   <div className="flex items-start justify-between gap-3">
-                    <div className="text-sm text-muted-foreground">Duration</div>
+                    <div className="text-sm text-muted-foreground">{t("shopPage.productDialog.durationLabel")}</div>
                     <div className="text-sm font-semibold text-right inline-flex items-center gap-2">
                       <Clock className="h-4 w-4 text-muted-foreground" />
-                      <span>{product.duration}</span>
+                      <span>{safeProduct.duration}</span>
                     </div>
                   </div>
                 )}
-                {product.type && (
+                {safeProduct.type && (
                   <div className="flex items-start justify-between gap-3">
-                    <div className="text-sm text-muted-foreground">Type</div>
+                    <div className="text-sm text-muted-foreground">{t("shopPage.productDialog.typeLabel")}</div>
                     <div className="text-sm font-semibold text-right">{typeLabel}</div>
                   </div>
                 )}
@@ -239,11 +377,28 @@ export default function ProductDetailDialog({
               target="_blank"
               rel="noopener noreferrer"
               aria-disabled={!canOrder}
-              onClick={() => trackAction("whatsapp")}
+              onClick={() => {
+                trackAction("whatsapp");
+                // Create order record (best-effort) so dukandar/admin can see WhatsApp orders.
+                saveOrderBestEffort();
+              }}
             >
-              <MessageCircle className="h-4 w-4" /> Order on WhatsApp
+              <MessageCircle className="h-4 w-4" /> {t("shopPage.productDialog.orderOnWhatsApp")}
             </a>
           </Button>
+
+          {canBook ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                onBook?.(safeProduct);
+              }}
+            >
+              {t("shopPage.productDialog.bookAppointment")}
+            </Button>
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>

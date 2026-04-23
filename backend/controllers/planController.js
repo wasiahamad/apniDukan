@@ -1,4 +1,5 @@
 import { Plan, Business } from '../models/index.js';
+import { calculatePlanExpiryDate } from '../services/subscriptionService.js';
 
 /**
  * PLAN CONTROLLER - Subscription plan management
@@ -18,7 +19,7 @@ export const createPlan = async (req, res) => {
       });
     }
 
-    const { name, slug, price, durationInDays, isPublic, features, description, isPopular, order } =
+    const { name, slug, price, durationInDays, billingCycle, isPublic, features, description, isPopular, order } =
       req.body;
 
     // Check if plan with same slug exists
@@ -37,6 +38,7 @@ export const createPlan = async (req, res) => {
       slug,
       price,
       durationInDays,
+      ...(billingCycle ? { billingCycle } : {}),
       ...(typeof isPublic === 'boolean' ? { isPublic } : {}),
       features,
       description,
@@ -178,6 +180,7 @@ export const updatePlan = async (req, res) => {
       'name',
       'price',
       'durationInDays',
+      'billingCycle',
       'isPublic',
       'features',
       'description',
@@ -296,9 +299,10 @@ export const subscribeToPlan = async (req, res) => {
       });
     }
 
-    // Calculate expiry date
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + plan.durationInDays);
+    // Calculate expiry date (extend from current expiry if still active)
+    const now = new Date();
+    const base = business.planExpiresAt && new Date(business.planExpiresAt) > now ? new Date(business.planExpiresAt) : now;
+    const expiryDate = calculatePlanExpiryDate({ plan, baseDate: base });
 
     // Update business
     business.plan = plan._id;

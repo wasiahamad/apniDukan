@@ -9,8 +9,8 @@ type PlanContextValue = {
   selectPlan: (planId: PlanTier) => void;
 };
 
-const STORAGE_PLAN_KEY = "dukaandirect-plan";
-const STORAGE_EXPIRY_KEY = "dukaandirect-plan-expiry";
+const STORAGE_PLAN_KEY = "publicdukan-plan";
+const STORAGE_EXPIRY_KEY = "publicdukan-plan-expiry";
 
 const PlanContext = createContext<PlanContextValue | undefined>(undefined);
 

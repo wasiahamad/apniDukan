@@ -4,6 +4,10 @@ export type EntitlementFeatures = {
   maxListings: number;
   publicShopEnabled: boolean;
   bookingEnabled: boolean;
+  storiesEnabled: boolean;
+  listingStoriesEnabled: boolean;
+  ratingsEnabled: boolean;
+  locationEnabled: boolean;
   featuredEnabled: boolean;
   maxFeaturedListings: number;
   customDomain: boolean;
@@ -14,6 +18,8 @@ export type EntitlementFeatures = {
   seoTools: boolean;
   apiAccess: boolean;
 
+  offersEnabled: boolean;
+
   supportTicketsEnabled: boolean;
   referralsEnabled: boolean;
   invoicesEnabled: boolean;
@@ -22,6 +28,10 @@ export type EntitlementFeatures = {
 
   ordersEnabled: boolean;
   inquiriesEnabled: boolean;
+
+  // AI modules (plan controlled)
+  aiCustomerChatEnabled?: boolean;
+  aiDukandarAgentEnabled?: boolean;
 };
 
 export type BusinessEntitlements = {

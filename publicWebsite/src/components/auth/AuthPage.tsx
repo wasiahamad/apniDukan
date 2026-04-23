@@ -26,7 +26,7 @@ export default function AuthPage({ initialMode = "login" }: AuthPageProps) {
   const { toast } = useToast();
   const { login, signup, socialLogin } = useAuth();
 
-  const rememberedEmail = useMemo(() => localStorage.getItem("dukaandirect-remember-email") || "", []);
+  const rememberedEmail = useMemo(() => localStorage.getItem("publicdukan-remember-email") || "", []);
   const [mode, setMode] = useState<Mode>(initialMode);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [socialLoading, setSocialLoading] = useState<"google" | "facebook" | null>(null);
@@ -45,9 +45,9 @@ export default function AuthPage({ initialMode = "login" }: AuthPageProps) {
     try {
       await login({ email: payload.email, password: payload.password });
       if (payload.rememberMe) {
-        localStorage.setItem("dukaandirect-remember-email", payload.email);
+        localStorage.setItem("publicdukan-remember-email", payload.email);
       } else {
-        localStorage.removeItem("dukaandirect-remember-email");
+        localStorage.removeItem("publicdukan-remember-email");
       }
       toast({ title: "Welcome back", description: "You are now logged in." });
       navigate(state?.from?.pathname || "/account", { replace: true });
@@ -62,7 +62,12 @@ export default function AuthPage({ initialMode = "login" }: AuthPageProps) {
   const handleSignup = async (payload: { name: string; email: string; password: string }) => {
     setIsSubmitting(true);
     try {
-      await signup(payload);
+      const result = await signup(payload);
+      if (result?.verificationRequired) {
+        toast({ title: "OTP sent", description: "Enter the OTP on the Signup page to verify your email." });
+        navigate("/signup", { replace: true });
+        return;
+      }
       toast({ title: "Account created", description: "Your premium profile is ready." });
       navigate("/account", { replace: true });
     } catch (error) {

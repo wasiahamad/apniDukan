@@ -14,6 +14,20 @@ const bookingSlotTemplateSchema = new mongoose.Schema(
       required: [true, 'Business reference is required'],
       index: true,
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
     listing: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Listing',
@@ -49,7 +63,8 @@ const bookingSlotTemplateSchema = new mongoose.Schema(
 );
 
 bookingSlotTemplateSchema.index({ business: 1, isActive: 1 });
-bookingSlotTemplateSchema.index({ business: 1, startTime: 1, endTime: 1, duration: 1 }, { unique: true });
+bookingSlotTemplateSchema.index({ business: 1, startTime: 1, endTime: 1, duration: 1, isDeleted: 1 }, { unique: true });
+bookingSlotTemplateSchema.index({ business: 1, isDeleted: 1, isActive: 1 });
 
 const BookingSlotTemplate = mongoose.model('BookingSlotTemplate', bookingSlotTemplateSchema);
 

@@ -7,6 +7,7 @@ type BackendPlan = {
   slug: string;
   price: number;
   durationInDays: number;
+  billingCycle?: "monthly" | "quarterly" | "yearly";
   description?: string;
   isPopular?: boolean;
   order?: number;
@@ -32,10 +33,11 @@ type PlansResponse = {
   data?: BackendPlan[];
 };
 
-const billingCycleFromDuration = (durationInDays: number, price: number) => {
+const billingCycleFromDuration = (durationInDays: number, price: number): string => {
   if (!Number.isFinite(durationInDays) || durationInDays <= 0) return "month";
   if (price === 0) return "forever";
   if (durationInDays >= 360) return "year";
+  if (durationInDays >= 85) return "quarterly";
   if (durationInDays >= 28 && durationInDays <= 31) return "month";
   if (durationInDays >= 7 && durationInDays <= 8) return "week";
   return "days";
@@ -86,7 +88,14 @@ const planToPricingPlan = (plan: BackendPlan): PricingPlan => {
   return {
     name,
     price: safePrice,
-    billingCycle: billingCycleFromDuration(Number(plan.durationInDays), safePrice),
+    billingCycle:
+      plan.billingCycle === "monthly"
+        ? "month"
+        : plan.billingCycle === "yearly"
+          ? "year"
+          : plan.billingCycle === "quarterly"
+            ? "quarterly"
+            : billingCycleFromDuration(Number(plan.durationInDays), safePrice),
     features: featuresToBullets(plan),
     cta,
     popular: !!plan.isPopular,

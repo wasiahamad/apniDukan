@@ -17,6 +17,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
+import Constants from "expo-constants";
 import { Feather } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import Colors from "@/constants/colors";
@@ -68,6 +69,93 @@ function formatTime12h(time: string) {
   const ampm = h >= 12 ? "PM" : "AM";
   const hour = h % 12 || 12;
   return `${hour}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+function formatDurationSeconds(totalSeconds: number) {
+  if (!Number.isFinite(totalSeconds)) return null;
+  const secs = Math.max(0, Math.round(totalSeconds));
+  const mins = Math.floor(secs / 60);
+  const rem = secs % 60;
+  if (mins <= 0) return `${rem}s`;
+  return `${mins}m ${rem}s`;
+}
+
+function decodePolyline(encoded: string): Array<{ latitude: number; longitude: number }> {
+  const points: Array<{ latitude: number; longitude: number }> = [];
+  if (!encoded) return points;
+
+  let index = 0;
+  const len = encoded.length;
+  let lat = 0;
+  let lng = 0;
+
+  while (index < len) {
+    let b = 0;
+    let shift = 0;
+    let result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20 && index < len);
+    const dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
+    lat += dlat;
+
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20 && index < len);
+    const dlng = (result & 1) ? ~(result >> 1) : (result >> 1);
+    lng += dlng;
+
+    points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  }
+
+  return points;
+}
+
+function getGoogleMapsApiKey() {
+  const expoConfig = Constants.expoConfig as any;
+  return (
+    expoConfig?.android?.config?.googleMaps?.apiKey ||
+    expoConfig?.ios?.config?.googleMapsApiKey ||
+    expoConfig?.extra?.googleMapsApiKey ||
+    null
+  );
+}
+
+function buildStaticMapUrl(params: {
+  latitude: number;
+  longitude: number;
+  userCoords?: { lat: number; lng: number } | null;
+  polyline?: string | null;
+}) {
+  const apiKey = getGoogleMapsApiKey();
+  const parts = [
+    "size=900x520",
+    "scale=2",
+    "zoom=15",
+    "maptype=roadmap",
+    `center=${params.latitude},${params.longitude}`,
+    `markers=color:red%7C${params.latitude},${params.longitude}`,
+  ];
+
+  if (params.userCoords) {
+    parts.push(`markers=color:blue%7C${params.userCoords.lat},${params.userCoords.lng}`);
+  }
+
+  if (params.polyline) {
+    parts.push(`path=enc:${encodeURIComponent(params.polyline)}`);
+  }
+
+  if (apiKey) {
+    parts.push(`key=${encodeURIComponent(apiKey)}`);
+  }
+
+  return `https://maps.googleapis.com/maps/api/staticmap?${parts.join("&")}`;
 }
 
 // ── Star row helper ────────────────────────────────────────────────────────────
@@ -156,6 +244,7 @@ export default function BusinessDetailScreen() {
   const queryClient = useQueryClient();
 
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [fullMapOpen, setFullMapOpen] = useState(false);
 
   const [showInquiry, setShowInquiry] = useState(false);
   const [inquiryName, setInquiryName] = useState(user?.name ?? "");
@@ -222,7 +311,13 @@ export default function BusinessDetailScreen() {
             const lat = Number(coords[1]);
             return Number.isFinite(lat) ? lat : null;
           }
-          const lat = Number(raw?.address?.latitude ?? raw?.latitude);
+          const legacy = raw?.address?.coordinates;
+          const lat = Number(
+            legacy?.latitude ??
+              legacy?.lat ??
+              raw?.address?.latitude ??
+              raw?.latitude
+          );
           return Number.isFinite(lat) ? lat : null;
         })(),
         longitude: (() => {
@@ -231,7 +326,13 @@ export default function BusinessDetailScreen() {
             const lng = Number(coords[0]);
             return Number.isFinite(lng) ? lng : null;
           }
-          const lng = Number(raw?.address?.longitude ?? raw?.longitude);
+          const legacy = raw?.address?.coordinates;
+          const lng = Number(
+            legacy?.longitude ??
+              legacy?.lng ??
+              raw?.address?.longitude ??
+              raw?.longitude
+          );
           return Number.isFinite(lng) ? lng : null;
         })(),
         isOpen: typeof raw?.isOpen === "boolean" ? raw.isOpen : null,
@@ -249,7 +350,7 @@ export default function BusinessDetailScreen() {
 
     (async () => {
       try {
-        const perm = await Location.getForegroundPermissionsAsync();
+        const perm = await Location.requestForegroundPermissionsAsync();
         if (cancelled) return;
         if (perm.status !== "granted") return;
 
@@ -325,6 +426,18 @@ export default function BusinessDetailScreen() {
     enabled: !!business?.slug,
   });
 
+  const trackAction = async (action: "whatsapp" | "call" | "map") => {
+    try {
+      if (!business?.slug) return;
+      await apiRequest(`/business/slug/${encodeURIComponent(business.slug)}/track`, {
+        method: "POST",
+        body: JSON.stringify({ action }),
+      });
+    } catch {
+      // best-effort
+    }
+  };
+
   const submitInquiry = useMutation({
     mutationFn: async () => {
       if (!business?.id) throw new Error("Business not loaded");
@@ -378,6 +491,80 @@ export default function BusinessDetailScreen() {
     count: reviews.filter((r: any) => r.rating === s).length,
   }));
 
+  const businessId = business?.id ?? null;
+  const hasCoords = Number.isFinite(business?.latitude) && Number.isFinite(business?.longitude);
+  const mapUrl = hasCoords
+    ? `https://www.google.com/maps?q=${business?.latitude},${business?.longitude}`
+    : null;
+  const directionsUrl = hasCoords
+    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${business?.latitude},${business?.longitude}`)}&travelmode=driving${userCoords ? `&origin=${encodeURIComponent(`${userCoords.lat},${userCoords.lng}`)}` : ""}`
+    : null;
+  const distanceKm = hasCoords && userCoords
+    ? haversineKm({ lat: userCoords.lat, lng: userCoords.lng }, { lat: business?.latitude as number, lng: business?.longitude as number })
+    : null;
+  const distanceLabel = distanceKm != null ? formatKm(distanceKm) : null;
+
+  const distanceEtaQuery = useQuery({
+    queryKey: ["business-distance", businessId, userCoords?.lat ?? null, userCoords?.lng ?? null],
+    queryFn: async () => {
+      if (!userCoords || !businessId) return null;
+      const q = new URLSearchParams({
+        lat: String(userCoords.lat),
+        lng: String(userCoords.lng),
+      });
+      return apiRequest<{ distanceKm: number; durationMins: number; durationSeconds?: number }>(
+        `/business/${encodeURIComponent(businessId)}/distance?${q.toString()}`
+      );
+    },
+    enabled: !!userCoords && !!businessId,
+    staleTime: 30_000,
+  });
+
+  const routeQuery = useQuery({
+    queryKey: ["route", businessId, userCoords?.lat ?? null, userCoords?.lng ?? null],
+    queryFn: async () => {
+      if (!userCoords || !businessId || !hasCoords) return null;
+      const q = new URLSearchParams({
+        origin: `${userCoords.lat},${userCoords.lng}`,
+        destination: `${business?.latitude},${business?.longitude}`,
+      });
+      return apiRequest<{ polyline: string; durationSeconds?: number; durationText?: string; distanceText?: string }>(
+        `/maps/route?${q.toString()}`
+      );
+    },
+    enabled: !!userCoords && !!businessId && hasCoords,
+    staleTime: 30_000,
+    retry: 1,
+  });
+
+  const routePolyline = routeQuery.data?.polyline || null;
+  const mapPreviewUrl = hasCoords
+    ? buildStaticMapUrl({
+        latitude: business?.latitude as number,
+        longitude: business?.longitude as number,
+        userCoords,
+        polyline: routePolyline,
+      })
+    : null;
+  const etaSeconds = (() => {
+    const sec = Number(routeQuery.data?.durationSeconds);
+    if (Number.isFinite(sec) && sec > 0) return sec;
+    const sec2 = Number(distanceEtaQuery.data?.durationSeconds);
+    if (Number.isFinite(sec2) && sec2 > 0) return sec2;
+    const mins = Number(distanceEtaQuery.data?.durationMins);
+    if (Number.isFinite(mins) && mins >= 0) return Math.round(mins * 60);
+    return null;
+  })();
+  const etaLabel = etaSeconds != null ? formatDurationSeconds(etaSeconds) : null;
+  const distanceEtaLabel = (() => {
+    const km = Number(distanceEtaQuery.data?.distanceKm);
+    const safeKm = Number.isFinite(km) && km >= 0 ? km : (distanceKm ?? null);
+    const d = safeKm != null ? formatKm(safeKm) : null;
+    if (!d && !etaLabel) return null;
+    if (d && etaLabel) return `${d} • ${etaLabel}`;
+    return d || etaLabel;
+  })();
+
   // ── Loading/error states ────────────────────────────────────────────────────
   if (isLoading) {
     return (
@@ -398,18 +585,6 @@ export default function BusinessDetailScreen() {
       </View>
     );
   }
-
-  const hasCoords = Number.isFinite(business.latitude) && Number.isFinite(business.longitude);
-  const mapUrl = hasCoords
-    ? `https://www.google.com/maps?q=${business.latitude},${business.longitude}`
-    : null;
-  const directionsUrl = hasCoords
-    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${business.latitude},${business.longitude}`)}&travelmode=driving${userCoords ? `&origin=${encodeURIComponent(`${userCoords.lat},${userCoords.lng}`)}` : ""}`
-    : null;
-  const distanceKm = hasCoords && userCoords
-    ? haversineKm({ lat: userCoords.lat, lng: userCoords.lng }, { lat: business.latitude as number, lng: business.longitude as number })
-    : null;
-  const distanceLabel = distanceKm != null ? formatKm(distanceKm) : null;
 
   const openLabel = (() => {
     if (business.openStatusMode === "open") return "Open";
@@ -520,7 +695,7 @@ export default function BusinessDetailScreen() {
 
           {/* ── Action buttons ─────────────────────────────────────────────── */}
           <View style={styles.actionsRow}>
-            {business.phone && <ActionButton icon="phone" label="Call" onPress={() => Linking.openURL(`tel:${business.phone}`)} color={Colors.accent} />}
+            {business.phone && <ActionButton icon="phone" label="Call" onPress={() => { trackAction("call"); Linking.openURL(`tel:${business.phone}`); }} color={Colors.accent} />}
             {business.whatsapp && (
               <ActionButton
                 icon="message-circle"
@@ -529,6 +704,7 @@ export default function BusinessDetailScreen() {
                   const wa = business.whatsapp;
                   if (!wa) return;
                   const n = wa.replace(/\D/g, "");
+                  trackAction("whatsapp");
                   Linking.openURL(`https://wa.me/${n}`);
                 }}
                 color="#25D366"
@@ -539,6 +715,7 @@ export default function BusinessDetailScreen() {
                 icon="map-pin"
                 label="Map"
                 onPress={() => {
+                  trackAction("map");
                   Linking.openURL(mapUrl);
                 }}
                 color={Colors.accent}
@@ -549,6 +726,7 @@ export default function BusinessDetailScreen() {
                 icon="navigation"
                 label="Directions"
                 onPress={() => {
+                  trackAction("map");
                   Linking.openURL(directionsUrl);
                 }}
                 color={Colors.primaryDark}
@@ -558,6 +736,34 @@ export default function BusinessDetailScreen() {
             <ActionButton icon="send" label="Inquiry" onPress={() => setShowInquiry(v => !v)} color={Colors.primary} />
             <ActionButton icon="calendar" label="Book" onPress={() => router.push({ pathname: "/(customer)/booking", params: { businessId: business.id, businessSlug: business.slug, businessName: business.name } })} color={Colors.primaryDark} />
           </View>
+
+          {/* ── Inquiry form ───────────────────────────────────────────────── */}
+          {showInquiry && (
+            <View style={styles.inquiryForm}>
+              <Text style={styles.inquiryTitle}>Send Inquiry</Text>
+              <TextInput style={styles.inquiryInput} placeholder="Your Name" placeholderTextColor={Colors.light.textTertiary} value={inquiryName} onChangeText={setInquiryName} />
+              <TextInput style={styles.inquiryInput} placeholder="Phone Number" placeholderTextColor={Colors.light.textTertiary} value={inquiryPhone} onChangeText={setInquiryPhone} keyboardType="phone-pad" />
+              <TextInput style={[styles.inquiryInput, { height: 90, textAlignVertical: "top" }]} placeholder="Your message..." placeholderTextColor={Colors.light.textTertiary} value={inquiryMsg} onChangeText={setInquiryMsg} multiline />
+              <Pressable onPress={() => { if (inquiryName.trim() && inquiryPhone.trim() && inquiryMsg.trim()) submitInquiry.mutate(); }} disabled={submitInquiry.isPending} style={[styles.inquirySubmit, submitInquiry.isPending && { opacity: 0.6 }]}>
+                {submitInquiry.isPending ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.inquirySubmitText}>Send Message</Text>}
+              </Pressable>
+              {submitInquiry.isSuccess && <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#059669", textAlign: "center" }}>✓ Inquiry sent successfully!</Text>}
+            </View>
+          )}
+
+          {/* ── Listings ───────────────────────────────────────────────────── */}
+          {listings.length > 0 && (
+            <View style={styles.listingsSection}>
+              <Text style={styles.sectionTitle}>
+                {business.businessType === "restaurant" ? "🍽️ Menu" :
+                  business.businessType === "coaching" ? "📚 Courses" :
+                    business.businessType === "rental" ? "🏠 Properties" : "📦 Listings"}
+              </Text>
+              {listings.map((listing: any) => (
+                <ListingCard key={listing.id} listing={listing} onPress={() => {}} />
+              ))}
+            </View>
+          )}
 
           {/* ── Working hours ─────────────────────────────────────────────── */}
           {business.workingHours ? (
@@ -590,33 +796,97 @@ export default function BusinessDetailScreen() {
             </View>
           ) : null}
 
-          {/* ── Inquiry form ───────────────────────────────────────────────── */}
-          {showInquiry && (
-            <View style={styles.inquiryForm}>
-              <Text style={styles.inquiryTitle}>Send Inquiry</Text>
-              <TextInput style={styles.inquiryInput} placeholder="Your Name" placeholderTextColor={Colors.light.textTertiary} value={inquiryName} onChangeText={setInquiryName} />
-              <TextInput style={styles.inquiryInput} placeholder="Phone Number" placeholderTextColor={Colors.light.textTertiary} value={inquiryPhone} onChangeText={setInquiryPhone} keyboardType="phone-pad" />
-              <TextInput style={[styles.inquiryInput, { height: 90, textAlignVertical: "top" }]} placeholder="Your message..." placeholderTextColor={Colors.light.textTertiary} value={inquiryMsg} onChangeText={setInquiryMsg} multiline />
-              <Pressable onPress={() => { if (inquiryName.trim() && inquiryPhone.trim() && inquiryMsg.trim()) submitInquiry.mutate(); }} disabled={submitInquiry.isPending} style={[styles.inquirySubmit, submitInquiry.isPending && { opacity: 0.6 }]}>
-                {submitInquiry.isPending ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.inquirySubmitText}>Send Message</Text>}
-              </Pressable>
-              {submitInquiry.isSuccess && <Text style={{ fontFamily: "Manrope_600SemiBold", color: "#059669", textAlign: "center" }}>✓ Inquiry sent successfully!</Text>}
+          {/* ── Location (in-app map + route) ─────────────────────────────── */}
+          <View style={styles.locationCard}>
+            <View style={styles.locationHeader}>
+              <Text style={styles.locationTitle}>Location</Text>
+              {distanceEtaLabel ? (
+                <Text style={styles.locationSub}>{distanceEtaLabel}</Text>
+              ) : null}
             </View>
-          )}
 
-          {/* ── Listings ───────────────────────────────────────────────────── */}
-          {listings.length > 0 && (
-            <View style={styles.listingsSection}>
-              <Text style={styles.sectionTitle}>
-                {business.businessType === "restaurant" ? "🍽️ Menu" :
-                  business.businessType === "coaching" ? "📚 Courses" :
-                    business.businessType === "rental" ? "🏠 Properties" : "📦 Listings"}
-              </Text>
-              {listings.map((listing: any) => (
-                <ListingCard key={listing.id} listing={listing} onPress={() => {}} />
-              ))}
-            </View>
-          )}
+            {hasCoords ? (
+              <>
+                <View style={styles.mapWrap}>
+                  {mapPreviewUrl ? (
+                    <Image source={{ uri: mapPreviewUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                  ) : (
+                    <View style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center" }]}>
+                      <Feather name="map-pin" size={28} color={Colors.light.textTertiary} />
+                    </View>
+                  )}
+                  <View style={styles.mapOverlay}>
+                    <View style={styles.mapOverlayChip}>
+                      <Feather name="map-pin" size={12} color="#fff" />
+                      <Text style={styles.mapOverlayText}>{business.name}</Text>
+                    </View>
+                    {distanceEtaLabel ? (
+                      <View style={styles.mapOverlayChipSecondary}>
+                        <Feather name="navigation" size={12} color={Colors.primary} />
+                        <Text style={styles.mapOverlayTextSecondary}>{distanceEtaLabel}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                </View>
+
+                <Pressable onPress={() => setFullMapOpen(true)} style={styles.fullMapBtn}>
+                  <Feather name="navigation" size={16} color={Colors.primary} />
+                  <Text style={styles.fullMapBtnText}>Open map</Text>
+                </Pressable>
+
+                <Modal visible={fullMapOpen} animationType="slide" onRequestClose={() => setFullMapOpen(false)}>
+                  <View style={{ flex: 1, backgroundColor: "#fff" }}>
+                    <View style={[styles.fullMapHeader, { paddingTop: topPad + 8 }]}>
+                      <Pressable onPress={() => setFullMapOpen(false)} style={styles.fullMapClose}>
+                        <Feather name="x" size={22} color={Colors.light.text} />
+                      </Pressable>
+                      <Text style={styles.fullMapTitle} numberOfLines={1}>{business.name}</Text>
+                      <View style={{ width: 40 }} />
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      {mapPreviewUrl ? (
+                        <Image source={{ uri: mapPreviewUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                      ) : (
+                        <View style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center" }]}>
+                          <Feather name="map-pin" size={28} color={Colors.light.textTertiary} />
+                        </View>
+                      )}
+
+                      {distanceEtaLabel ? (
+                        <View style={styles.fullMapPill}>
+                          <Feather name="clock" size={14} color={Colors.light.textSecondary} />
+                          <Text style={styles.fullMapPillText}>{distanceEtaLabel}</Text>
+                        </View>
+                      ) : null}
+
+                      <View style={styles.fullMapActions}>
+                        {mapUrl ? (
+                          <Pressable onPress={() => Linking.openURL(mapUrl)} style={styles.fullMapActionBtn}>
+                            <Feather name="map" size={14} color={Colors.primary} />
+                            <Text style={styles.fullMapActionText}>Open in Maps</Text>
+                          </Pressable>
+                        ) : null}
+                        {directionsUrl ? (
+                          <Pressable onPress={() => Linking.openURL(directionsUrl)} style={styles.fullMapActionBtnSecondary}>
+                            <Feather name="navigation" size={14} color="#fff" />
+                            <Text style={styles.fullMapActionTextSecondary}>Directions</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    </View>
+                  </View>
+                </Modal>
+              </>
+            ) : (
+              <View style={[styles.mapWrap, { alignItems: "center", justifyContent: "center", padding: 16 }] }>
+                <Feather name="map" size={28} color={Colors.light.textTertiary} />
+                <Text style={{ fontFamily: "Manrope_600SemiBold", color: Colors.light.textSecondary, marginTop: 8, textAlign: "center" }}>
+                  Location not available for this business
+                </Text>
+              </View>
+            )}
+          </View>
 
           {/* ── Reviews section ────────────────────────────────────────────── */}
           <View style={styles.reviewsSection}>
@@ -803,6 +1073,31 @@ const styles = StyleSheet.create({
   hoursDayToday: { color: Colors.primary },
   hoursValue: { fontFamily: "Manrope_500Medium", fontSize: 13, color: Colors.light.text },
   hoursValueToday: { color: Colors.light.text },
+
+  // Location
+  locationCard: { backgroundColor: "#fff", borderRadius: 16, padding: 14, gap: 12, borderWidth: 1, borderColor: Colors.light.borderLight },
+  locationHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  locationTitle: { fontFamily: "Sora_700Bold", fontSize: 16, color: Colors.light.text },
+  locationSub: { fontFamily: "Manrope_500Medium", fontSize: 12, color: Colors.light.textSecondary, marginTop: 2 },
+  mapWrap: { height: 220, borderRadius: 14, overflow: "hidden", backgroundColor: Colors.light.backgroundSecondary },
+  fullMapBtn: { height: 44, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.primary + "30", backgroundColor: Colors.primary + "10", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
+  fullMapBtnText: { fontFamily: "Manrope_700Bold", fontSize: 13, color: Colors.primary },
+  mapOverlay: { position: "absolute", left: 12, right: 12, bottom: 12, gap: 8 },
+  mapOverlayChip: { alignSelf: "flex-start", backgroundColor: "rgba(0,0,0,0.72)", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 6 },
+  mapOverlayChipSecondary: { alignSelf: "flex-start", backgroundColor: "rgba(255,255,255,0.92)", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 6 },
+  mapOverlayText: { fontFamily: "Manrope_700Bold", fontSize: 12, color: "#fff" },
+  mapOverlayTextSecondary: { fontFamily: "Manrope_700Bold", fontSize: 12, color: Colors.primary },
+
+  fullMapHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: Colors.light.border },
+  fullMapClose: { width: 40, height: 40, alignItems: "center", justifyContent: "center", marginLeft: -6 },
+  fullMapTitle: { flex: 1, fontFamily: "Sora_600SemiBold", fontSize: 16, color: Colors.light.text, textAlign: "center" },
+  fullMapPill: { position: "absolute", left: 16, bottom: 16, backgroundColor: "#fff", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: Colors.light.border, opacity: 0.98 },
+  fullMapPillText: { fontFamily: "Manrope_600SemiBold", fontSize: 13, color: Colors.light.text },
+  fullMapActions: { position: "absolute", right: 16, bottom: 16, gap: 10, alignItems: "flex-end" },
+  fullMapActionBtn: { backgroundColor: "#fff", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: Colors.primary + "30" },
+  fullMapActionBtnSecondary: { backgroundColor: Colors.primary, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 6 },
+  fullMapActionText: { fontFamily: "Manrope_700Bold", fontSize: 12, color: Colors.primary },
+  fullMapActionTextSecondary: { fontFamily: "Manrope_700Bold", fontSize: 12, color: "#fff" },
 
   // Reviews
   reviewsSection: { gap: 16 },

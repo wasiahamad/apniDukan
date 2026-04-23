@@ -421,26 +421,39 @@ const PublicListingDetail = () => {
   }, [carouselApi, hasMultipleImages]);
 
   const priceOptions = useMemo(() => {
-    if (!listing) return [] as { name: string; price: number }[];
+    if (!listing) return [] as { name: string; price: number; oldPrice?: number; discountPercent?: number }[];
 
     const direct = Array.isArray(listing.pricingOptions) ? listing.pricingOptions : [];
     const directOptions = direct
       .map((o) => ({
         name: String(o?.label || "").trim(),
         price: Number(o?.price),
+        oldPrice: (() => {
+          const raw = Number((o as any)?.oldPrice);
+          return Number.isFinite(raw) && raw > 0 ? raw : undefined;
+        })(),
+        discountPercent: (() => {
+          const raw = Number((o as any)?.discountPercent);
+          return Number.isFinite(raw) && raw > 0 ? Math.round(raw) : undefined;
+        })(),
       }))
-      .filter((x) => x.name && Number.isFinite(x.price) && x.price >= 0) as { name: string; price: number }[];
+      .filter((x) => x.name && Number.isFinite(x.price) && x.price >= 0) as {
+        name: string;
+        price: number;
+        oldPrice?: number;
+        discountPercent?: number;
+      }[];
     if (directOptions.length > 0) return directOptions;
 
     // Backward-compat: older food listings stored price variants in attributes.
-    if (listing.listingType !== "food") return [] as { name: string; price: number }[];
+    if (listing.listingType !== "food") return [] as { name: string; price: number; oldPrice?: number; discountPercent?: number }[];
     const attrs = Array.isArray(listing.attributes) ? listing.attributes : [];
     return attrs
       .map((a) => ({
         name: String(a?.name || "").trim(),
         price: parseMaybePrice(String(a?.value || "")),
       }))
-      .filter((x) => x.name && x.price !== null) as { name: string; price: number }[];
+      .filter((x) => x.name && x.price !== null) as { name: string; price: number; oldPrice?: number; discountPercent?: number }[];
   }, [listing]);
 
   const detailsAttributes = useMemo(() => {
@@ -471,6 +484,18 @@ const PublicListingDetail = () => {
 
   const effectivePrice = listing ? (selectedPriceOption?.price ?? listing.price) : 0;
   const effectivePriceLabel = listing ? priceLabelWithPrice(listing, effectivePrice) : "";
+  const effectiveOldPrice = listing ? (selectedPriceOption?.oldPrice ?? (listing as any)?.oldPrice) : undefined;
+  const effectiveDiscountPercent = (() => {
+    if (!listing) return null;
+    const direct = Number(selectedPriceOption?.discountPercent ?? (listing as any)?.discountPercent);
+    if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
+    const price = Number(effectivePrice);
+    const oldPrice = Number(effectiveOldPrice);
+    if (!Number.isFinite(price) || !Number.isFinite(oldPrice)) return null;
+    if (oldPrice <= price || oldPrice <= 0) return null;
+    const computed = Math.round(((oldPrice - price) / oldPrice) * 100);
+    return computed > 0 ? computed : null;
+  })();
 
   if (loading) {
     return (
@@ -589,7 +614,19 @@ const PublicListingDetail = () => {
             <div>
               <div className="text-xs font-semibold text-muted-foreground">{typeLabel}</div>
               <h1 className="text-2xl md:text-3xl font-extrabold">{listing.title}</h1>
-              <div className="mt-2 text-lg font-bold text-primary">{effectivePriceLabel}</div>
+              <div className="mt-2 flex items-center gap-2">
+                <div className="text-lg font-bold text-primary">{effectivePriceLabel}</div>
+                {(() => {
+                  if (listing.priceType === 'inquiry') return null;
+                  const oldPrice = Number(effectiveOldPrice);
+                  if (!Number.isFinite(oldPrice) || oldPrice <= 0) return null;
+                  if (oldPrice <= Number(effectivePrice)) return null;
+                  return <span className="text-sm text-muted-foreground line-through">₹{oldPrice}</span>;
+                })()}
+                {typeof effectiveDiscountPercent === 'number' && effectiveDiscountPercent > 0 ? (
+                  <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">-{effectiveDiscountPercent}%</span>
+                ) : null}
+              </div>
               <div className="mt-1 text-sm text-muted-foreground">Sold by {business?.name || ""}</div>
             </div>
 
@@ -606,6 +643,15 @@ const PublicListingDetail = () => {
                 <div className="space-y-2">
                   {priceOptions.map((opt) => {
                     const active = opt.name === selectedPriceOptionName;
+                    const optOld = Number((opt as any)?.oldPrice);
+                    const showOld = Number.isFinite(optOld) && optOld > 0 && optOld > Number(opt.price);
+                    const optPercent = (() => {
+                      const direct = Number((opt as any)?.discountPercent);
+                      if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
+                      if (!showOld) return null;
+                      const computed = Math.round(((optOld - Number(opt.price)) / optOld) * 100);
+                      return computed > 0 ? computed : null;
+                    })();
                     return (
                       <button
                         key={opt.name}
@@ -616,7 +662,15 @@ const PublicListingDetail = () => {
                         }`}
                       >
                         <span className="text-sm font-semibold text-foreground">{opt.name}</span>
-                        <span className="text-sm font-bold text-foreground">₹{opt.price}</span>
+                        <span className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-foreground">₹{opt.price}</span>
+                          {showOld ? (
+                            <span className="text-xs text-muted-foreground line-through">₹{optOld}</span>
+                          ) : null}
+                          {typeof optPercent === 'number' && optPercent > 0 ? (
+                            <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">-{optPercent}%</span>
+                          ) : null}
+                        </span>
                       </button>
                     );
                   })}

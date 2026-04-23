@@ -1,6 +1,6 @@
 import express from 'express';
 import { bookingController } from '../controllers/index.js';
-import { protect, optionalAuth } from '../middleware/auth.js';
+import { protect, authorize } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -13,8 +13,8 @@ const router = express.Router();
 router.get('/available/:businessId', bookingController.getAvailableSlots);
 router.get('/available/slug/:slug', bookingController.getAvailableSlotsBySlug);
 router.get('/slots/slug/:slug', bookingController.getSlotsBySlug);
-router.post('/book/slug/:slug', optionalAuth, bookingController.bookSlotBySlug);
-router.post('/:id/book', optionalAuth, bookingController.bookSlot);
+router.post('/book/slug/:slug', protect, authorize('customer'), bookingController.bookSlotBySlug);
+router.post('/:id/book', protect, authorize('customer'), bookingController.bookSlot);
 
 // Protected routes
 router.post('/', protect, bookingController.createBookingSlot);

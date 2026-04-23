@@ -67,7 +67,7 @@ export default function ShopCard({ shop }: { shop: Shop }) {
         </div>
         <div className="flex gap-2 mt-3">
           <Button size="sm" className="flex-1 gap-1" asChild>
-            <a href={`https://wa.me/${shop.whatsapp}?text=Hi, I found your shop on DukaanDirect!`} target="_blank" rel="noopener noreferrer">
+            <a href={`https://wa.me/${shop.whatsapp}?text=Hi, I found your shop on publicdukan!`} target="_blank" rel="noopener noreferrer">
               <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
             </a>
           </Button>

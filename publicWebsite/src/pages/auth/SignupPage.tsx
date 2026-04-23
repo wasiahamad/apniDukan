@@ -4,19 +4,27 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowRight, Facebook, Loader2, Lock, Mail, Phone, User } from "lucide-react";
+import { FacebookIcon, GoogleIcon } from "@/components/auth/BrandIcons";
+import { ArrowRight, Loader2, Lock, Mail, Phone, User } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 export default function SignupPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { signup, socialLogin } = useAuth();
+  const { signup, socialLogin, verifyEmailOtp, resendEmailOtp } = useAuth();
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [otp, setOtp] = useState("");
+  const [otpExpiresInMinutes, setOtpExpiresInMinutes] = useState<number | undefined>(undefined);
+  const [step, setStep] = useState<"form" | "verify">("form");
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
   const [errors, setErrors] = useState<{ name?: string; email?: string; password?: string; phone?: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [socialLoading, setSocialLoading] = useState<"google" | "facebook" | null>(null);
@@ -27,23 +35,23 @@ export default function SignupPage() {
     const trimmedEmail = email.trim();
 
     if (!trimmedName) {
-      nextErrors.name = "Name is required";
+      nextErrors.name = t("auth.validation.nameRequired");
     }
 
     if (!trimmedEmail) {
-      nextErrors.email = "Email is required";
+      nextErrors.email = t("auth.validation.emailRequired");
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-      nextErrors.email = "Enter a valid email";
+      nextErrors.email = t("auth.validation.emailInvalid");
     }
 
     if (!password) {
-      nextErrors.password = "Password is required";
+      nextErrors.password = t("auth.validation.passwordRequired");
     } else if (password.length < 6) {
-      nextErrors.password = "Password must be at least 6 characters";
+      nextErrors.password = t("auth.validation.passwordMin");
     }
 
     if (phone && phone.length !== 10) {
-      nextErrors.phone = "Phone number must be 10 digits";
+      nextErrors.phone = t("auth.validation.phoneDigits10");
     }
 
     setErrors(nextErrors);
@@ -55,19 +63,76 @@ export default function SignupPage() {
 
     setIsSubmitting(true);
     try {
-      await signup({
+      const result = await signup({
         name: name.trim(),
         phone: phone.trim() || undefined,
         email: email.trim(),
         password,
       });
-      toast({ title: "Account created", description: "Your profile is ready." });
-      navigate("/account", { replace: true });
+
+      if (result?.verificationRequired) {
+        setOtp("");
+        setOtpExpiresInMinutes(result.otpExpiresInMinutes);
+        setStep("verify");
+        toast({ title: t("auth.signup.toast.otpSentTitle"), description: t("auth.signup.toast.otpSentDesc") });
+      } else {
+        toast({ title: t("auth.signup.toast.accountCreatedTitle"), description: t("auth.signup.toast.accountCreatedDesc") });
+        navigate("/account", { replace: true });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to create account right now";
-      toast({ title: "Signup failed", description: message, variant: "destructive" });
+      toast({ title: t("auth.signup.toast.signupFailedTitle"), description: message, variant: "destructive" });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const onVerifyOtp = async () => {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      toast({
+        title: t("auth.signup.toast.emailRequiredTitle"),
+        description: t("auth.signup.toast.emailRequiredDesc"),
+        variant: "destructive",
+      });
+      setStep("form");
+      return;
+    }
+    if (!otp.trim()) {
+      toast({
+        title: t("auth.validation.otpRequired"),
+        description: t("auth.login.toast.otpRequiredDesc"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setVerifyLoading(true);
+    try {
+      await verifyEmailOtp({ email: trimmedEmail, otp });
+      toast({ title: t("auth.signup.toast.verifiedTitle"), description: t("auth.signup.toast.verifiedDesc") });
+      navigate("/account", { replace: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "OTP verification failed";
+      toast({ title: t("auth.signup.toast.verificationFailedTitle"), description: message, variant: "destructive" });
+    } finally {
+      setVerifyLoading(false);
+    }
+  };
+
+  const onResendOtp = async () => {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) return;
+    setResendLoading(true);
+    try {
+      const result = await resendEmailOtp({ email: trimmedEmail });
+      setOtpExpiresInMinutes(result?.otpExpiresInMinutes);
+      toast({ title: t("auth.signup.toast.otpResentTitle"), description: t("auth.signup.toast.otpResentDesc") });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to resend OTP";
+      toast({ title: t("auth.signup.toast.resendFailedTitle"), description: message, variant: "destructive" });
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -75,34 +140,87 @@ export default function SignupPage() {
     setSocialLoading(provider);
     try {
       await socialLogin(provider);
-      toast({ title: "Success", description: `Signed in with ${provider}.` });
+      toast({ title: t("auth.toast.successTitle"), description: t("auth.toast.socialSuccessDesc", { provider }) });
       navigate("/account", { replace: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : `Unable to signup with ${provider}`;
-      toast({ title: "Social login failed", description: message, variant: "destructive" });
+      toast({ title: t("auth.toast.socialFailedTitle"), description: message, variant: "destructive" });
     } finally {
       setSocialLoading(null);
     }
   };
 
   return (
-    <section className="min-h-[calc(100vh-5rem)] bg-[radial-gradient(circle_at_top_left,#ecfdf5,transparent_35%),radial-gradient(circle_at_top_right,#fff7ed,transparent_30%),linear-gradient(#ffffff,#f8fafc)] py-8 md:py-12">
+    <section className="min-h-[calc(100vh-5rem)] bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.16),transparent_35%),radial-gradient(circle_at_top_right,hsl(var(--secondary)/0.18),transparent_30%),linear-gradient(180deg,hsl(var(--muted)),hsl(var(--background)))] py-8 md:py-12">
       <div className="container max-w-lg">
-        <Card className="rounded-3xl border-0 bg-white/90 shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur transition-all duration-300 hover:shadow-[0_26px_70px_rgba(15,23,42,0.16)]">
+        <Card className="rounded-3xl border-0 bg-card/90 shadow-xl backdrop-blur transition-all duration-300 hover:shadow-2xl">
           <CardHeader>
-            <CardTitle className="text-3xl font-black tracking-tight text-slate-900">Create Account</CardTitle>
-            <CardDescription>Sign up to unlock your personal DukaanDirect dashboard.</CardDescription>
+            <CardTitle className="text-3xl font-black tracking-tight text-foreground">
+              {step === "verify" ? t("auth.signup.titleVerify") : t("auth.signup.titleForm")}
+            </CardTitle>
+            <CardDescription>
+              {step === "verify"
+                ? `${t("auth.signup.otpNotePrefix")} ${email.trim() || "your email"} ${
+                    otpExpiresInMinutes ? t("auth.signup.otpValidFor", { mins: otpExpiresInMinutes }) : ""
+                  }.`
+                : t("auth.signup.descForm")}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {step === "verify" ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="verify-otp">{t("auth.signup.otp")}</Label>
+                  <Input
+                    id="verify-otp"
+                    inputMode="numeric"
+                    className="h-12"
+                    placeholder={t("auth.signup.enterOtp")}
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))}
+                  />
+                  <p className="text-xs text-muted-foreground">{t("auth.signup.alsoCheckSpam")}</p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3">
+                  <Button
+                    variant="secondary"
+                    className="w-full h-12 transition-all duration-200"
+                    onClick={onVerifyOtp}
+                    disabled={verifyLoading || resendLoading}
+                  >
+                    {verifyLoading ? t("auth.signup.verifying") : t("auth.signup.verifyContinue")}
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
+
+                  <Button type="button" variant="outline" className="h-12" onClick={onResendOtp} disabled={verifyLoading || resendLoading}>
+                    {resendLoading ? t("auth.signup.resending") : t("auth.signup.resendOtp")}
+                  </Button>
+                </div>
+
+                <p className="text-sm text-muted-foreground text-center">
+                  {t("auth.signup.wrongEmail")}{" "}
+                  <button
+                    type="button"
+                    className="font-semibold text-primary hover:underline"
+                    onClick={() => setStep("form")}
+                    disabled={verifyLoading || resendLoading}
+                  >
+                    {t("auth.signup.changeSignupAgain")}
+                  </button>
+                </p>
+              </>
+            ) : (
+              <>
             <div className="space-y-2">
-              <Label htmlFor="signup-name">Name</Label>
+              <Label htmlFor="signup-name">{t("auth.signup.name")}</Label>
               <div className="relative">
-                <User className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <User className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="signup-name"
                   type="text"
                   className="h-12 pl-10"
-                  placeholder="Priya Sharma"
+                  placeholder={t("auth.signup.placeholderName")}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
@@ -111,14 +229,14 @@ export default function SignupPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="signup-phone">Phone (optional)</Label>
+              <Label htmlFor="signup-phone">{t("auth.signup.phoneOptional")}</Label>
               <div className="relative">
-                <Phone className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Phone className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="signup-phone"
                   type="tel"
                   className="h-12 pl-10"
-                  placeholder="9876543210"
+                  placeholder={t("auth.signup.placeholderPhone")}
                   value={phone}
                   onChange={(e) => setPhone(e.target.value.replace(/[^0-9]/g, "").slice(0, 10))}
                 />
@@ -127,14 +245,14 @@ export default function SignupPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="signup-email">Email</Label>
+              <Label htmlFor="signup-email">{t("auth.signup.email")}</Label>
               <div className="relative">
-                <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="signup-email"
                   type="email"
                   className="h-12 pl-10"
-                  placeholder="you@example.com"
+                  placeholder={t("auth.signup.placeholderEmail")}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
@@ -143,14 +261,14 @@ export default function SignupPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="signup-password">Password</Label>
+              <Label htmlFor="signup-password">{t("auth.signup.password")}</Label>
               <div className="relative">
-                <Lock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Lock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="signup-password"
                   type="password"
                   className="h-12 pl-10"
-                  placeholder="Minimum 6 characters"
+                  placeholder={t("auth.signup.placeholderPassword")}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
@@ -159,16 +277,17 @@ export default function SignupPage() {
             </div>
 
             <Button
-              className="w-full h-12 bg-[rgb(255,136,0)] hover:bg-[rgb(235,121,0)] text-white transition-all duration-200"
+              variant="secondary"
+              className="w-full h-12 transition-all duration-200"
               onClick={onSubmit}
               disabled={isSubmitting || !!socialLoading}
             >
-              {isSubmitting ? "Creating account..." : "Signup"}
+              {isSubmitting ? t("auth.signup.creating") : t("auth.signup.signup")}
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
 
-            <div className="relative text-center text-xs tracking-[0.2em] text-slate-500 py-2">
-              <span className="px-3 bg-card relative z-10">OR CONTINUE WITH</span>
+            <div className="relative text-center text-xs tracking-[0.2em] text-muted-foreground py-2">
+              <span className="px-3 bg-card relative z-10">{t("auth.signup.orContinueWith")}</span>
               <span className="absolute left-0 right-0 top-1/2 border-t -z-0" />
             </div>
 
@@ -180,26 +299,29 @@ export default function SignupPage() {
                 onClick={() => onSocialLogin("google")}
                 disabled={!!socialLoading || isSubmitting}
               >
-                {socialLoading === "google" ? <Loader2 className="w-4 h-4 animate-spin" /> : <span className="text-base font-semibold">G</span>}
-                <span className="ml-3">Continue with Google</span>
+                {socialLoading === "google" ? <Loader2 className="w-4 h-4 animate-spin" /> : <GoogleIcon className="w-4 h-4" />}
+                <span className="ml-3">{t("auth.signup.continueGoogle")}</span>
               </Button>
               <Button
                 type="button"
-                className="h-12 rounded-full justify-start bg-[#1877F2] hover:bg-[#1665cf] text-white"
+                variant="outline"
+                className="h-12 rounded-full justify-start border-[#1877F2]/30 hover:bg-[#1877F2]/5"
                 onClick={() => onSocialLogin("facebook")}
                 disabled={!!socialLoading || isSubmitting}
               >
-                {socialLoading === "facebook" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Facebook className="w-4 h-4" />}
-                <span className="ml-3">Continue with Facebook</span>
+                {socialLoading === "facebook" ? <Loader2 className="w-4 h-4 animate-spin" /> : <FacebookIcon className="w-4 h-4 text-[#1877F2]" />}
+                <span className="ml-3">{t("auth.signup.continueFacebook")}</span>
               </Button>
             </div>
 
-            <p className="text-sm text-slate-600 text-center">
-              Already have an account?{" "}
-              <Link className="font-semibold text-[rgb(30,190,118)] hover:underline" to="/login">
-                Login
+            <p className="text-sm text-muted-foreground text-center">
+              {t("auth.signup.alreadyHave")}{" "}
+              <Link className="font-semibold text-primary hover:underline" to="/login">
+                {t("auth.signup.login")}
               </Link>
             </p>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>

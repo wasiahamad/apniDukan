@@ -14,6 +14,8 @@ export interface Listing {
   description: string;
   listingType: 'product' | 'service' | 'food' | 'course' | 'rental';
   price: number;
+  oldPrice?: number;
+  discountPercent?: number;
   priceType: 'fixed' | 'per_day' | 'per_month' | 'per_hour' | 'starting_from' | 'inquiry';
   category?: Category | string;
   images?: {
@@ -27,6 +29,8 @@ export interface Listing {
   pricingOptions?: {
     label: string;
     price: number;
+    oldPrice?: number;
+    discountPercent?: number;
   }[];
   stock?: number;
   sku?: string;
@@ -47,6 +51,7 @@ export interface CreateListingData {
   description: string;
   listingType: 'product' | 'service' | 'food' | 'course' | 'rental';
   price: number;
+  oldPrice?: number;
   priceType: 'fixed' | 'per_day' | 'per_month' | 'per_hour' | 'starting_from' | 'inquiry';
   category?: string;
   images?: {
@@ -60,6 +65,7 @@ export interface CreateListingData {
   pricingOptions?: {
     label: string;
     price: number;
+    oldPrice?: number;
   }[];
   stock?: number;
   sku?: string;
@@ -70,6 +76,7 @@ export interface UpdateListingData {
   description?: string;
   listingType?: 'product' | 'service' | 'food' | 'course' | 'rental';
   price?: number;
+  oldPrice?: number;
   priceType?: 'fixed' | 'per_day' | 'per_month' | 'per_hour' | 'starting_from' | 'inquiry';
   category?: string;
   images?: {
@@ -83,6 +90,7 @@ export interface UpdateListingData {
   pricingOptions?: {
     label: string;
     price: number;
+    oldPrice?: number;
   }[];
   stock?: number;
   sku?: string;

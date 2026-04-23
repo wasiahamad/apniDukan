@@ -3,6 +3,16 @@ import { getEffectiveEntitlementsForBusiness, isUnlimited } from '../services/en
 
 const DEMO_SHOP_SLUG = 'ram-kirana-store';
 
+const getRequestedLang = (req) => {
+  const q = String(req.query?.lang || '').toLowerCase();
+  if (q.startsWith('hi')) return 'hi';
+  if (q.startsWith('en')) return 'en';
+
+  const header = String(req.headers?.['accept-language'] || '').toLowerCase();
+  if (header.startsWith('hi')) return 'hi';
+  return 'en';
+};
+
 /**
  * LISTING CONTROLLER - Universal listing management
  * Replaces: Product controller
@@ -18,10 +28,13 @@ export const createListing = async (req, res) => {
     const {
       business: businessId,
       title,
+      titleHi,
       description,
+      descriptionHi,
       images,
       listingType,
       price,
+      oldPrice,
       priceType,
       category,
       attributes,
@@ -44,10 +57,18 @@ export const createListing = async (req, res) => {
 
     const normalizedPricingOptions = Array.isArray(pricingOptions)
       ? pricingOptions
-          .map((o) => ({
-            label: typeof o?.label === 'string' ? o.label.trim() : '',
-            price: Number(o?.price),
-          }))
+          .map((o) => {
+            const label = typeof o?.label === 'string' ? o.label.trim() : '';
+            const labelHi = typeof o?.labelHi === 'string' ? o.labelHi.trim() : '';
+            const price = Number(o?.price);
+            const oldPrice = o?.oldPrice !== undefined && o?.oldPrice !== null && o?.oldPrice !== '' ? Number(o.oldPrice) : undefined;
+            return {
+              label,
+              ...(labelHi ? { labelHi } : {}),
+              price,
+              ...(Number.isFinite(oldPrice) ? { oldPrice } : {}),
+            };
+          })
           .filter((o) => o.label && Number.isFinite(o.price) && o.price >= 0)
       : undefined;
 
@@ -92,6 +113,16 @@ export const createListing = async (req, res) => {
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
     const features = entitlements.features;
 
+    const usesDiscountPricing =
+      (oldPrice !== undefined && oldPrice !== null && oldPrice !== '') ||
+      (Array.isArray(normalizedPricingOptions) && normalizedPricingOptions.some((o) => o?.oldPrice !== undefined));
+    if (usesDiscountPricing && features?.offersEnabled !== true) {
+      return res.status(403).json({
+        success: false,
+        message: 'Offers/discount pricing is not enabled in your plan. Please upgrade.',
+      });
+    }
+
     const maxListings = features?.maxListings;
     if (!isUnlimited(maxListings) && typeof maxListings === 'number') {
       if ((business.stats?.totalListings || 0) >= maxListings) {
@@ -130,10 +161,13 @@ export const createListing = async (req, res) => {
     const listing = await Listing.create({
       business: businessId,
       title,
+      ...(typeof titleHi === 'string' && titleHi.trim() ? { titleHi: titleHi.trim() } : {}),
       description,
+      ...(typeof descriptionHi === 'string' && descriptionHi.trim() ? { descriptionHi: descriptionHi.trim() } : {}),
       images: normalizedImages,
       listingType: derivedListingType,
       price,
+      ...(oldPrice !== undefined && oldPrice !== null && oldPrice !== '' ? { oldPrice: Number(oldPrice) } : {}),
       priceType,
       category: category || business.category,
       attributes,
@@ -314,9 +348,36 @@ export const getPublicListingsByBusiness = async (req, res) => {
       sort: '-isFeatured -createdAt',
     });
 
+    const lang = getRequestedLang(req);
+    const listings = Array.isArray(result?.listings) ? result.listings : [];
+
+    const localized = lang === 'hi'
+      ? {
+          ...result,
+          listings: listings.map((l) => {
+            const title = String(l?.titleHi || '').trim() || l?.title;
+            const description = String(l?.descriptionHi || '').trim() || l?.description;
+
+            const pricingOptions = Array.isArray(l?.pricingOptions)
+              ? l.pricingOptions.map((o) => ({
+                  ...o,
+                  label: String(o?.labelHi || '').trim() || o?.label,
+                }))
+              : l?.pricingOptions;
+
+            return {
+              ...l,
+              title,
+              description,
+              pricingOptions,
+            };
+          }),
+        }
+      : result;
+
     res.status(200).json({
       success: true,
-      data: result,
+      data: localized,
     });
   } catch (error) {
     console.error('Get public listings by business error:', error);
@@ -490,13 +551,32 @@ export const updateListing = async (req, res) => {
       }
     }
 
+    // Enforce plan rules for discount/offer pricing
+    const usesDiscountPricing =
+      req.body.oldPrice !== undefined ||
+      (Array.isArray(req.body.pricingOptions) && req.body.pricingOptions.some((o) => o?.oldPrice !== undefined));
+    if (usesDiscountPricing) {
+      const entitlements = await getEffectiveEntitlementsForBusiness(listing.business);
+      const features = entitlements.features;
+
+      if (features?.offersEnabled !== true) {
+        return res.status(403).json({
+          success: false,
+          message: 'Offers/discount pricing is not enabled in your plan. Please upgrade.',
+        });
+      }
+    }
+
     // Update allowed fields
     const allowedFields = [
       'title',
+      'titleHi',
       'description',
+      'descriptionHi',
       'images',
       'listingType',
       'price',
+      'oldPrice',
       'priceType',
       'category',
       'attributes',
@@ -520,14 +600,29 @@ export const updateListing = async (req, res) => {
         : [];
     }
 
+    if (req.body.oldPrice !== undefined) {
+      req.body.oldPrice =
+        req.body.oldPrice === null || req.body.oldPrice === ''
+          ? undefined
+          : Number(req.body.oldPrice);
+    }
+
     // Normalize pricingOptions (if provided)
     if (req.body.pricingOptions !== undefined) {
       req.body.pricingOptions = Array.isArray(req.body.pricingOptions)
         ? req.body.pricingOptions
-            .map((o) => ({
-              label: typeof o?.label === 'string' ? o.label.trim() : '',
-              price: Number(o?.price),
-            }))
+            .map((o) => {
+              const label = typeof o?.label === 'string' ? o.label.trim() : '';
+              const labelHi = typeof o?.labelHi === 'string' ? o.labelHi.trim() : '';
+              const price = Number(o?.price);
+              const oldPrice = o?.oldPrice !== undefined && o?.oldPrice !== null && o?.oldPrice !== '' ? Number(o.oldPrice) : undefined;
+              return {
+                label,
+                ...(labelHi ? { labelHi } : {}),
+                price,
+                ...(Number.isFinite(oldPrice) ? { oldPrice } : {}),
+              };
+            })
             .filter((o) => o.label && Number.isFinite(o.price) && o.price >= 0)
         : [];
     }

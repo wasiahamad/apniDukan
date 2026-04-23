@@ -12,13 +12,23 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchBusinessTypes, fetchNearbyPublicShops, fetchPublicShops } from "@/lib/publicShopsApi";
+import { autoHindiCity, autoHindiText, fetchBusinessTypes, fetchNearbyPublicShops, fetchPublicShops } from "@/lib/publicShopsApi";
 import { useUserLocation } from "@/hooks/useUserLocation";
+import { useTranslation } from "react-i18next";
 
-export default function GlobalSearch() {
+type GlobalSearchMode = "header" | "hero";
+
+export default function GlobalSearch({ mode = "header" }: { mode?: GlobalSearchMode }) {
+  const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const navigate = useNavigate();
   const { userLocation, requestLocation } = useUserLocation();
+
+  useEffect(() => {
+    if (open) return;
+    setQuery("");
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -31,7 +41,12 @@ export default function GlobalSearch() {
   }, [open, requestLocation, userLocation]);
 
   const nearbyShopsQuery = useQuery({
-    queryKey: ["public-shops-nearby-search", userLocation?.latitude ?? null, userLocation?.longitude ?? null],
+    queryKey: [
+      "public-shops-nearby-search",
+      i18n.language,
+      userLocation?.latitude ?? null,
+      userLocation?.longitude ?? null,
+    ],
     enabled: open && !!userLocation,
     queryFn: () =>
       fetchNearbyPublicShops({
@@ -42,15 +57,37 @@ export default function GlobalSearch() {
       }),
   });
 
+  const trimmedQuery = query.trim();
+  const searchShopsQuery = useQuery({
+    queryKey: [
+      "public-shops-search",
+      i18n.language,
+      trimmedQuery,
+      userLocation?.latitude ?? null,
+      userLocation?.longitude ?? null,
+    ],
+    enabled: open && trimmedQuery.length > 0,
+    queryFn: () =>
+      fetchPublicShops({
+        search: trimmedQuery,
+        ...(userLocation
+          ? {
+              lat: userLocation.latitude,
+              lng: userLocation.longitude,
+            }
+          : {}),
+      }),
+  });
+
   // Separate query: used only to build the Cities list (show all cities).
   const allShopsQuery = useQuery({
-    queryKey: ["public-shops-all-search"],
+    queryKey: ["public-shops-all-search", i18n.language],
     enabled: open,
     queryFn: () => fetchPublicShops(),
   });
 
   const businessTypesQuery = useQuery({
-    queryKey: ["business-types"],
+    queryKey: ["business-types", i18n.language],
     queryFn: fetchBusinessTypes,
   });
 
@@ -73,8 +110,6 @@ export default function GlobalSearch() {
 
   const categories = businessTypesQuery.data || [];
 
-  const defaultCitySlug = cities[0]?.slug || "delhi";
-
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
@@ -93,38 +128,56 @@ export default function GlobalSearch() {
 
   return (
     <>
-      <Button
-        variant="outline"
-        size="sm"
-        className="hidden md:flex items-center gap-2 text-muted-foreground w-56 justify-start"
-        onClick={() => setOpen(true)}
-      >
-        <Search className="h-4 w-4" />
-        <span className="text-sm">Search shops...</span>
-        <kbd className="ml-auto pointer-events-none hidden sm:inline-flex h-5 items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
-          ⌘K
-        </kbd>
-      </Button>
+      {mode === "header" ? (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="hidden md:flex items-center gap-2 text-muted-foreground w-56 justify-start"
+            onClick={() => setOpen(true)}
+          >
+            <Search className="h-4 w-4" />
+            <span className="text-sm">{t("search.open")}</span>
+            <kbd className="ml-auto pointer-events-none hidden sm:inline-flex h-5 items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+              {t("search.kbdHint")}
+            </kbd>
+          </Button>
 
-      <Button
-        variant="ghost"
-        size="icon"
-        className="md:hidden"
-        onClick={() => setOpen(true)}
-      >
-        <Search className="h-5 w-5" />
-      </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden"
+            onClick={() => setOpen(true)}
+          >
+            <Search className="h-5 w-5" />
+          </Button>
+        </>
+      ) : (
+        <Button
+          variant="outline"
+          size="lg"
+          className="md:hidden w-full h-12 justify-start gap-3 rounded-2xl border-border bg-card/80 backdrop-blur text-muted-foreground"
+          onClick={() => setOpen(true)}
+        >
+          <Search className="h-5 w-5" />
+          <span className="text-sm">{t("search.open")}</span>
+        </Button>
+      )}
 
       <CommandDialog open={open} onOpenChange={setOpen}>
-        <CommandInput placeholder="Search shops, cities, categories..." />
+        <CommandInput
+          placeholder={t("search.inputPlaceholder")}
+          value={query}
+          onValueChange={setQuery}
+        />
         <CommandList>
-          <CommandEmpty>No results found.</CommandEmpty>
-          <CommandGroup heading="Shops">
-            {!userLocation && open ? (
+          <CommandEmpty>{t("search.noResults")}</CommandEmpty>
+          <CommandGroup heading={t("search.headings.shops")}>
+            {!userLocation && open && trimmedQuery.length === 0 ? (
               <CommandItem disabled className="py-2 text-muted-foreground">
-                Location allow karo to nearby shops search ho sake.
+                {t("search.locationRequired")}
               </CommandItem>
-            ) : nearbyShopsQuery.isLoading ? (
+            ) : (trimmedQuery.length > 0 ? searchShopsQuery.isLoading : nearbyShopsQuery.isLoading) ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <CommandItem key={i} disabled className="py-2">
                   <div className="flex items-center gap-2 w-full">
@@ -134,19 +187,21 @@ export default function GlobalSearch() {
                   </div>
                 </CommandItem>
               ))
-            ) : nearbyShops.slice(0, 12).map((shop) => (
-              <CommandItem
-                key={shop.id}
-                value={`${shop.name} ${shop.category} ${shop.city} ${shop.area}`}
-                onSelect={() => handleSelect(`/${shop.slug}`)}
-              >
-                <span className="mr-2">{categories.find(c => c.slug === shop.categorySlug)?.icon || "🏪"}</span>
-                <span>{shop.name}</span>
-                <span className="ml-auto text-xs text-muted-foreground">{shop.city}</span>
-              </CommandItem>
-            ))}
+            ) : (trimmedQuery.length > 0 ? (searchShopsQuery.data || []) : nearbyShops)
+                .slice(0, 12)
+                .map((shop) => (
+                  <CommandItem
+                    key={shop.id}
+                    value={`${shop.name} ${shop.category} ${shop.city} ${shop.area} ${shop.slug} ${shop.categorySlug} ${shop.citySlug} ${autoHindiText(shop.name)} ${autoHindiText(shop.category)} ${autoHindiCity(shop.city)}`}
+                    onSelect={() => handleSelect(`/${shop.slug}`)}
+                  >
+                    <span className="mr-2">{categories.find((c) => c.slug === shop.categorySlug)?.icon || "🏪"}</span>
+                    <span>{shop.name}</span>
+                    <span className="ml-auto text-xs text-muted-foreground">{shop.city}</span>
+                  </CommandItem>
+                ))}
           </CommandGroup>
-          <CommandGroup heading="Cities">
+          <CommandGroup heading={t("search.headings.cities")}>
             {allShopsQuery.isLoading
               ? Array.from({ length: 4 }).map((_, i) => (
                   <CommandItem key={i} disabled className="py-2">
@@ -160,15 +215,17 @@ export default function GlobalSearch() {
               : cities.map((city) => (
                   <CommandItem
                     key={city.id}
-                    value={city.name}
+                    value={`${city.name} ${city.slug} ${autoHindiCity(city.name)}`}
                     onSelect={() => handleSelect(`/${city.slug}`)}
                   >
                     📍 {city.name}
-                    <span className="ml-auto text-xs text-muted-foreground">{city.totalShops} shops</span>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {t("search.cityShopCount", { count: city.totalShops })}
+                    </span>
                   </CommandItem>
                 ))}
           </CommandGroup>
-          <CommandGroup heading="Categories">
+                  <CommandGroup heading={t("search.headings.categories")}>
             {businessTypesQuery.isLoading
               ? Array.from({ length: 6 }).map((_, i) => (
                   <CommandItem key={i} disabled className="py-2">
@@ -181,8 +238,8 @@ export default function GlobalSearch() {
               : categories.map((cat) => (
                   <CommandItem
                     key={cat.id}
-                    value={cat.name}
-                    onSelect={() => handleSelect(`/${defaultCitySlug}/${cat.slug}`)}
+                    value={`${cat.name} ${cat.slug} ${autoHindiText(cat.name)} ${autoHindiText(cat.slug)}`}
+                    onSelect={() => handleSelect(`/shops/${cat.slug}`)}
                   >
                     {cat.icon} {cat.name}
                   </CommandItem>

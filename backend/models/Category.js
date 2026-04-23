@@ -16,6 +16,20 @@ const categorySchema = new mongoose.Schema(
       ref: 'Business',
       required: [true, 'Business reference is required'],
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
     name: {
       type: String,
       required: [true, 'Category name is required'],
@@ -66,6 +80,7 @@ categorySchema.pre('validate', function (next) {
 categorySchema.index({ business: 1, slug: 1 }, { unique: true });
 // Index for querying active categories by business
 categorySchema.index({ business: 1, isActive: 1, order: 1 });
+categorySchema.index({ business: 1, isDeleted: 1, isActive: 1, order: 1 });
 
 // Auto-generate slug from name (unique per business)
 categorySchema.pre('save', async function (next) {

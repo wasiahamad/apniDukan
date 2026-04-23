@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Gift, Copy, Check, Users, Star, Crown, Zap, Share2, Loader2, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -28,6 +29,8 @@ const Referrals = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const { t, i18n } = useTranslation();
+  const dateLocale = i18n.language === "hi" ? "hi-IN" : "en-IN";
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -75,10 +78,10 @@ const Referrals = () => {
 
         setSelectedOfferId(serverSelected || fallbackSelected);
       } else {
-        setError(response.message || "Failed to fetch referral stats");
+        setError(response.message || t("referrals.errors.fetchStatsFailed"));
       }
     } catch (err: any) {
-      setError(err.message || "Error fetching referral stats");
+      setError(err.message || t("referrals.errors.fetchStatsFailed"));
     } finally {
       setLoading(false);
     }
@@ -90,8 +93,8 @@ const Referrals = () => {
 
     if (!selectedOffer) {
       toast({
-        title: "No Active Offer",
-        description: "Please select an active referral offer",
+        title: t("referrals.toasts.noActiveOfferTitle"),
+        description: t("referrals.toasts.noActiveOfferDesc"),
         variant: "destructive"
       });
       return;
@@ -101,8 +104,11 @@ const Referrals = () => {
 
     if (validCountForOffer < selectedOffer.referralThreshold) {
       toast({
-        title: "Not Eligible",
-        description: `You need ${selectedOffer.referralThreshold} unused valid referrals. You have ${validCountForOffer}.`,
+        title: t("referrals.toasts.notEligibleTitle"),
+        description: t("referrals.toasts.notEligibleDesc", {
+          required: selectedOffer.referralThreshold,
+          current: validCountForOffer,
+        }),
         variant: "destructive"
       });
       return;
@@ -113,21 +119,21 @@ const Referrals = () => {
       const response = await referralApi.requestReward({ offerId: selectedOffer._id });
       if (response.success) {
         toast({
-          title: "Success!",
-          description: response.message || "Reward request submitted successfully",
+          title: t("referrals.toasts.requestSuccessTitle"),
+          description: response.message || t("referrals.toasts.requestSuccessDesc"),
         });
         fetchReferralStats(); // Refresh data
       } else {
         toast({
-          title: "Error",
-          description: response.message || "Failed to request reward",
+          title: t("referrals.toasts.errorTitle"),
+          description: response.message || t("referrals.toasts.requestFailedDesc"),
           variant: "destructive"
         });
       }
     } catch (err: any) {
       toast({
-        title: "Error",
-        description: err.message || "Failed to request reward",
+        title: t("referrals.toasts.errorTitle"),
+        description: err.message || t("referrals.toasts.requestFailedDesc"),
         variant: "destructive"
       });
     } finally {
@@ -150,8 +156,8 @@ const Referrals = () => {
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center space-y-3">
           <AlertCircle className="w-12 h-12 text-destructive mx-auto" />
-          <p className="text-sm text-muted-foreground">{error || "Failed to load referral data"}</p>
-          <Button onClick={fetchReferralStats} variant="outline">Retry</Button>
+          <p className="text-sm text-muted-foreground">{error || t("referrals.errors.loadFailed")}</p>
+          <Button onClick={fetchReferralStats} variant="outline">{t("referrals.actions.retry")}</Button>
         </div>
       </div>
     );
@@ -185,15 +191,21 @@ const Referrals = () => {
   const handleCopy = () => {
     navigator.clipboard.writeText(referralLink);
     setCopied(true);
-    toast({ title: "Link copied!", description: "Share it with other shop owners." });
+    toast({ title: t("referrals.toasts.linkCopiedTitle"), description: t("referrals.toasts.linkCopiedDesc") });
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleWhatsAppShare = () => {
-    const message = `Join ApniDukan using my referral code ${referralCode}: ${referralLink}`;
+    const message = t("referrals.share.whatsappMessage", { code: referralCode, link: referralLink });
     const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
     window.open(url, "_blank", "noopener,noreferrer");
   };
+
+  const getOfferStatusLabel = (status: ReferralOffer["status"]) =>
+    t(`referrals.offerStatus.${status}`, { defaultValue: status });
+
+  const getReferralStatusLabel = (status: (typeof stats.referrals)[number]["status"]) =>
+    t(`referrals.referralStatus.${status}`, { defaultValue: status });
 
   const getOfferStatusVariant = (status: ReferralOffer["status"]) => {
     switch (status) {
@@ -213,16 +225,16 @@ const Referrals = () => {
   return (
     <div className="space-y-5 sm:space-y-6">
       <div>
-        <h1 className="text-xl sm:text-2xl font-bold text-foreground">Referral Program</h1>
-        <p className="text-muted-foreground text-sm mt-1">Refer shops & earn free plan upgrades</p>
+        <h1 className="text-xl sm:text-2xl font-bold text-foreground">{t("referrals.title")}</h1>
+        <p className="text-muted-foreground text-sm mt-1">{t("referrals.subtitle")}</p>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
-          { label: "Total Referrals", value: stats.stats.total, icon: Users, color: "text-primary" },
-          { label: "Valid Referrals", value: stats.stats.valid, icon: Check, color: "text-emerald-500" },
-          { label: "Pending", value: stats.stats.pending, icon: Star, color: "text-amber-500" },
+          { label: t("referrals.stats.total"), value: stats.stats.total, icon: Users, color: "text-primary" },
+          { label: t("referrals.stats.valid"), value: stats.stats.valid, icon: Check, color: "text-emerald-500" },
+          { label: t("referrals.stats.pending"), value: stats.stats.pending, icon: Star, color: "text-amber-500" },
         ].map((stat, i) => (
           <motion.div key={stat.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}>
             <Card>
@@ -243,7 +255,7 @@ const Referrals = () => {
       {/* Share Link */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2"><Share2 className="w-4 h-4" /> Your Referral Link</CardTitle>
+          <CardTitle className="text-base flex items-center gap-2"><Share2 className="w-4 h-4" /> {t("referrals.share.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
@@ -252,29 +264,29 @@ const Referrals = () => {
             </div>
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto shrink-0">
               <Button size="sm" variant="outline" onClick={handleWhatsAppShare} className="gap-1.5 w-full sm:w-auto">
-                <Share2 className="w-4 h-4" /> WhatsApp
+                <Share2 className="w-4 h-4" /> {t("referrals.share.whatsapp")}
               </Button>
               <Button size="sm" onClick={handleCopy} className="gap-1.5 w-full sm:w-auto">
                 {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                {copied ? "Copied" : "Copy"}
+                {copied ? t("referrals.share.copied") : t("referrals.share.copy")}
               </Button>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">Code: <span className="font-semibold text-foreground">{referralCode}</span></p>
+          <p className="text-xs text-muted-foreground mt-2">{t("referrals.share.codeLabel")}: <span className="font-semibold text-foreground">{referralCode}</span></p>
         </CardContent>
       </Card>
 
       {/* All Offers */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">All Referral Offers</CardTitle>
-          <CardDescription>All offers created by admin</CardDescription>
+          <CardTitle className="text-base">{t("referrals.offers.title")}</CardTitle>
+          <CardDescription>{t("referrals.offers.subtitle")}</CardDescription>
         </CardHeader>
         <CardContent>
           {offers.length === 0 ? (
             <div className="text-center py-8">
               <Gift className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">No referral offers available right now.</p>
+              <p className="text-sm text-muted-foreground">{t("referrals.offers.empty")}</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -288,22 +300,25 @@ const Referrals = () => {
                       ) : null}
                     </div>
                     <Badge variant={getOfferStatusVariant(offer.status)} className="text-xs capitalize shrink-0">
-                      {offer.status}
+                      {getOfferStatusLabel(offer.status)}
                     </Badge>
                   </div>
 
                   <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                     <div className="text-muted-foreground">
-                      Threshold: <span className="text-foreground font-medium">{offer.referralThreshold} valid</span>
+                      {t("referrals.offers.threshold")}:
+                      <span className="text-foreground font-medium"> {t("referrals.offers.thresholdValue", { count: offer.referralThreshold })}</span>
                     </div>
                     <div className="text-muted-foreground">
-                      Reward: <span className="text-foreground font-medium">{offer.rewardPlan}</span>
-                      <span className="text-muted-foreground"> / {offer.rewardDuration} month(s)</span>
+                      {t("referrals.offers.reward")}:
+                      <span className="text-foreground font-medium"> {offer.rewardPlan}</span>
+                      <span className="text-muted-foreground"> {t("referrals.offers.rewardDuration", { months: offer.rewardDuration })}</span>
                     </div>
                     <div className="text-muted-foreground">
-                      Valid: <span className="text-foreground font-medium">{new Date(offer.validFrom).toLocaleDateString("en-IN")}</span>
+                      {t("referrals.offers.valid")}:
+                      <span className="text-foreground font-medium"> {new Date(offer.validFrom).toLocaleDateString(dateLocale)}</span>
                       {offer.validUntil ? (
-                        <span className="text-muted-foreground"> - {new Date(offer.validUntil).toLocaleDateString("en-IN")}</span>
+                        <span className="text-muted-foreground"> - {new Date(offer.validUntil).toLocaleDateString(dateLocale)}</span>
                       ) : null}
                     </div>
                   </div>
@@ -311,9 +326,9 @@ const Referrals = () => {
                   <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div className="text-xs text-muted-foreground">
                       {isSelectableOffer(offer) ? (
-                        <span className="text-foreground">Eligible for selection</span>
+                        <span className="text-foreground">{t("referrals.offers.eligible")}</span>
                       ) : (
-                        <span>Not selectable</span>
+                        <span>{t("referrals.offers.notSelectable")}</span>
                       )}
                     </div>
                     <Button
@@ -325,8 +340,8 @@ const Referrals = () => {
                         if (selectedOfferId === offer._id) return;
                         if (!canChangeSelectedOffer) {
                           toast({
-                            title: "Offer locked",
-                            description: "Complete your current offer first, then you can switch.",
+                            title: t("referrals.toasts.offerLockedTitle"),
+                            description: t("referrals.toasts.offerLockedDesc"),
                             variant: "destructive",
                           });
                           return;
@@ -334,8 +349,8 @@ const Referrals = () => {
                         const res = await referralApi.setMyActiveReferralOffer({ offerId: offer._id });
                         if (!res.success) {
                           toast({
-                            title: "Unable to change offer",
-                            description: res.message || "Please complete the current offer first",
+                            title: t("referrals.toasts.unableToChangeOfferTitle"),
+                            description: res.message || t("referrals.toasts.unableToChangeOfferDesc"),
                             variant: "destructive",
                           });
                           return;
@@ -343,7 +358,7 @@ const Referrals = () => {
                         await fetchReferralStats();
                       }}
                     >
-                      {selectedOfferId === offer._id ? "Selected" : "Select"}
+                      {selectedOfferId === offer._id ? t("referrals.offers.selected") : t("referrals.offers.select")}
                     </Button>
                   </div>
                 </div>
@@ -357,20 +372,31 @@ const Referrals = () => {
       {selectedOffer && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Reward Progress</CardTitle>
+            <CardTitle className="text-base">{t("referrals.progress.title")}</CardTitle>
             <CardDescription>
-              {selectedOffer.offerName} - {selectedOffer.referralThreshold} referrals = {selectedOffer.rewardPlan} plan for {selectedOffer.rewardDuration} month(s)
+              {t("referrals.progress.subtitle", {
+                offerName: selectedOffer.offerName,
+                threshold: selectedOffer.referralThreshold,
+                rewardPlan: selectedOffer.rewardPlan,
+                months: selectedOffer.rewardDuration,
+              })}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{validReferralsForSelectedOffer} of {selectedOffer.referralThreshold} valid referrals</span>
+                <span className="text-muted-foreground">
+                  {t("referrals.progress.countLine", {
+                    current: validReferralsForSelectedOffer,
+                    required: selectedOffer.referralThreshold,
+                  })}
+                </span>
                 <span className="font-medium text-foreground">{Math.round((validReferralsForSelectedOffer / selectedOffer.referralThreshold) * 100)}%</span>
               </div>
               <Progress value={(validReferralsForSelectedOffer / selectedOffer.referralThreshold) * 100} className="h-2.5" />
               <p className="text-xs text-muted-foreground">
-                Remaining: <span className="text-foreground font-medium">{Math.max(selectedOffer.referralThreshold - validReferralsForSelectedOffer, 0)}</span>
+                {t("referrals.progress.remaining")}:
+                <span className="text-foreground font-medium"> {Math.max(selectedOffer.referralThreshold - validReferralsForSelectedOffer, 0)}</span>
               </p>
             </div>
 
@@ -384,14 +410,14 @@ const Referrals = () => {
                 {requesting ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Requesting...
+                    {t("referrals.progress.requesting")}
                   </>
                 ) : stats.pendingRequests.length > 0 ? (
-                  "Request Pending"
+                  t("referrals.progress.requestPending")
                 ) : (
                   <>
                     <Gift className="w-4 h-4 mr-2" />
-                    Claim Reward
+                    {t("referrals.progress.claimReward")}
                   </>
                 )}
               </Button>
@@ -403,13 +429,13 @@ const Referrals = () => {
       {/* Referral List */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">My Referrals</CardTitle>
+          <CardTitle className="text-base">{t("referrals.myReferrals.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           {stats.referrals.length === 0 ? (
             <div className="text-center py-8">
               <Users className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">No referrals yet. Share your code to get started!</p>
+              <p className="text-sm text-muted-foreground">{t("referrals.myReferrals.empty")}</p>
             </div>
           ) : (
             <div className="divide-y divide-border">
@@ -421,18 +447,18 @@ const Referrals = () => {
                     </p>
                     {getReferralOfferName(ref) ? (
                       <p className="text-xs text-muted-foreground">
-                        Offer: <span className="text-foreground">{getReferralOfferName(ref)}</span>
+                        {t("referrals.myReferrals.offerLabel")}: <span className="text-foreground">{getReferralOfferName(ref)}</span>
                       </p>
                     ) : null}
                     <p className="text-xs text-muted-foreground">
-                      {new Date(ref.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                      {new Date(ref.createdAt).toLocaleDateString(dateLocale, { day: "numeric", month: "short", year: "numeric" })}
                     </p>
                   </div>
                   <Badge 
                     variant={ref.status === "valid" ? "default" : ref.status === "pending" ? "secondary" : "destructive"} 
                     className="text-xs capitalize self-start sm:self-auto"
                   >
-                    {ref.status}
+                    {getReferralStatusLabel(ref.status)}
                   </Badge>
                 </div>
               ))}
@@ -446,9 +472,9 @@ const Referrals = () => {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
-              <Loader2 className="w-4 h-4" /> Pending Reward Requests
+              <Loader2 className="w-4 h-4" /> {t("referrals.pending.title")}
             </CardTitle>
-            <CardDescription>Admin approval ka wait ho raha hai</CardDescription>
+            <CardDescription>{t("referrals.pending.subtitle")}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="divide-y divide-border">
@@ -464,12 +490,12 @@ const Referrals = () => {
                         <>
                           {startsAt ? (
                             <p className="text-xs text-muted-foreground">
-                              Expected start: {new Date(startsAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                              {t("referrals.pending.expectedStart")}: {new Date(startsAt).toLocaleDateString(dateLocale, { day: "numeric", month: "short", year: "numeric" })}
                             </p>
                           ) : null}
                           {endsAt ? (
                             <p className="text-xs text-muted-foreground">
-                              Expected expiry: {new Date(endsAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                              {t("referrals.pending.expectedExpiry")}: {new Date(endsAt).toLocaleDateString(dateLocale, { day: "numeric", month: "short", year: "numeric" })}
                             </p>
                           ) : null}
                         </>
@@ -477,13 +503,19 @@ const Referrals = () => {
                     })()}
                     <p className="text-sm font-medium text-foreground">{req.offer.offerName}</p>
                     <p className="text-xs text-muted-foreground">
-                      {req.rewardPlan} - {req.rewardDuration} month(s) | {req.requestNumber}
+                      {t("referrals.pending.rewardLine", {
+                        rewardPlan: req.rewardPlan,
+                        months: req.rewardDuration,
+                        requestNumber: req.requestNumber,
+                      })}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Requested on {new Date(req.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                      {t("referrals.pending.requestedOn", {
+                        date: new Date(req.createdAt).toLocaleDateString(dateLocale, { day: "numeric", month: "short", year: "numeric" }),
+                      })}
                     </p>
                   </div>
-                  <Badge variant="secondary" className="text-xs self-start sm:self-auto">Pending Admin Approval</Badge>
+                  <Badge variant="secondary" className="text-xs self-start sm:self-auto">{t("referrals.pending.badge")}</Badge>
                 </div>
               ))}
             </div>
@@ -496,7 +528,7 @@ const Referrals = () => {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
-              <Gift className="w-4 h-4" /> Approved Rewards
+              <Gift className="w-4 h-4" /> {t("referrals.approved.title")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -509,7 +541,9 @@ const Referrals = () => {
                       const previousExpiry = reward.appliedBusinesses?.find((b) => b.previousPlanExpiresAt)?.previousPlanExpiresAt;
                       return previousExpiry ? (
                         <p className="text-xs text-muted-foreground">
-                          Previous plan expired on {new Date(previousExpiry).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                          {t("referrals.approved.previousPlanExpiredOn", {
+                            date: new Date(previousExpiry).toLocaleDateString(dateLocale, { day: "numeric", month: "short", year: "numeric" }),
+                          })}
                         </p>
                       ) : null;
                     })()}
@@ -517,36 +551,48 @@ const Referrals = () => {
                       {reward.offer.offerName}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {reward.rewardPlan} - {reward.rewardDuration} month(s) | {reward.requestNumber}
+                      {t("referrals.approved.rewardLine", {
+                        rewardPlan: reward.rewardPlan,
+                        months: reward.rewardDuration,
+                        requestNumber: reward.requestNumber,
+                      })}
                     </p>
                     {reward.reviewedAt ? (
                       <p className="text-xs text-muted-foreground">
-                        Admin approved on {new Date(reward.reviewedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                        {t("referrals.approved.adminApprovedOn", {
+                          date: new Date(reward.reviewedAt).toLocaleDateString(dateLocale, { day: "numeric", month: "short", year: "numeric" }),
+                        })}
                       </p>
                     ) : null}
                     {reward.isRewardFulfilled && reward.fulfilledAt ? (
                       <p className="text-xs text-muted-foreground">
-                        Reward applied on {new Date(reward.fulfilledAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                        {t("referrals.approved.rewardAppliedOn", {
+                          date: new Date(reward.fulfilledAt).toLocaleDateString(dateLocale, { day: "numeric", month: "short", year: "numeric" }),
+                        })}
                       </p>
                     ) : null}
                     {reward.rewardStartsAt ? (
                       <p className="text-xs text-muted-foreground">
-                        Plan starts: {new Date(reward.rewardStartsAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                        {t("referrals.approved.planStarts", {
+                          date: new Date(reward.rewardStartsAt).toLocaleDateString(dateLocale, { day: "numeric", month: "short", year: "numeric" }),
+                        })}
                       </p>
                     ) : null}
                     {reward.rewardEndsAt ? (
                       <p className="text-xs text-muted-foreground">
-                        Plan expires: {new Date(reward.rewardEndsAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                        {t("referrals.approved.planExpires", {
+                          date: new Date(reward.rewardEndsAt).toLocaleDateString(dateLocale, { day: "numeric", month: "short", year: "numeric" }),
+                        })}
                       </p>
                     ) : null}
                     {reward.appliedBusinesses?.length ? (
                       <p className="text-xs text-muted-foreground">
-                        Applied to {reward.appliedBusinesses.length} business(es)
+                        {t("referrals.approved.appliedToBusinesses", { count: reward.appliedBusinesses.length })}
                       </p>
                     ) : null}
                   </div>
                   <Badge variant="default" className="text-xs self-start sm:self-auto">
-                    {reward.isRewardFulfilled ? "Approved + Applied" : "Approved"}
+                    {reward.isRewardFulfilled ? t("referrals.approved.badgeFulfilled") : t("referrals.approved.badgeApproved")}
                   </Badge>
                 </div>
               ))}

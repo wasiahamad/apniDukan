@@ -9,12 +9,16 @@ export { categoryApi } from './category';
 export { listingApi } from './listing';
 export { planApi } from './plan';
 export { uploadApi } from './upload';
+export { aiApi } from './ai';
 export { referralApi } from './referral';
 export { orderApi } from './orders';
 export { supportApi } from './support';
 export { invoiceApi } from './invoices';
 export { reviewApi } from './reviews';
+export { platformFeedbackApi } from './platformFeedback';
 export { bookingApi } from './bookings';
+export { storiesApi } from './stories';
+export { offerApi } from './offers';
 
 export type {
 	User,
@@ -36,4 +40,7 @@ export type { Order, OrderStatus, OrderSource } from './orders';
 export type { SupportTicket, SupportTicketStatus, SupportIssueType, SupportMessage } from './support';
 export type { Invoice, InvoiceStatus } from './invoices';
 export type { ReviewSummary, PublicReview, CreateReviewPayload } from './reviews';
+export type { PlatformFeedbackStats, SubmitPlatformFeedbackPayload } from './platformFeedback';
 export type { BookingSlot } from './bookings';
+export type { StoryItem, StoryKind, StoryMediaType, StoryViewer } from './stories';
+export type { ShopOffer, ShopOfferType, ShopOfferStatus, CreateShopOfferPayload, UpdateShopOfferPayload } from './offers';

@@ -29,8 +29,15 @@ const defaultFeatures: PlanFeatures = {
   maxListings: 10,
   publicShopEnabled: true,
   bookingEnabled: false,
+  aiCustomerChatEnabled: true,
+  aiDukandarAgentEnabled: false,
+  storiesEnabled: false,
+  listingStoriesEnabled: false,
+  ratingsEnabled: true,
+  locationEnabled: true,
   featuredEnabled: false,
   maxFeaturedListings: 0,
+  offersEnabled: false,
   customDomain: false,
   analyticsEnabled: false,
   prioritySupport: false,
@@ -60,14 +67,15 @@ const emptyPlan: PlanForm = {
 
 const cycleToDays: Record<BillingCycle, number> = {
   monthly: 30,
-  quarterly: 90,
+  // Requirement: quarterly = 4 months validity.
+  quarterly: 120,
   yearly: 365,
 };
 
 function daysToCycle(days?: number): BillingCycle {
   if (!days) return "monthly";
   if (days >= 365) return "yearly";
-  if (days >= 90) return "quarterly";
+  if (days >= 85) return "quarterly";
   return "monthly";
 }
 
@@ -96,10 +104,18 @@ function featureSummary(input: unknown): string[] {
 
   if (f.publicShopEnabled) items.push("Public shop");
 
+  if (f.aiCustomerChatEnabled) items.push("AI chat (customers)");
+  if (f.aiDukandarAgentEnabled) items.push("AI tools (dukandar)");
+
   if (f.bookingEnabled) items.push("Bookings enabled");
+  if (f.storiesEnabled) items.push("Stories & Reels");
+  if (f.listingStoriesEnabled) items.push("Listing → Stories/Reels");
+  if (f.ratingsEnabled) items.push("Ratings");
+  if (f.locationEnabled) items.push("Location");
   if (f.featuredEnabled) {
     items.push(`Featured listings: ${f.maxFeaturedListings || 0}`);
   }
+  if (f.offersEnabled) items.push("Offers & discounts");
   if (f.customDomain) items.push("Custom domain");
   if (f.analyticsEnabled) items.push("Analytics");
   if (f.prioritySupport) items.push("Priority support");
@@ -191,7 +207,7 @@ export default function Subscriptions() {
       name: plan.name,
       slug: plan.slug || "",
       price: plan.price,
-      billingCycle: daysToCycle(plan.durationInDays),
+      billingCycle: plan.billingCycle || daysToCycle(plan.durationInDays),
       isPublic: plan.isPublic ?? true,
       features: normalizeFeatures(plan.features),
     });
@@ -208,6 +224,7 @@ export default function Subscriptions() {
         slug,
         price: form.price,
         durationInDays: cycleToDays[form.billingCycle],
+        billingCycle: form.billingCycle,
         isPublic: form.isPublic,
         features: form.features,
       });
@@ -229,6 +246,7 @@ export default function Subscriptions() {
         name: form.name,
         price: form.price,
         durationInDays: cycleToDays[form.billingCycle],
+        billingCycle: form.billingCycle,
         isPublic: form.isPublic,
         features: form.features,
       });
@@ -328,7 +346,7 @@ export default function Subscriptions() {
                   <CardTitle className="text-base">{plan.name}</CardTitle>
                   <div className="flex items-baseline gap-1">
                     <span className="text-3xl font-bold text-foreground">₹{plan.price}</span>
-                    <span className="text-sm text-muted-foreground">/{daysToCycle(plan.durationInDays)}</span>
+                    <span className="text-sm text-muted-foreground">/{plan.billingCycle || daysToCycle(plan.durationInDays)}</span>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -515,12 +533,46 @@ export default function Subscriptions() {
                   <Switch checked={form.features.publicShopEnabled} onCheckedChange={(v) => setFeature("publicShopEnabled", v)} />
                 </div>
                 <div className="flex items-center justify-between rounded-md border p-3">
+                  <Label className="text-sm">AI Chat (Customers)</Label>
+                  <Switch
+                    checked={form.features.aiCustomerChatEnabled}
+                    onCheckedChange={(v) => setFeature("aiCustomerChatEnabled", v)}
+                  />
+                </div>
+                <div className="flex items-center justify-between rounded-md border p-3">
                   <Label className="text-sm">Bookings</Label>
                   <Switch checked={form.features.bookingEnabled} onCheckedChange={(v) => setFeature("bookingEnabled", v)} />
                 </div>
                 <div className="flex items-center justify-between rounded-md border p-3">
+                  <Label className="text-sm">AI Tools (Dukandar)</Label>
+                  <Switch
+                    checked={form.features.aiDukandarAgentEnabled}
+                    onCheckedChange={(v) => setFeature("aiDukandarAgentEnabled", v)}
+                  />
+                </div>
+                <div className="flex items-center justify-between rounded-md border p-3">
+                  <Label className="text-sm">Stories & Reels</Label>
+                  <Switch checked={form.features.storiesEnabled} onCheckedChange={(v) => setFeature("storiesEnabled", v)} />
+                </div>
+                <div className="flex items-center justify-between rounded-md border p-3">
+                  <Label className="text-sm">Listing → Stories/Reels</Label>
+                  <Switch checked={form.features.listingStoriesEnabled} onCheckedChange={(v) => setFeature("listingStoriesEnabled", v)} />
+                </div>
+                <div className="flex items-center justify-between rounded-md border p-3">
+                  <Label className="text-sm">Ratings</Label>
+                  <Switch checked={form.features.ratingsEnabled} onCheckedChange={(v) => setFeature("ratingsEnabled", v)} />
+                </div>
+                <div className="flex items-center justify-between rounded-md border p-3">
+                  <Label className="text-sm">Location</Label>
+                  <Switch checked={form.features.locationEnabled} onCheckedChange={(v) => setFeature("locationEnabled", v)} />
+                </div>
+                <div className="flex items-center justify-between rounded-md border p-3">
                   <Label className="text-sm">Featured</Label>
                   <Switch checked={form.features.featuredEnabled} onCheckedChange={(v) => setFeature("featuredEnabled", v)} />
+                </div>
+                <div className="flex items-center justify-between rounded-md border p-3">
+                  <Label className="text-sm">Offers & Discounts</Label>
+                  <Switch checked={form.features.offersEnabled} onCheckedChange={(v) => setFeature("offersEnabled", v)} />
                 </div>
                 <div className="flex items-center justify-between rounded-md border p-3">
                   <Label className="text-sm">Custom Domain</Label>

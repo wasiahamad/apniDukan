@@ -3,6 +3,8 @@
  * Centralized API client with auth token management
  */
 
+import { getAcceptLanguageHeader, getPreferredLanguage, withLangQueryParam } from '@/lib/language';
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 interface ApiResponse<T = any> {
@@ -19,10 +21,17 @@ class ApiClient {
     this.baseURL = baseURL;
   }
 
-  private getHeaders(includeAuth = true): HeadersInit {
+  private getHeaders(includeAuth = true, extraHeaders?: HeadersInit): HeadersInit {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     };
+
+    try {
+      const lang = getPreferredLanguage();
+      headers['Accept-Language'] = getAcceptLanguageHeader(lang);
+    } catch {
+      // ignore
+    }
 
     if (includeAuth) {
       const token = localStorage.getItem('accessToken');
@@ -31,10 +40,14 @@ class ApiClient {
       }
     }
 
+    if (extraHeaders) {
+      Object.assign(headers as any, extraHeaders as any);
+    }
+
     return headers;
   }
 
-  private getAuthOnlyHeaders(includeAuth = true): HeadersInit {
+  private getAuthOnlyHeaders(includeAuth = true, extraHeaders?: HeadersInit): HeadersInit {
     const headers: HeadersInit = {};
 
     if (includeAuth) {
@@ -42,6 +55,10 @@ class ApiClient {
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
+    }
+
+    if (extraHeaders) {
+      Object.assign(headers as any, extraHeaders as any);
     }
 
     return headers;
@@ -64,6 +81,7 @@ class ApiClient {
         window.location.href = '/login';
       }
       const error: any = new Error(data.message || 'API request failed');
+      error.status = response.status;
       if (data?.code) {
         error.code = data.code;
       }
@@ -73,55 +91,61 @@ class ApiClient {
     return data;
   }
 
-  async get<T>(endpoint: string, includeAuth = true): Promise<ApiResponse<T>> {
-    const response = await fetch(`${this.baseURL}${endpoint}`, {
+  async get<T>(endpoint: string, includeAuth = true, extraHeaders?: HeadersInit): Promise<ApiResponse<T>> {
+    const lang = getPreferredLanguage();
+    const response = await fetch(`${this.baseURL}${withLangQueryParam(endpoint, lang)}`, {
       method: 'GET',
-      headers: this.getHeaders(includeAuth),
+      headers: this.getHeaders(includeAuth, extraHeaders),
       cache: 'no-store',
     });
     return this.handleResponse<T>(response);
   }
 
-  async post<T>(endpoint: string, body: any, includeAuth = true): Promise<ApiResponse<T>> {
-    const response = await fetch(`${this.baseURL}${endpoint}`, {
+  async post<T>(endpoint: string, body: any, includeAuth = true, extraHeaders?: HeadersInit): Promise<ApiResponse<T>> {
+    const lang = getPreferredLanguage();
+    const response = await fetch(`${this.baseURL}${withLangQueryParam(endpoint, lang)}`, {
       method: 'POST',
-      headers: this.getHeaders(includeAuth),
+      headers: this.getHeaders(includeAuth, extraHeaders),
       body: JSON.stringify(body),
     });
     return this.handleResponse<T>(response);
   }
 
-  async postForm<T>(endpoint: string, formData: FormData, includeAuth = true): Promise<ApiResponse<T>> {
-    const response = await fetch(`${this.baseURL}${endpoint}`, {
+  async postForm<T>(endpoint: string, formData: FormData, includeAuth = true, extraHeaders?: HeadersInit): Promise<ApiResponse<T>> {
+    const lang = getPreferredLanguage();
+    const response = await fetch(`${this.baseURL}${withLangQueryParam(endpoint, lang)}`, {
       method: 'POST',
-      headers: this.getAuthOnlyHeaders(includeAuth),
+      headers: this.getAuthOnlyHeaders(includeAuth, extraHeaders),
       body: formData,
     });
     return this.handleResponse<T>(response);
   }
 
-  async put<T>(endpoint: string, body: any, includeAuth = true): Promise<ApiResponse<T>> {
-    const response = await fetch(`${this.baseURL}${endpoint}`, {
+  async put<T>(endpoint: string, body: any, includeAuth = true, extraHeaders?: HeadersInit): Promise<ApiResponse<T>> {
+    const lang = getPreferredLanguage();
+    const response = await fetch(`${this.baseURL}${withLangQueryParam(endpoint, lang)}`, {
       method: 'PUT',
-      headers: this.getHeaders(includeAuth),
+      headers: this.getHeaders(includeAuth, extraHeaders),
       body: JSON.stringify(body),
     });
     return this.handleResponse<T>(response);
   }
 
-  async patch<T>(endpoint: string, body: any, includeAuth = true): Promise<ApiResponse<T>> {
-    const response = await fetch(`${this.baseURL}${endpoint}`, {
+  async patch<T>(endpoint: string, body: any, includeAuth = true, extraHeaders?: HeadersInit): Promise<ApiResponse<T>> {
+    const lang = getPreferredLanguage();
+    const response = await fetch(`${this.baseURL}${withLangQueryParam(endpoint, lang)}`, {
       method: 'PATCH',
-      headers: this.getHeaders(includeAuth),
+      headers: this.getHeaders(includeAuth, extraHeaders),
       body: JSON.stringify(body),
     });
     return this.handleResponse<T>(response);
   }
 
-  async delete<T>(endpoint: string, includeAuth = true): Promise<ApiResponse<T>> {
-    const response = await fetch(`${this.baseURL}${endpoint}`, {
+  async delete<T>(endpoint: string, includeAuth = true, extraHeaders?: HeadersInit): Promise<ApiResponse<T>> {
+    const lang = getPreferredLanguage();
+    const response = await fetch(`${this.baseURL}${withLangQueryParam(endpoint, lang)}`, {
       method: 'DELETE',
-      headers: this.getHeaders(includeAuth),
+      headers: this.getHeaders(includeAuth, extraHeaders),
     });
     return this.handleResponse<T>(response);
   }

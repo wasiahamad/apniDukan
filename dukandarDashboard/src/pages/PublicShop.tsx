@@ -13,6 +13,7 @@ import { businessApi, type Business } from "@/lib/api/business";
 import { listingApi, type Listing } from "@/lib/api/listing";
 import { categoryApi, type Category } from "@/lib/api/category";
 import { reviewApi, type PublicReview, type ReviewSummary } from "@/lib/api/reviews";
+import { aiApi } from "@/lib/api/ai.ts";
 import { useToast } from "@/hooks/use-toast";
 import { apiClient } from "@/lib/api";
 import heroImage from "@/assets/hero-grocery.jpg";
@@ -21,6 +22,7 @@ import { orderApi } from "@/lib/api/orders";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const DEMO_SHOP_SLUG = "ram-kirana-store";
+const PLATFORM_LOGO_SRC = "/logo-removebg-preview.png";
 
 const LEGACY_CATEGORY_ICONS: Record<string, string> = {
   Grocery: "🛒",
@@ -319,6 +321,19 @@ const DEFAULT_WHY_CHOOSE_US = [
   { icon: Award, title: "15+ Years Trust", desc: "Serving the community since 2010" },
 ];
 
+type PublicShopOffer = {
+  _id: string;
+  listingId?: string;
+  title?: string;
+  titleHi?: string;
+  description?: string;
+  descriptionHi?: string;
+  banner?: { imageUrl?: string; linkUrl?: string };
+  status?: 'draft' | 'active' | 'paused' | 'archived';
+  validFrom?: string;
+  validUntil?: string;
+};
+
 // Scroll reveal wrapper
 const RevealSection = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => {
   const ref = useRef(null);
@@ -357,6 +372,9 @@ const PublicShop = () => {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loadingListings, setLoadingListings] = useState(true);
 
+  const [offers, setOffers] = useState<PublicShopOffer[]>([]);
+  const [loadingOffers, setLoadingOffers] = useState(false);
+
   const [categories, setCategories] = useState<Category[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(false);
 
@@ -388,6 +406,10 @@ const PublicShop = () => {
   const [newReviewComment, setNewReviewComment] = useState("");
   const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+
+  const [aiQuestion, setAiQuestion] = useState("");
+  const [aiReply, setAiReply] = useState<string | null>(null);
+  const [askingAi, setAskingAi] = useState(false);
 
   useEffect(() => {
     setShowAllReviews(false);
@@ -494,6 +516,41 @@ const PublicShop = () => {
     };
   }, [business?._id, slug, toast]);
 
+  // Fetch public offers for the business
+  useEffect(() => {
+    if (!business?._id) return;
+
+    const normalizedSlug = String(slug || '').toLowerCase();
+    if (normalizedSlug === DEMO_SHOP_SLUG) {
+      setOffers([]);
+      setLoadingOffers(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setLoadingOffers(true);
+        const res = await apiClient.get<{ offers: PublicShopOffer[] }>(
+          `/offers/public/business/${encodeURIComponent(business._id)}`,
+          false
+        );
+        if (cancelled) return;
+        setOffers(res.success ? (res.data?.offers || []) : []);
+      } catch {
+        if (cancelled) return;
+        setOffers([]);
+      } finally {
+        if (!cancelled) setLoadingOffers(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [business?._id, slug]);
+
   // Fetch categories for the business
   useEffect(() => {
     if (!business?._id) return;
@@ -567,11 +624,26 @@ const PublicShop = () => {
   }, [slug]);
 
   const shopName = business?.name || shopData.shop_name;
-  const shopLogo = business?.logo || "";
+  const effectiveShopLogo = PLATFORM_LOGO_SRC;
   const shopCover = business?.coverImage || heroImage;
   const shopWhatsApp = business?.whatsapp || shopData.whatsapp_number;
   const shopCall = business?.phone || shopData.call_number;
   const shopDescription = business?.description || shopData.description;
+  const ownerProfile = useMemo(() => {
+    const raw: any = business?.owner;
+    if (raw && typeof raw === "object") {
+      return {
+        name: String(raw?.name || "").trim(),
+        phone: String(raw?.phone || "").trim(),
+        email: String(raw?.email || "").trim(),
+      };
+    }
+    return { name: "", phone: "", email: "" };
+  }, [business?.owner]);
+
+  const ownerName = ownerProfile.name || "Store Owner";
+  const ownerPhone = ownerProfile.phone || shopCall;
+  const ownerEmail = ownerProfile.email || (business?.email || shopData.email);
   const shopAddressText = business?.address
     ? `${business.address.street}, ${business.address.city}, ${business.address.state} - ${business.address.pincode}`
     : `${shopData.address}, ${shopData.area}, ${shopData.city} - ${shopData.pincode}`;
@@ -696,11 +768,20 @@ const PublicShop = () => {
   };
 
   const getSelectableOptionsForListing = (l: Listing | null | undefined) => {
-    if (!l) return [] as Array<{ label: string; price: number }>;
+    if (!l) return [] as Array<{ label: string; price: number; oldPrice?: number; discountPercent?: number }>;
 
     const direct = Array.isArray(l.pricingOptions) ? l.pricingOptions : [];
     const directOptions = direct
-      .map((o) => ({ label: String(o?.label || "").trim(), price: Number(o?.price) }))
+      .map((o) => {
+        const rawOld = Number((o as any)?.oldPrice);
+        const rawPercent = Number((o as any)?.discountPercent);
+        return {
+          label: String(o?.label || "").trim(),
+          price: Number(o?.price),
+          oldPrice: Number.isFinite(rawOld) && rawOld > 0 ? rawOld : undefined,
+          discountPercent: Number.isFinite(rawPercent) && rawPercent > 0 ? Math.round(rawPercent) : undefined,
+        };
+      })
       .filter((o) => o.label && Number.isFinite(o.price) && o.price >= 0);
     if (directOptions.length > 0) return directOptions;
 
@@ -912,6 +993,39 @@ const PublicShop = () => {
     window.open(`https://wa.me/${wa}?text=${encodeURIComponent(msg)}`, "_blank");
   };
 
+  const askShopAi = async () => {
+    const msg = aiQuestion.trim();
+    if (!msg) return;
+
+    if (!business?._id || slug?.toLowerCase() === DEMO_SHOP_SLUG) {
+      toast({
+        title: "AI not available",
+        description: "Is shop ke liye AI abhi available nahi hai.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setAskingAi(true);
+      setAiReply(null);
+
+      const res = await aiApi.chat({ businessId: business._id, userMessage: msg });
+      if (!res.success || !res.data?.reply) {
+        throw new Error(res.message || "AI request failed");
+      }
+      setAiReply(res.data.reply);
+    } catch (err: any) {
+      toast({
+        title: "AI error",
+        description: err?.message || "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setAskingAi(false);
+    }
+  };
+
   const scrollToSection = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
     setMobileMenu(false);
@@ -1039,13 +1153,9 @@ const PublicShop = () => {
         }`}
       >
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center overflow-hidden bg-primary">
-              {shopLogo ? (
-                <img src={shopLogo} alt="Logo" className="h-full w-full object-cover" />
-              ) : (
-                <ShoppingBag className="w-5 h-5 text-primary-foreground" />
-              )}
+          <div className="flex items-center gap-1">
+            <div className="w-12 h-12 rounded-lg flex items-center justify-center overflow-hidden ">
+              <img src={effectiveShopLogo} alt="Logo" className="h-full w-full object-contain" />
             </div>
             <span className="font-bold text-lg text-foreground">{shopName}</span>
           </div>
@@ -1193,6 +1303,98 @@ const PublicShop = () => {
         </div>
       </section>
 
+      {/* ===== OFFERS ===== */}
+      {(loadingOffers || offers.length > 0) && (
+        <section className="py-10 bg-background">
+          <div className="max-w-6xl mx-auto px-0 sm:px-4">
+            <RevealSection>
+              <div className="px-4 sm:px-0">
+                <h2 className="text-2xl md:text-3xl font-extrabold text-foreground">Offers</h2>
+                <p className="text-muted-foreground mt-1">Latest deals from {shopName}</p>
+              </div>
+            </RevealSection>
+
+            <div className="mt-5 flex gap-4 overflow-x-auto pb-2 scrollbar-hide px-4 sm:px-0">
+              {loadingOffers && offers.length === 0 ? (
+                Array.from({ length: 2 }).map((_, idx) => (
+                  <div
+                    key={idx}
+                    className="flex-shrink-0 w-full sm:w-[420px] md:w-[520px] rounded-2xl border border-border bg-card overflow-hidden"
+                  >
+                    <div className="h-44 w-full bg-muted animate-pulse" />
+                    <div className="p-4 space-y-2">
+                      <div className="h-5 w-2/3 bg-muted animate-pulse rounded" />
+                      <div className="h-4 w-full bg-muted animate-pulse rounded" />
+                      <div className="h-4 w-4/5 bg-muted animate-pulse rounded" />
+                    </div>
+                  </div>
+                ))
+              ) : (
+                offers.map((offer) => {
+                  const title = (offer.title || offer.titleHi || '').trim() || 'Special Offer';
+                  const desc = (offer.description || offer.descriptionHi || '').trim();
+                  const rawLink = (offer.banner?.linkUrl || '').trim();
+                  const href = rawLink ? normalizeUrl(rawLink) : '';
+                  const imageUrl = (offer.banner?.imageUrl || '').trim();
+                  const hasInternalListing = !href && Boolean(offer.listingId);
+
+                  const CardInner = (
+                    <div className="flex-shrink-0 w-full sm:w-[420px] md:w-[520px] rounded-2xl border border-border bg-card overflow-hidden hover:shadow-md transition-shadow">
+                      {imageUrl ? (
+                        <img src={imageUrl} alt={title} className="h-44 w-full object-cover" />
+                      ) : (
+                        <div className="h-44 w-full bg-muted" />
+                      )}
+                      <div className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="font-extrabold text-foreground text-lg leading-snug line-clamp-2">{title}</div>
+                            {desc && (
+                              <p className="mt-1 text-sm text-muted-foreground leading-relaxed line-clamp-2">{desc}</p>
+                            )}
+                          </div>
+                          <div className="shrink-0 text-primary flex items-center gap-1 font-semibold">
+                            <span className="text-sm">View</span>
+                            <ChevronRight className="w-4 h-4" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+
+                  if (href) {
+                    return (
+                      <a key={offer._id} href={href} target="_blank" rel="noopener noreferrer" className="block">
+                        {CardInner}
+                      </a>
+                    );
+                  }
+
+                  if (hasInternalListing) {
+                    return (
+                      <button
+                        key={offer._id}
+                        type="button"
+                        onClick={() => openListing(String(offer.listingId))}
+                        className="block text-left"
+                      >
+                        {CardInner}
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <div key={offer._id} className="block">
+                      {CardInner}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* ===== WHY CHOOSE US ===== */}
       <section className="py-16 md:py-20 bg-background">
         <div className="max-w-6xl mx-auto px-4">
@@ -1203,13 +1405,13 @@ const PublicShop = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
             {whyChooseUsCards.map((item, i) => (
               <RevealSection key={i}>
-                <motion.div whileHover={{ y: -8, boxShadow: "0 20px 40px -12px rgba(0,0,0,0.15)" }}
-                  className="bg-card border border-border rounded-2xl p-6 text-center shadow-sm transition-all group cursor-default">
-                  <div className="w-14 h-14 bg-primary/10 rounded-xl flex items-center justify-center mx-auto mb-4 group-hover:bg-primary/20 transition-colors">
+                <motion.div whileHover={{ y: -6, boxShadow: "0 22px 34px -20px rgba(16,185,129,0.45)" }}
+                  className="h-full bg-card border border-primary/10 rounded-2xl p-6 text-center shadow-sm transition-all group cursor-default flex flex-col">
+                  <div className="w-14 h-14 bg-primary/10 rounded-xl flex items-center justify-center mx-auto mb-4 ring-1 ring-primary/15 group-hover:bg-primary/20 transition-colors">
                     <item.icon className="w-7 h-7 text-primary" />
                   </div>
-                  <h3 className="font-bold text-foreground mb-1">{item.title}</h3>
-                  <p className="text-xs text-muted-foreground">{item.desc}</p>
+                  <h3 className="font-bold text-foreground mb-2 leading-snug min-h-[3rem]">{item.title}</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
                 </motion.div>
               </RevealSection>
             ))}
@@ -1337,6 +1539,10 @@ const PublicShop = () => {
               <div>
                 <h2 className="text-2xl md:text-3xl font-extrabold text-foreground mb-4">About Our Store</h2>
                 <p className="text-muted-foreground leading-relaxed mb-6">{shopDescription}</p>
+                <div className="mb-6 rounded-xl border border-primary/15 bg-primary/5 p-4">
+                  <p className="text-xs uppercase tracking-wide text-primary/80">Owner</p>
+                  <p className="text-base font-bold text-foreground mt-1">{ownerName}</p>
+                </div>
                 <div className="space-y-4">
                   <div className="flex items-center gap-3 p-4 bg-card rounded-xl shadow-sm border border-border">
                     <Clock className="w-5 h-5 text-primary flex-shrink-0" />
@@ -1373,7 +1579,7 @@ const PublicShop = () => {
                     <Phone className="w-5 h-5 text-primary flex-shrink-0" />
                     <div>
                       <p className="font-semibold text-sm text-foreground">Contact Us</p>
-                      <p className="text-sm text-muted-foreground">{shopCall} · {(business?.email || shopData.email)}</p>
+                      <p className="text-sm text-muted-foreground">{ownerName} · {ownerPhone} · {ownerEmail}</p>
                     </div>
                   </div>
                   
@@ -1574,6 +1780,46 @@ const PublicShop = () => {
                 <Phone className="w-5 h-5" /> Call Us
               </motion.a>
             </div>
+
+            <div className="mt-10 max-w-2xl mx-auto text-left">
+              <div className="rounded-2xl border border-primary-foreground/20 bg-primary-foreground/10 p-4 md:p-6">
+                <div className="flex items-center gap-2 text-primary-foreground font-bold mb-3">
+                  <MessageSquare className="w-5 h-5" /> Ask Shop AI
+                </div>
+
+                <div className="flex flex-col md:flex-row gap-3">
+                  <input
+                    value={aiQuestion}
+                    onChange={(e) => setAiQuestion(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        askShopAi();
+                      }
+                    }}
+                    placeholder="Eg: Aaj sugar ka price kya hai? Delivery hoti hai?"
+                    className="flex-1 h-12 px-4 rounded-xl bg-background/90 text-foreground placeholder:text-muted-foreground outline-none border border-primary-foreground/20 focus:border-primary-foreground/40"
+                  />
+                  <button
+                    onClick={askShopAi}
+                    disabled={askingAi || !aiQuestion.trim()}
+                    className="h-12 px-6 rounded-xl font-bold bg-primary-foreground text-primary disabled:opacity-60"
+                  >
+                    {askingAi ? 'Asking…' : 'Ask'}
+                  </button>
+                </div>
+
+                {aiReply && (
+                  <div className="mt-4 rounded-xl bg-background/15 border border-primary-foreground/20 p-4">
+                    <p className="text-sm text-primary-foreground whitespace-pre-line leading-relaxed">{aiReply}</p>
+                  </div>
+                )}
+
+                <p className="mt-3 text-xs text-primary-foreground/70">
+                  Note: AI reply short Hinglish me hota hai. Agar exact detail confirm na ho, to WhatsApp/call pe contact karein.
+                </p>
+              </div>
+            </div>
           </RevealSection>
         </div>
       </section>
@@ -1584,18 +1830,13 @@ const PublicShop = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8 mb-12">
             <div className="col-span-1 sm:col-span-2 md:col-span-1">
               <div className="flex items-center gap-2 mb-4">
-                <div className="w-9 h-9 bg-primary rounded-lg flex items-center justify-center overflow-hidden">
-                  {shopLogo ? (
-                    <img src={shopLogo} alt="Logo" className="h-full w-full object-cover" />
-                  ) : (
-                    <ShoppingBag className="w-5 h-5 text-primary-foreground" />
-                  )}
+                <div className="w-12 h-12 rounded-lg flex items-center justify-center overflow-hidden">
+                  <img src={effectiveShopLogo} alt="Logo" className="h-full w-full object-contain" />
                 </div>
                 <span className="font-bold text-lg">{shopName}</span>
               </div>
               <p className="text-sm text-background/60 leading-relaxed">{shopDescription}</p>
             </div>
-
             <div>
               <h4 className="font-bold mb-4 text-sm uppercase tracking-wider text-background/80">Quick Links</h4>
               <ul className="space-y-2">
@@ -1671,7 +1912,7 @@ const PublicShop = () => {
 
           <div className="border-t border-white/10 pt-6 flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-xs text-background/40">© 2026 {shopName}. All rights reserved.</p>
-            <p className="text-xs text-background/40">Powered by <span className="text-primary font-semibold">DukaanSetu</span></p>
+            <p className="text-xs text-background/40">Powered by <span className="text-primary font-semibold">PublicShop</span></p>
           </div>
         </div>
       </footer>
@@ -1857,6 +2098,15 @@ const PublicShop = () => {
                 <div className="mt-4 space-y-2">
                   {optionPickerOptions.map((opt) => {
                     const active = opt.label === optionPicker.selectedLabel;
+                    const optOld = Number((opt as any)?.oldPrice);
+                    const showOld = Number.isFinite(optOld) && optOld > 0 && optOld > Number(opt.price);
+                    const optPercent = (() => {
+                      const direct = Number((opt as any)?.discountPercent);
+                      if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
+                      if (!showOld) return null;
+                      const computed = Math.round(((optOld - Number(opt.price)) / optOld) * 100);
+                      return computed > 0 ? computed : null;
+                    })();
                     return (
                       <button
                         key={opt.label}
@@ -1867,7 +2117,15 @@ const PublicShop = () => {
                         }`}
                       >
                         <span className="text-sm font-semibold text-foreground">{opt.label}</span>
-                        <span className="text-sm font-bold text-foreground">₹{opt.price}</span>
+                        <span className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-foreground">₹{opt.price}</span>
+                          {showOld ? (
+                            <span className="text-xs text-muted-foreground line-through">₹{optOld}</span>
+                          ) : null}
+                          {typeof optPercent === 'number' && optPercent > 0 ? (
+                            <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">-{optPercent}%</span>
+                          ) : null}
+                        </span>
                       </button>
                     );
                   })}
@@ -1965,6 +2223,26 @@ const ListingCard = ({ listing, index, cartQty, requiresOption, liked, onAdd, on
 
         <div className="flex items-end gap-2 mb-3">
           <span className="text-lg font-bold text-foreground">{listingPriceText(listing)}</span>
+          {(() => {
+            if (listing.priceType === 'inquiry') return null;
+            const price = Number(listing.price);
+            const oldPrice = Number((listing as any)?.oldPrice);
+            if (!Number.isFinite(price) || !Number.isFinite(oldPrice)) return null;
+            if (oldPrice <= price || oldPrice <= 0) return null;
+
+            const rawPercent = Number((listing as any)?.discountPercent);
+            const percent = Number.isFinite(rawPercent) && rawPercent > 0
+              ? Math.round(rawPercent)
+              : Math.round(((oldPrice - price) / oldPrice) * 100);
+            if (!Number.isFinite(percent) || percent <= 0) return null;
+
+            return (
+              <>
+                <span className="text-xs text-muted-foreground line-through">₹{oldPrice}</span>
+                <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">-{percent}%</span>
+              </>
+            );
+          })()}
         </div>
 
         {requiresOption ? (

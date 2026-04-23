@@ -38,6 +38,43 @@ export type AdminCustomersListResponse = {
   };
 };
 
+export type AdminCustomerOrderBusinessRow = {
+  business: {
+    _id: string | null;
+    name: string;
+    slug?: string | null;
+  };
+  orderCount: number;
+  totalSpent: number;
+  lastOrderAt?: string | null;
+};
+
+export type AdminCustomerActivityItem = {
+  type: 'booking' | 'order' | 'inquiry';
+  at: string;
+  title: string;
+  status?: string | null;
+  business?: { _id?: string; name?: string; slug?: string } | null;
+  meta?: Record<string, unknown>;
+  refId?: string;
+};
+
+export type AdminCustomerDetailsResponse = {
+  customer: AdminCustomer;
+  bookingStats: CustomerBookingStats;
+  ordersSummary: {
+    totalOrders: number;
+    totalSpent: number;
+    byBusiness: AdminCustomerOrderBusinessRow[];
+  };
+  recent: {
+    bookings: unknown[];
+    orders: unknown[];
+    inquiries: unknown[];
+  };
+  activity: AdminCustomerActivityItem[];
+};
+
 export const customersAdminApi = {
   async list(params?: {
     search?: string;
@@ -51,5 +88,12 @@ export const customersAdminApi = {
 
     const suffix = query.toString() ? `?${query.toString()}` : '';
     return apiClient.get<AdminCustomersListResponse>(`/auth/admin/customers${suffix}`, true);
+  },
+
+  async getDetails(customerId: string, params?: { limit?: number }): Promise<ApiResponse<AdminCustomerDetailsResponse>> {
+    const query = new URLSearchParams();
+    if (params?.limit) query.set('limit', String(params.limit));
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return apiClient.get<AdminCustomerDetailsResponse>(`/auth/admin/customers/${encodeURIComponent(customerId)}${suffix}`, true);
   },
 };

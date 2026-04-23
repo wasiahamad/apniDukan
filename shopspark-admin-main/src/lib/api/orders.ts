@@ -2,6 +2,7 @@ import { apiClient, type ApiResponse } from '../apiClient';
 
 export type OrderStatus = 'pending' | 'confirmed' | 'delivered' | 'cancelled';
 export type OrderSource = 'website' | 'whatsapp' | 'manual';
+export type OrderOrigin = 'website' | 'map' | 'unknown';
 
 export type OrderItem = {
   listing?: string;
@@ -13,10 +14,12 @@ export type OrderItem = {
 
 export type Order = {
   _id: string;
-  business: { _id: string; name: string; slug: string; whatsapp?: string };
+  businessId?: string | null;
+  business: { _id: string; name: string; slug: string; whatsapp?: string; owner?: string } | null;
   orderId: string;
   orderNumber: number;
   source: OrderSource;
+  origin?: OrderOrigin;
   status: OrderStatus;
   customer: { name: string; phone?: string; address?: string; note?: string };
   items: OrderItem[];

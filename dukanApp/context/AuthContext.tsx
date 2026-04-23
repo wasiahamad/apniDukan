@@ -22,7 +22,9 @@ interface AuthState {
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<AuthUser>;
-  register: (data: RegisterData) => Promise<void>;
+  register: (data: RegisterData) => Promise<{ verificationRequired: boolean; email?: string; otpExpiresInMinutes?: number }>;
+  verifyEmailOtp: (email: string, otp: string) => Promise<AuthUser>;
+  resendEmailOtp: (email: string) => Promise<{ otpExpiresInMinutes?: number }>;
   logout: () => Promise<void>;
   updateUser: (user: AuthUser) => void;
 }
@@ -58,6 +60,12 @@ type LoginResponse = {
   user: BackendUser;
   accessToken: string;
   refreshToken: string;
+};
+
+type VerificationRequiredResponse = {
+  user: BackendUser;
+  verificationRequired: true;
+  otpExpiresInMinutes?: number;
 };
 
 function normalizeUser(raw: BackendUser): AuthUser {
@@ -124,14 +132,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return user;
     } catch (err: any) {
       // If this is not a customer account, fall back to the generic login endpoint.
+      // IMPORTANT: do NOT fall back for EMAIL_NOT_VERIFIED (would bypass customer verification).
       if (err instanceof ApiError && err.status === 403) {
-        const data = await apiRequest<LoginResponse>("/auth/login", {
-          method: "POST",
-          body: JSON.stringify({ email, password }),
-        });
-        const user = normalizeUser(data.user);
-        await storeAuth(data.accessToken, data.refreshToken, user);
-        return user;
+        const details: any = err.details;
+        const code = details?.code;
+        const msg = String(err.message || "");
+
+        if (code === "EMAIL_NOT_VERIFIED") {
+          throw err;
+        }
+
+        if (msg.toLowerCase().includes("only customer")) {
+          const data = await apiRequest<LoginResponse>("/auth/login", {
+            method: "POST",
+            body: JSON.stringify({ email, password }),
+          });
+          const user = normalizeUser(data.user);
+          await storeAuth(data.accessToken, data.refreshToken, user);
+          return user;
+        }
       }
       throw err;
     }
@@ -148,13 +167,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     const path = data.role === "customer" ? "/auth/register/customer" : "/auth/register";
-    const result = await apiRequest<LoginResponse>(path, {
+    const result = await apiRequest<LoginResponse | VerificationRequiredResponse>(path, {
       method: "POST",
       body: JSON.stringify(payload),
     });
 
-    const user = normalizeUser(result.user);
-    await storeAuth(result.accessToken, result.refreshToken, user);
+    const anyResult: any = result as any;
+    if (anyResult?.verificationRequired) {
+      return {
+        verificationRequired: true,
+        email: String(anyResult?.user?.email || data.email),
+        otpExpiresInMinutes: anyResult?.otpExpiresInMinutes,
+      };
+    }
+
+    const loggedIn = anyResult as LoginResponse;
+    const user = normalizeUser(loggedIn.user);
+    await storeAuth(loggedIn.accessToken, loggedIn.refreshToken, user);
+    return { verificationRequired: false };
+  }
+
+  async function verifyEmailOtp(email: string, otp: string): Promise<AuthUser> {
+    const data = await apiRequest<LoginResponse>("/auth/verify-email-otp", {
+      method: "POST",
+      body: JSON.stringify({ email, otp }),
+    });
+
+    const user = normalizeUser(data.user);
+    await storeAuth(data.accessToken, data.refreshToken, user);
+    return user;
+  }
+
+  async function resendEmailOtp(email: string) {
+    const data = await apiRequest<{ otpExpiresInMinutes?: number }>("/auth/resend-email-otp", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+    return data;
   }
 
   async function logout() {
@@ -173,7 +222,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ ...state, login, register, logout, updateUser }}>
+    <AuthContext.Provider value={{ ...state, login, register, verifyEmailOtp, resendEmailOtp, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

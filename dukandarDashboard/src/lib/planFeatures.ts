@@ -5,6 +5,10 @@ type PlanFeatureMap = Plan["features"];
 const FEATURE_LABELS: Record<string, string> = {
   publicShopEnabled: "Public shop",
   bookingEnabled: "Bookings enabled",
+  storiesEnabled: "Stories & Reels",
+  listingStoriesEnabled: "Listing → Stories/Reels",
+  ratingsEnabled: "Ratings",
+  locationEnabled: "Location",
   customDomain: "Custom domain",
   analyticsEnabled: "Analytics",
   prioritySupport: "Priority support",
@@ -27,15 +31,27 @@ const prettifyKey = (key: string) =>
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
 
-export const buildPlanFeatureSummary = (features: PlanFeatureMap): string[] => {
+export const buildPlanFeatureSummary = (
+  features: PlanFeatureMap,
+  t?: (key: string, options?: Record<string, any>) => string
+): string[] => {
   const items: string[] = [];
 
+  const tr = (key: string, fallback: string, options?: Record<string, any>) => {
+    try {
+      return t ? t(key, options) : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
   if (typeof features.maxListings === "number") {
-    items.push(`Max listings: ${features.maxListings}`);
+    items.push(tr("planFeatures.maxListings", `Max listings: ${features.maxListings}`, { count: features.maxListings }));
   }
 
   if (features.featuredEnabled) {
-    items.push(`Featured listings: ${features.maxFeaturedListings || 0}`);
+    const count = features.maxFeaturedListings || 0;
+    items.push(tr("planFeatures.featuredListings", `Featured listings: ${count}`, { count }));
   }
 
   for (const [key, value] of Object.entries(features)) {
@@ -45,13 +61,16 @@ export const buildPlanFeatureSummary = (features: PlanFeatureMap): string[] => {
 
     if (typeof value === "boolean") {
       if (value) {
-        items.push(FEATURE_LABELS[key] || prettifyKey(key));
+        const fallback = FEATURE_LABELS[key] || prettifyKey(key);
+        items.push(tr(`planFeatures.labels.${key}`, fallback));
       }
       continue;
     }
 
     if (typeof value === "number" && Number.isFinite(value)) {
-      items.push(`${FEATURE_LABELS[key] || prettifyKey(key)}: ${value}`);
+      const labelFallback = FEATURE_LABELS[key] || prettifyKey(key);
+      const label = tr(`planFeatures.labels.${key}`, labelFallback);
+      items.push(tr("planFeatures.numeric", `${labelFallback}: ${value}`, { label, value }));
     }
   }
 

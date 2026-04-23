@@ -2,6 +2,7 @@ import express from 'express';
 import { businessController } from '../controllers/index.js';
 import { protect, authorize, optionalAuth } from '../middleware/auth.js';
 import { requireVerifiedBusinessOwnerForWrites } from '../middleware/verificationGate.js';
+import { requireOwnerFeature } from '../middleware/entitlements.js';
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ const router = express.Router();
  */
 
 // Public routes
-router.get('/slug/:slug', businessController.getBusinessBySlug);
+router.get('/slug/:slug', protect, businessController.getBusinessBySlug);
 router.get('/directory/:slug', businessController.getBusinessDirectoryBySlug);
 router.post('/slug/:slug/track', businessController.trackBusinessAction);
 router.get('/public/shops', businessController.getPublicShops);
@@ -20,13 +21,15 @@ router.get('/nearby', optionalAuth, businessController.getNearbyBusinesses);
 // Protected static routes (MUST come before /:id)
 router.post('/', protect, authorize('business_owner', 'admin'), businessController.createBusiness);
 router.get('/my/businesses', protect, businessController.getMyBusinesses);
-router.put('/location', protect, authorize('business_owner', 'admin'), businessController.saveMyBusinessLocation);
+router.put('/location', protect, authorize('business_owner', 'admin'), requireOwnerFeature('locationEnabled'), businessController.saveMyBusinessLocation);
 
 // Admin: create owner + business
 router.post('/admin/create', protect, authorize('admin'), businessController.adminCreateBusinessWithOwner);
 
 // Admin: business details + status controls
 router.get('/admin/:id', protect, authorize('admin'), businessController.adminGetBusinessById);
+router.patch('/admin/:id', protect, authorize('admin'), businessController.adminPatchBusiness);
+router.patch('/admin/:id/owner', protect, authorize('admin'), businessController.adminPatchBusinessOwner);
 router.patch('/admin/:id/status', protect, authorize('admin'), businessController.adminUpdateBusinessStatus);
 router.patch('/admin/:id/booking-timings', protect, authorize('admin'), businessController.adminUpdateBusinessBookingTimings);
 router.patch('/admin/:id/why-choose-us', protect, authorize('admin'), businessController.adminUpdateBusinessWhyChooseUs);

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { User, Store, MapPin, Package, ArrowRight, ArrowLeft, CheckCircle2, Mail, Phone, Lock, Loader2, AlertCircle, Gift, Eye, EyeOff, Navigation } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/contexts/AuthContext";
 import { businessTypeApi, businessApi, planApi, referralApi, type BusinessType, type Business, type Plan, type ReferralOffer } from "@/lib/api/index";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,8 @@ import { useToast } from "@/hooks/use-toast";
 import { loadRazorpayScript } from "@/lib/razorpay";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buildPlanFeatureSummary } from "@/lib/planFeatures";
+
+const SUPPORTED_OFFERING_VALUES = ["product", "service", "food", "course", "rental"] as const;
 
 const GoogleColorIcon = () => (
   <svg viewBox="0 0 24 24" className="w-4 h-4" aria-hidden="true">
@@ -26,31 +29,94 @@ const FacebookColorIcon = () => (
   </svg>
 );
 
-const steps = [
-  { icon: User, title: "Owner Details", desc: "Tell us about yourself" },
-  { icon: Store, title: "Shop Details", desc: "Your business info" },
-  { icon: MapPin, title: "Location", desc: "Where are you located?" },
-  { icon: Package, title: "Offerings", desc: "What do you offer?" },
-  { icon: CheckCircle2, title: "Choose Plan", desc: "Pick a plan and pay online" },
-];
-
-const OFFERING_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'product', label: 'Product' },
-  { value: 'service', label: 'Service' },
-  { value: 'food', label: 'Food' },
-  { value: 'course', label: 'Course' },
-  { value: 'rental', label: 'Rental' },
-];
-
 const Onboarding = () => {
   const [step, setStep] = useState(0);
   const navigate = useNavigate();
   const location = useLocation();
   const { register, loginWithGoogle, loginWithFacebook, user, isAuthenticated } = useAuth();
   const { toast } = useToast();
+  const { t } = useTranslation();
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
   const facebookAppId = import.meta.env.VITE_FACEBOOK_APP_ID as string | undefined;
   const googleMapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
+
+  const steps = [
+    { icon: User, title: t("onboarding.steps.owner.title"), desc: t("onboarding.steps.owner.desc") },
+    { icon: Store, title: t("onboarding.steps.shop.title"), desc: t("onboarding.steps.shop.desc") },
+    { icon: MapPin, title: t("onboarding.steps.location.title"), desc: t("onboarding.steps.location.desc") },
+    { icon: Package, title: t("onboarding.steps.offerings.title"), desc: t("onboarding.steps.offerings.desc") },
+    { icon: CheckCircle2, title: t("onboarding.steps.plan.title"), desc: t("onboarding.steps.plan.desc") },
+  ];
+
+  const OFFERING_OPTIONS: Array<{ value: string; label: string }> = SUPPORTED_OFFERING_VALUES.map((v) => ({
+    value: v,
+    label: t(`onboarding.offeringOptions.${v}`),
+  }));
+
+  const FALLBACK_BT_KEYS: Record<
+    string,
+    {
+      name: string;
+      description: string;
+      categories: string[];
+    }
+  > = {
+    "kirana-store": {
+      name: "onboarding.fallbackBusinessTypes.kirana.name",
+      description: "onboarding.fallbackBusinessTypes.kirana.description",
+      categories: [
+        "onboarding.fallbackBusinessTypes.kirana.categories.grocery",
+        "onboarding.fallbackBusinessTypes.kirana.categories.dairy",
+        "onboarding.fallbackBusinessTypes.kirana.categories.snacks",
+        "onboarding.fallbackBusinessTypes.kirana.categories.beverages",
+      ],
+    },
+    restaurant: {
+      name: "onboarding.fallbackBusinessTypes.restaurant.name",
+      description: "onboarding.fallbackBusinessTypes.restaurant.description",
+      categories: [
+        "onboarding.fallbackBusinessTypes.restaurant.categories.fastFood",
+        "onboarding.fallbackBusinessTypes.restaurant.categories.chinese",
+        "onboarding.fallbackBusinessTypes.restaurant.categories.indian",
+        "onboarding.fallbackBusinessTypes.restaurant.categories.desserts",
+      ],
+    },
+    "coaching-center": {
+      name: "onboarding.fallbackBusinessTypes.coaching.name",
+      description: "onboarding.fallbackBusinessTypes.coaching.description",
+      categories: [
+        "onboarding.fallbackBusinessTypes.coaching.categories.competitiveExams",
+        "onboarding.fallbackBusinessTypes.coaching.categories.schoolTuition",
+        "onboarding.fallbackBusinessTypes.coaching.categories.languageClasses",
+      ],
+    },
+    "salon-spa": {
+      name: "onboarding.fallbackBusinessTypes.salon.name",
+      description: "onboarding.fallbackBusinessTypes.salon.description",
+      categories: [
+        "onboarding.fallbackBusinessTypes.salon.categories.hair",
+        "onboarding.fallbackBusinessTypes.salon.categories.facial",
+        "onboarding.fallbackBusinessTypes.salon.categories.massage",
+        "onboarding.fallbackBusinessTypes.salon.categories.nailArt",
+      ],
+    },
+  };
+
+  const getBusinessTypeName = (bt: BusinessType) => {
+    const entry = FALLBACK_BT_KEYS[String((bt as any)?.slug || "")];
+    return entry ? t(entry.name) : bt.name;
+  };
+
+  const getBusinessTypeDescription = (bt: BusinessType) => {
+    const entry = FALLBACK_BT_KEYS[String((bt as any)?.slug || "")];
+    return entry ? t(entry.description) : bt.description;
+  };
+
+  const getBusinessTypeCategories = (bt: BusinessType) => {
+    const entry = FALLBACK_BT_KEYS[String((bt as any)?.slug || "")];
+    if (entry) return entry.categories.map((k) => t(k));
+    return bt.exampleCategories || [];
+  };
   
   const [data, setData] = useState({
     name: "",
@@ -104,7 +170,7 @@ const Onboarding = () => {
       script.src = src;
       script.async = true;
       script.onload = () => resolve();
-      script.onerror = () => reject(new Error("Failed to load social auth SDK"));
+      script.onerror = () => reject(new Error(t("onboarding.errors.socialSdkLoadFailed")));
       document.body.appendChild(script);
     });
 
@@ -236,7 +302,7 @@ const Onboarding = () => {
 
     // Only auto-fill when empty or when current value is not one of our supported options.
     // User can still override in the Offerings step.
-    const isSupported = OFFERING_OPTIONS.some((o) => o.value === data.offering);
+    const isSupported = (SUPPORTED_OFFERING_VALUES as readonly string[]).includes(data.offering);
     if (!data.offering || !isSupported) {
       setData((prev) => ({ ...prev, offering: suggested }));
     }
@@ -381,11 +447,11 @@ const Onboarding = () => {
       // Verification disabled scenario: continue directly
       setStep(1);
     } catch (err: any) {
-      setError(err.message || "Failed to register. Please try again.");
+      setError(err.message || t("onboarding.errors.registerFailed"));
       toast({
         variant: "destructive",
-        title: "Registration Failed",
-        description: err.message || "Something went wrong",
+        title: t("onboarding.toasts.registrationFailedTitle"),
+        description: err.message || t("onboarding.toasts.genericErrorDesc"),
       });
     } finally {
       setIsLoading(false);
@@ -394,7 +460,7 @@ const Onboarding = () => {
 
   const handleGoogleSignup = async () => {
     if (!googleClientId) {
-      setError("Google signup is not configured.");
+      setError(t("onboarding.errors.googleNotConfigured"));
       return;
     }
 
@@ -405,7 +471,7 @@ const Onboarding = () => {
     try {
       await loadScript("https://accounts.google.com/gsi/client");
       const google = (window as any).google;
-      if (!google?.accounts?.oauth2?.initTokenClient) throw new Error("Google SDK unavailable");
+      if (!google?.accounts?.oauth2?.initTokenClient) throw new Error(t("onboarding.errors.googleSdkUnavailable"));
 
       const accessToken = await new Promise<string>((resolve, reject) => {
         let settled = false;
@@ -415,11 +481,17 @@ const Onboarding = () => {
           callback: (response: any) => {
             settled = true;
             if (response?.error) {
-              reject(new Error(response.error_description || response.error || "Google signup failed"));
+              reject(
+                new Error(
+                  response.error_description ||
+                    response.error ||
+                    t("onboarding.errors.googleSignupFailed")
+                )
+              );
               return;
             }
             if (!response?.access_token) {
-              reject(new Error("Google access token not received"));
+              reject(new Error(t("onboarding.errors.googleAccessTokenMissing")));
               return;
             }
             resolve(response.access_token);
@@ -428,16 +500,16 @@ const Onboarding = () => {
 
         tokenClient.requestAccessToken({ prompt: "consent" });
         window.setTimeout(() => {
-          if (!settled) reject(new Error("Google signup was cancelled or timed out"));
+          if (!settled) reject(new Error(t("onboarding.errors.googleCancelledOrTimedOut")));
         }, 20000);
       });
 
       await loginWithGoogle(accessToken);
-      toast({ title: "Google connected", description: "Continue onboarding to finish setup." });
+      toast({ title: t("onboarding.toasts.googleConnectedTitle"), description: t("onboarding.toasts.socialConnectedDesc") });
     } catch (err: any) {
-      const message = err.message || "Google signup failed";
+      const message = err.message || t("onboarding.errors.googleSignupFailed");
       setError(message);
-      toast({ variant: "destructive", title: "Google signup failed", description: message });
+      toast({ variant: "destructive", title: t("onboarding.toasts.googleSignupFailedTitle"), description: message });
     } finally {
       setIsSocialLoading(false);
       setSocialProvider(null);
@@ -446,7 +518,7 @@ const Onboarding = () => {
 
   const handleFacebookSignup = async () => {
     if (!facebookAppId) {
-      setError("Facebook signup is not configured.");
+      setError(t("onboarding.errors.facebookNotConfigured"));
       return;
     }
 
@@ -457,7 +529,7 @@ const Onboarding = () => {
     try {
       await loadScript("https://connect.facebook.net/en_US/sdk.js");
       const FB = (window as any).FB;
-      if (!FB) throw new Error("Facebook SDK unavailable");
+      if (!FB) throw new Error(t("onboarding.errors.facebookSdkUnavailable"));
 
       await new Promise<void>((resolve) => {
         FB.init({ appId: facebookAppId, cookie: true, xfbml: false, version: "v19.0" });
@@ -469,7 +541,7 @@ const Onboarding = () => {
           (response: any) => {
             const token = response?.authResponse?.accessToken;
             if (!token) {
-              reject(new Error("Facebook signup cancelled"));
+              reject(new Error(t("onboarding.errors.facebookCancelled")));
               return;
             }
             resolve(token);
@@ -479,11 +551,11 @@ const Onboarding = () => {
       });
 
       await loginWithFacebook(accessToken);
-      toast({ title: "Facebook connected", description: "Continue onboarding to finish setup." });
+      toast({ title: t("onboarding.toasts.facebookConnectedTitle"), description: t("onboarding.toasts.socialConnectedDesc") });
     } catch (err: any) {
-      const message = err.message || "Facebook signup failed";
+      const message = err.message || t("onboarding.errors.facebookSignupFailed");
       setError(message);
-      toast({ variant: "destructive", title: "Facebook signup failed", description: message });
+      toast({ variant: "destructive", title: t("onboarding.toasts.facebookSignupFailedTitle"), description: message });
     } finally {
       setIsSocialLoading(false);
       setSocialProvider(null);
@@ -496,11 +568,8 @@ const Onboarding = () => {
 
     try {
       if (!isAuthenticated) {
-        throw new Error("Please register and verify your email first.");
+        throw new Error(t("onboarding.errors.verifyEmailFirst"));
       }
-
-      // Create business after verification
-      const offeringLabel = OFFERING_OPTIONS.find((o) => o.value === data.offering)?.label || data.offering;
 
       const storedLat = Number(data.locationLat);
       const storedLng = Number(data.locationLng);
@@ -532,7 +601,6 @@ const Onboarding = () => {
               }
             : {}),
         },
-        description: `${data.shop_name} - ${offeringLabel}`,
       };
 
       const businessResponse = await businessApi.createBusiness(businessData);
@@ -561,20 +629,20 @@ const Onboarding = () => {
         }
 
         toast({
-          title: "Success!",
-          description: "Account created. Now choose a plan.",
+          title: t("onboarding.toasts.businessCreatedTitle"),
+          description: t("onboarding.toasts.businessCreatedDesc"),
         });
 
         setStep(4);
       } else {
-        throw new Error(businessResponse.message || "Failed to create business");
+        throw new Error(businessResponse.message || t("onboarding.errors.createBusinessFailed"));
       }
     } catch (err: any) {
-      setError(err.message || "Failed to create account. Please try again.");
+      setError(err.message || t("onboarding.errors.createBusinessFailed"));
       toast({
         variant: "destructive",
-        title: "Registration Failed",
-        description: err.message || "Something went wrong",
+        title: t("onboarding.toasts.registrationFailedTitle"),
+        description: err.message || t("onboarding.toasts.genericErrorDesc"),
       });
     } finally {
       setIsLoading(false);
@@ -587,8 +655,8 @@ const Onboarding = () => {
     if (typeof window === "undefined") return;
     if (!navigator.geolocation) {
       toast({
-        title: "Not supported",
-        description: "Geolocation is not supported in this browser.",
+        title: t("onboarding.toasts.notSupportedTitle"),
+        description: t("onboarding.toasts.geolocationNotSupportedDesc"),
         variant: "destructive",
       });
       return;
@@ -618,8 +686,8 @@ const Onboarding = () => {
           const key = (googleMapsApiKey || "").trim();
           if (!key) {
             toast({
-              title: "Live location selected",
-              description: "Coordinates saved. (VITE_GOOGLE_MAPS_API_KEY missing; address auto-fill skipped)",
+              title: t("onboarding.toasts.liveLocationSelectedTitle"),
+              description: t("onboarding.toasts.addressAutofillSkipped"),
             });
             return;
           }
@@ -657,11 +725,14 @@ const Onboarding = () => {
             area: prev.area || (area || ""),
           }));
 
-          toast({ title: "Location filled", description: "City/State/Pincode auto-filled." });
+          toast({
+            title: t("onboarding.toasts.locationFilledTitle"),
+            description: t("onboarding.toasts.locationFilledDesc"),
+          });
         } catch {
           toast({
-            title: "Live location selected",
-            description: "Coordinates saved. Address auto-fill failed; please fill manually.",
+            title: t("onboarding.toasts.liveLocationSelectedTitle"),
+            description: t("onboarding.toasts.addressAutofillFailed"),
           });
         } finally {
           setIsResolvingAddress(false);
@@ -673,12 +744,12 @@ const Onboarding = () => {
         setIsGettingLiveLocation(false);
         const msg =
           err?.code === 1
-            ? "Location permission denied. Please allow location access."
+            ? t("onboarding.errors.locationPermissionDenied")
             : err?.code === 2
-              ? "Location unavailable. Try again."
-              : "Location request timed out. Try again.";
+              ? t("onboarding.errors.locationUnavailable")
+              : t("onboarding.errors.locationTimedOut");
         setError(msg);
-        toast({ title: "Location error", description: msg, variant: "destructive" });
+        toast({ title: t("onboarding.toasts.locationErrorTitle"), description: msg, variant: "destructive" });
       },
       {
         enableHighAccuracy: true,
@@ -694,14 +765,14 @@ const Onboarding = () => {
     if (!code) return;
     if (referralApplied && appliedReferralKey === key) return;
     if (!selectedReferralOfferId) {
-      throw new Error("Please choose a referral offer");
+      throw new Error(t("onboarding.errors.chooseReferralOffer"));
     }
 
     // Save the selected offer to DB so it reflects in user/admin dashboards.
     // This is the same endpoint used when user selects offer later in Referrals page.
     const setOfferRes = await referralApi.setMyActiveReferralOffer({ offerId: selectedReferralOfferId });
     if (!setOfferRes.success) {
-      throw new Error(setOfferRes.message || 'Failed to save selected referral offer');
+      throw new Error(setOfferRes.message || t("onboarding.errors.saveReferralOfferFailed"));
     }
 
     const res = await referralApi.createReferral({
@@ -713,7 +784,7 @@ const Onboarding = () => {
       const returnedCode = res.data?.referralCode ? String(res.data.referralCode).toUpperCase().trim() : '';
       const expectedCode = code.toUpperCase().trim();
       if (returnedCode && returnedCode !== expectedCode) {
-        throw new Error('Referral already applied with a different code');
+        throw new Error(t("onboarding.errors.referralDifferentCodeAlreadyApplied"));
       }
 
       setReferralApplied(true);
@@ -721,7 +792,19 @@ const Onboarding = () => {
       return;
     }
 
-    const msg = res.message || "Failed to apply referral";
+    const anyRes: any = res as any;
+    const backendCode = String(anyRes?.code || "");
+    const msg = res.message || t("onboarding.errors.applyReferralFailed");
+
+    if (backendCode === "REFERRED_LOCATION_MISSING" || backendCode === "REFERRED_CITY_MISSING") {
+      throw new Error(t("onboarding.errors.referralNeedsLocationAndCity"));
+    }
+    if (backendCode === "CITY_MISMATCH") {
+      throw new Error(t("onboarding.errors.referralCityMismatch"));
+    }
+    if (backendCode === "DISTANCE_EXCEEDED") {
+      throw new Error(t("onboarding.errors.referralDistanceExceeded"));
+    }
     if (msg.toLowerCase().includes("already exists")) {
       setReferralApplied(true);
       setAppliedReferralKey(key);
@@ -731,19 +814,20 @@ const Onboarding = () => {
     throw new Error(msg);
   };
 
-  const handleChoosePlanAndFinish = async () => {
+  const handleChoosePlanAndFinish = async (planIdOverride?: string) => {
     if (!createdBusiness?._id) {
-      setError("Business not created yet. Please go back and try again.");
+      setError(t("onboarding.errors.businessNotCreated"));
       return;
     }
-    if (!selectedPlanId) {
-      setError("Please select a plan");
+    const planIdToUse = planIdOverride || selectedPlanId;
+    if (!planIdToUse) {
+      setError(t("onboarding.errors.selectPlan"));
       return;
     }
 
-    const selectedPlan = plans.find((p) => p._id === selectedPlanId);
+    const selectedPlan = plans.find((p) => p._id === planIdToUse);
     if (!selectedPlan) {
-      setError("Selected plan not found");
+      setError(t("onboarding.errors.planNotFound"));
       return;
     }
 
@@ -758,8 +842,8 @@ const Onboarding = () => {
       // Free plan: activate directly
       if (!selectedPlan.price || selectedPlan.price <= 0) {
         const res = await planApi.subscribeToPlan(selectedPlan._id, createdBusiness._id);
-        if (!res.success) throw new Error(res.message || "Failed to activate plan");
-        toast({ title: "Success", description: "Plan activated successfully" });
+        if (!res.success) throw new Error(res.message || t("onboarding.errors.activatePlanFailed"));
+        toast({ title: t("onboarding.toasts.successTitle"), description: t("onboarding.toasts.planActivatedDesc") });
         await businessApi.getMyBusinesses({ force: true });
         navigate("/dashboard");
         return;
@@ -767,18 +851,18 @@ const Onboarding = () => {
 
       const ok = await loadRazorpayScript();
       if (!ok || !window.Razorpay) {
-        throw new Error("Failed to load Razorpay");
+        throw new Error(t("onboarding.errors.razorpayLoadFailed"));
       }
 
       const orderRes = await planApi.createRazorpayOrder(selectedPlan._id, createdBusiness._id);
       if (!orderRes.success || !orderRes.data) {
-        throw new Error(orderRes.message || "Failed to create payment order");
+        throw new Error(orderRes.message || t("onboarding.errors.createPaymentOrderFailed"));
       }
 
       if ((orderRes.data as any).isFree) {
         const res = await planApi.subscribeToPlan(selectedPlan._id, createdBusiness._id);
-        if (!res.success) throw new Error(res.message || "Failed to activate plan");
-        toast({ title: "Success", description: "Plan activated successfully" });
+        if (!res.success) throw new Error(res.message || t("onboarding.errors.activatePlanFailed"));
+        toast({ title: t("onboarding.toasts.successTitle"), description: t("onboarding.toasts.planActivatedDesc") });
         await businessApi.getMyBusinesses({ force: true });
         navigate("/dashboard");
         return;
@@ -793,8 +877,8 @@ const Onboarding = () => {
         key: keyId,
         amount: order.amount,
         currency: order.currency,
-        name: "ApniDukan",
-        description: selectedPlan.description || `Purchase ${selectedPlan.name}`,
+        name: "PublicDukan",
+        description: selectedPlan.description || t("onboarding.payment.purchasePlan", { planName: selectedPlan.name }),
         order_id: order.id,
         handler: async (response: any) => {
           const verifyRes = await planApi.verifyRazorpayPayment({
@@ -808,14 +892,14 @@ const Onboarding = () => {
           if (!verifyRes.success) {
             toast({
               variant: "destructive",
-              title: "Payment failed",
-              description: verifyRes.message || "Payment verification failed",
+              title: t("onboarding.toasts.paymentFailedTitle"),
+              description: verifyRes.message || t("onboarding.errors.paymentVerificationFailed"),
             });
             setIsPaying(false);
             return;
           }
 
-          toast({ title: "Payment success", description: "Plan activated successfully" });
+          toast({ title: t("onboarding.toasts.paymentSuccessTitle"), description: t("onboarding.toasts.planActivatedDesc") });
           await businessApi.getMyBusinesses({ force: true });
           setIsPaying(false);
           navigate("/dashboard");
@@ -833,15 +917,28 @@ const Onboarding = () => {
 
       rzp.open();
     } catch (err: any) {
-      setError(err.message || "Failed to complete payment");
+      setError(err.message || t("onboarding.errors.completePaymentFailed"));
       toast({
         variant: "destructive",
-        title: "Error",
-        description: err.message || "Failed to complete payment",
+        title: t("onboarding.toasts.errorTitle"),
+        description: err.message || t("onboarding.errors.completePaymentFailed"),
       });
     } finally {
       if (!deferPayingReset) setIsPaying(false);
     }
+  };
+
+  const handleSelectPlan = async (plan: any) => {
+    setSelectedPlanId(plan._id);
+
+    const isFree = !plan?.price || plan.price <= 0;
+    if (!isFree) return;
+
+    // If referral code exists, require offer selection before auto-finishing.
+    if (data.referralCode.trim() && !selectedReferralOfferId) return;
+    if (isPaying || isLoading) return;
+
+    await handleChoosePlanAndFinish(plan._id);
   };
 
   return (
@@ -881,7 +978,7 @@ const Onboarding = () => {
                   >
                     {isSocialLoading && socialProvider === "google" ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin" /> Connecting...
+                        <Loader2 className="w-4 h-4 animate-spin" /> {t("onboarding.social.connecting")}
                       </>
                     ) : (
                       <>
@@ -897,7 +994,7 @@ const Onboarding = () => {
                   >
                     {isSocialLoading && socialProvider === "facebook" ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin" /> Connecting...
+                        <Loader2 className="w-4 h-4 animate-spin" /> {t("onboarding.social.connecting")}
                       </>
                     ) : (
                       <>
@@ -912,12 +1009,12 @@ const Onboarding = () => {
                     <span className="w-full border-t" />
                   </div>
                   <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-background px-2 text-muted-foreground">or fill details manually</span>
+                    <span className="bg-background px-2 text-muted-foreground">{t("onboarding.social.orFillManually")}</span>
                   </div>
                 </div>
 
                 <input
-                  placeholder="Your Full Name"
+                  placeholder={t("onboarding.owner.fullNamePlaceholder")}
                   value={data.name}
                   onChange={e => update("name", e.target.value)}
                   className="w-full px-4 py-3.5 bg-card border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -926,7 +1023,7 @@ const Onboarding = () => {
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                   <input
                     type="email"
-                    placeholder="your@email.com"
+                    placeholder={t("onboarding.owner.emailPlaceholder")}
                     value={data.email}
                     onChange={e => update("email", e.target.value)}
                     disabled={isAuthenticated}
@@ -934,7 +1031,7 @@ const Onboarding = () => {
                   />
                 </div>
                 {isAuthenticated ? (
-                  <p className="text-xs text-muted-foreground">Verified email can’t be changed during onboarding.</p>
+                  <p className="text-xs text-muted-foreground">{t("onboarding.owner.verifiedEmailLocked")}</p>
                 ) : null}
                 <div className="relative">
                   <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
@@ -942,7 +1039,7 @@ const Onboarding = () => {
                   <input
                     type="tel"
                     maxLength={10}
-                    placeholder="9876543210"
+                    placeholder={t("onboarding.owner.phonePlaceholder")}
                     value={data.phone}
                     onChange={e => update("phone", e.target.value.replace(/\D/g, ""))}
                     className="w-full pl-[4.5rem] pr-4 py-3.5 bg-card border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -952,7 +1049,7 @@ const Onboarding = () => {
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                   <input
                     type={showPassword ? "text" : "password"}
-                    placeholder="Create password (min 6 characters)"
+                    placeholder={t("onboarding.owner.passwordPlaceholder")}
                     value={data.password}
                     onChange={e => update("password", e.target.value)}
                     disabled={!!user}
@@ -963,19 +1060,19 @@ const Onboarding = () => {
                     onClick={() => setShowPassword((prev) => !prev)}
                     disabled={!!user}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground disabled:opacity-50"
-                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-label={showPassword ? t("onboarding.owner.hidePassword") : t("onboarding.owner.showPassword")}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
                 {user ? (
-                  <p className="text-xs text-muted-foreground">Password is not required for social signup.</p>
+                  <p className="text-xs text-muted-foreground">{t("onboarding.owner.passwordNotRequired")}</p>
                 ) : null}
 
                 <div className="relative">
                   <Gift className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                   <input
-                    placeholder="Referral Code (optional)"
+                    placeholder={t("onboarding.owner.referralPlaceholder")}
                     value={data.referralCode}
                     onChange={(e) => update("referralCode", e.target.value.toUpperCase().trim())}
                     className="w-full pl-11 pr-4 py-3.5 bg-card border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -983,9 +1080,9 @@ const Onboarding = () => {
                 </div>
 
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
-                  <p className="text-sm font-semibold text-foreground">Pehle demo dukan dekh lo</p>
+                  <p className="text-sm font-semibold text-foreground">{t("onboarding.demo.title")}</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Is preview se aapko samajh aayega ki customers ko aapki online dukan kaisi dikhegi.
+                    {t("onboarding.demo.desc")}
                   </p>
                   <Link
                     to="/shop/ram-kirana-store"
@@ -993,7 +1090,7 @@ const Onboarding = () => {
                     rel="noreferrer"
                     className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
                   >
-                    <Gift className="w-4 h-4" /> Demo Dukan Dekhein
+                    <Gift className="w-4 h-4" /> {t("onboarding.demo.cta")}
                   </Link>
                 </div>
               </div>
@@ -1003,13 +1100,13 @@ const Onboarding = () => {
             {step === 1 && (
               <div className="space-y-4">
                 <input
-                  placeholder="Shop / Business Name"
+                  placeholder={t("onboarding.shop.shopNamePlaceholder")}
                   value={data.shop_name}
                   onChange={e => update("shop_name", e.target.value)}
                   className="w-full px-4 py-3.5 bg-card border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
                 <div>
-                  <p className="text-sm font-medium text-foreground mb-3">Select Your Business Type</p>
+                  <p className="text-sm font-medium text-foreground mb-3">{t("onboarding.shop.selectBusinessType")}</p>
                   {loadingBusinessTypes ? (
                     <div className="space-y-3 py-2">
                       <Skeleton className="h-16 w-full rounded-xl" />
@@ -1040,22 +1137,22 @@ const Onboarding = () => {
                                 <h3 className={`font-semibold text-sm ${
                                   data.businessType === bt._id ? "text-primary" : "text-foreground"
                                 }`}>
-                                  {bt.name}
+                                  {getBusinessTypeName(bt)}
                                 </h3>
                                 {bt.suggestedListingType && (
                                   <span className="text-xs px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground capitalize">
-                                    {bt.suggestedListingType}
+                                    {t(`onboarding.offeringOptions.${bt.suggestedListingType}`)}
                                   </span>
                                 )}
                               </div>
-                              {bt.description && (
+                              {getBusinessTypeDescription(bt) && (
                                 <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
-                                  {bt.description}
+                                  {getBusinessTypeDescription(bt)}
                                 </p>
                               )}
-                              {bt.exampleCategories && bt.exampleCategories.length > 0 && (
+                              {getBusinessTypeCategories(bt).length > 0 && (
                                 <div className="flex flex-wrap gap-1 mt-2">
-                                  {bt.exampleCategories.slice(0, 3).map((cat, idx) => (
+                                  {getBusinessTypeCategories(bt).slice(0, 3).map((cat, idx) => (
                                     <span
                                       key={idx}
                                       className="text-[10px] px-2 py-0.5 rounded-md bg-muted text-muted-foreground"
@@ -1063,9 +1160,9 @@ const Onboarding = () => {
                                       {cat}
                                     </span>
                                   ))}
-                                  {bt.exampleCategories.length > 3 && (
+                                  {getBusinessTypeCategories(bt).length > 3 && (
                                     <span className="text-[10px] px-2 py-0.5 text-muted-foreground">
-                                      +{bt.exampleCategories.length - 3} more
+                                      {t("onboarding.businessTypes.more", { count: getBusinessTypeCategories(bt).length - 3 })}
                                     </span>
                                   )}
                                 </div>
@@ -1097,29 +1194,29 @@ const Onboarding = () => {
                   ) : (
                     <Navigation className="w-4 h-4" />
                   )}
-                  {isResolvingAddress ? "Auto-filling address..." : "Use my current location"}
+                  {isResolvingAddress ? t("onboarding.location.autoFilling") : t("onboarding.location.useCurrent")}
                 </button>
 
                 <input
-                  placeholder="City"
+                  placeholder={t("onboarding.location.cityPlaceholder")}
                   value={data.city}
                   onChange={e => update("city", e.target.value)}
                   className="w-full px-4 py-3.5 bg-card border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
                 <input
-                  placeholder="State"
+                  placeholder={t("onboarding.location.statePlaceholder")}
                   value={data.state}
                   onChange={e => update("state", e.target.value)}
                   className="w-full px-4 py-3.5 bg-card border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
                 <input
-                  placeholder="Area / Locality / Street"
+                  placeholder={t("onboarding.location.areaPlaceholder")}
                   value={data.area}
                   onChange={e => update("area", e.target.value)}
                   className="w-full px-4 py-3.5 bg-card border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
                 <input
-                  placeholder="Pincode"
+                  placeholder={t("onboarding.location.pincodePlaceholder")}
                   value={data.pincode}
                   onChange={e => update("pincode", e.target.value.replace(/\D/g, ""))}
                   maxLength={6}
@@ -1153,7 +1250,7 @@ const Onboarding = () => {
             {step === 4 && (
               <div className="space-y-4">
                 <div className="bg-primary/10 border border-primary/20 rounded-xl p-4">
-                  <p className="text-sm text-muted-foreground">Business</p>
+                  <p className="text-sm text-muted-foreground">{t("onboarding.plan.businessLabel")}</p>
                   <p className="text-base font-bold text-foreground">{createdBusiness?.name || data.shop_name}</p>
                 </div>
 
@@ -1166,7 +1263,25 @@ const Onboarding = () => {
                   ) : (
                     plans.map((plan) => {
                       const selected = selectedPlanId === plan._id;
-                      const lines = buildPlanFeatureSummary(plan.features);
+                      const lines = buildPlanFeatureSummary(plan.features, t);
+
+                      const inferBillingCycleFromDays = (days?: number): "monthly" | "quarterly" | "yearly" | null => {
+                        const d = Number(days);
+                        if (!Number.isFinite(d) || d <= 0) return null;
+                        if (d >= 360) return "yearly";
+                        if (d >= 85) return "quarterly";
+                        if (d >= 28 && d <= 31) return "monthly";
+                        return null;
+                      };
+
+                      const periodText = (() => {
+                        const cycle = plan.billingCycle || inferBillingCycleFromDays(plan.durationInDays);
+                        if (cycle === "monthly") return t("onboarding.plan.period.month");
+                        if (cycle === "quarterly") return t("onboarding.plan.period.quarterly");
+                        if (cycle === "yearly") return t("onboarding.plan.period.year");
+                        if (plan.price <= 0) return t("onboarding.plan.period.forever");
+                        return t("onboarding.plan.period.days", { count: plan.durationInDays });
+                      })();
 
                       return (
                         <motion.div key={plan._id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
@@ -1178,7 +1293,7 @@ const Onboarding = () => {
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="text-sm font-medium text-foreground">{plan.name}</p>
-                                <p className="text-xs text-muted-foreground mt-1">₹{plan.price} / {plan.durationInDays} days</p>
+                                <p className="text-xs text-muted-foreground mt-1">₹{plan.price} / {periodText}</p>
                                 {plan.description ? (
                                   <p className="text-xs text-muted-foreground mt-1">{plan.description}</p>
                                 ) : null}
@@ -1187,10 +1302,11 @@ const Onboarding = () => {
                               <Button
                                 size="sm"
                                 variant={selected ? "default" : "outline"}
-                                onClick={() => setSelectedPlanId(plan._id)}
+                                onClick={() => void handleSelectPlan(plan)}
+                                disabled={isPaying || isLoading}
                                 className="shrink-0"
                               >
-                                {selected ? "Selected" : "Select"}
+                                {selected ? t("onboarding.plan.selected") : t("onboarding.plan.select")}
                               </Button>
                             </div>
 
@@ -1210,12 +1326,12 @@ const Onboarding = () => {
 
                 {data.referralCode.trim() ? (
                   <div className="bg-card border rounded-xl p-4">
-                    <p className="text-sm font-semibold text-foreground">Referral</p>
-                    <p className="text-xs text-muted-foreground mt-1">You entered a referral code. Choose which admin offer to apply.</p>
+                    <p className="text-sm font-semibold text-foreground">{t("onboarding.referral.title")}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{t("onboarding.referral.subtitle")}</p>
 
                     <div className="mt-3 space-y-2">
                       <input
-                        placeholder="Referral Code"
+                        placeholder={t("onboarding.referral.codePlaceholder")}
                         value={data.referralCode}
                         onChange={(e) => update("referralCode", e.target.value.toUpperCase().trim())}
                         className="w-full px-4 py-3 bg-background border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -1227,19 +1343,19 @@ const Onboarding = () => {
                         className="w-full px-4 py-3 bg-background border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                       >
                         <option value="" disabled>
-                          Select referral offer
+                          {t("onboarding.referral.selectOffer")}
                         </option>
                         {referralOffers
                           .filter((o) => o.status === "active" && o.isActive)
                           .map((o) => (
                             <option key={o._id} value={o._id}>
-                              {o.offerName} (threshold {o.referralThreshold})
+                              {t("onboarding.referral.offerOption", { name: o.offerName, threshold: o.referralThreshold })}
                             </option>
                           ))}
                       </select>
 
                       {referralApplied ? (
-                        <p className="text-xs text-emerald-600">Referral applied.</p>
+                        <p className="text-xs text-emerald-600">{t("onboarding.referral.applied")}</p>
                       ) : null}
                     </div>
                   </div>
@@ -1270,22 +1386,24 @@ const Onboarding = () => {
             {isLoading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                {step === 0 && !isAuthenticated ? "Creating your account..." : "Creating your business..."}
+                {step === 0 && !isAuthenticated
+                  ? t("onboarding.cta.creatingAccount")
+                  : t("onboarding.cta.creatingBusiness")}
               </>
             ) : isPaying ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Processing payment...
+                {t("onboarding.cta.processingPayment")}
               </>
             ) : (
               <>
                 {step === 4
                   ? (plans.find((p) => p._id === selectedPlanId)?.price || 0) > 0
-                    ? "Pay & Finish"
-                    : "Activate & Finish"
+                    ? t("onboarding.cta.payAndFinish")
+                    : t("onboarding.cta.activateAndFinish")
                   : step === 3
-                    ? "Start Your Dukaan"
-                    : "Continue"}{" "}
+                    ? t("onboarding.cta.startDukaan")
+                    : t("onboarding.cta.continue")}{" "}
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
@@ -1293,8 +1411,8 @@ const Onboarding = () => {
         </div>
 
         <p className="text-xs text-muted-foreground text-center mt-4">
-          Already have an account?{" "}
-          <button onClick={() => navigate("/login")} className="text-primary font-semibold">Login</button>
+          {t("onboarding.footer.haveAccount")}{" "}
+          <button onClick={() => navigate("/login")} className="text-primary font-semibold">{t("onboarding.footer.login")}</button>
         </p>
       </div>
       </div>

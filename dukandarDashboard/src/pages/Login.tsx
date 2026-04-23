@@ -1,9 +1,15 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ShoppingBag, ArrowRight, Mail, Lock, Loader2, AlertCircle, Eye, EyeOff } from "lucide-react";
+import { ArrowRight, Mail, Lock, Loader2, AlertCircle, Eye, EyeOff, Languages } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import i18n from "@/i18n";
+import { setPreferredLanguage } from "@/lib/language";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+
+const PLATFORM_LOGO_SRC = "/logo-removebg-preview.png";
 
 const GoogleColorIcon = () => (
   <svg viewBox="0 0 24 24" className="w-4 h-4" aria-hidden="true">
@@ -37,6 +43,7 @@ const FacebookColorIcon = () => (
 );
 
 const Login = () => {
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -63,7 +70,7 @@ const Login = () => {
       script.src = src;
       script.async = true;
       script.onload = () => resolve();
-      script.onerror = () => reject(new Error("Failed to load social auth SDK"));
+      script.onerror = () => reject(new Error(t('login.socialAuthSdkFailed')));
       document.body.appendChild(script);
     });
 
@@ -72,13 +79,13 @@ const Login = () => {
   };
 
   const handleSocialSuccess = (message: string) => {
-    toast({ title: "Login Successful", description: message });
+    toast({ title: t('auth.loginSuccessful'), description: message });
     performPostLoginRedirect();
   };
 
   const handleGoogleLogin = async () => {
     if (!googleClientId) {
-      setError("Google login is not configured.");
+      setError(t('login.googleNotConfigured'));
       return;
     }
 
@@ -90,7 +97,7 @@ const Login = () => {
       await loadScript("https://accounts.google.com/gsi/client");
       const google = (window as any).google;
       if (!google?.accounts?.oauth2?.initTokenClient) {
-        throw new Error("Google SDK unavailable");
+        throw new Error(t('login.googleSdkUnavailable'));
       }
 
       const accessToken = await new Promise<string>((resolve, reject) => {
@@ -101,11 +108,11 @@ const Login = () => {
           callback: (response: any) => {
             settled = true;
             if (response?.error) {
-              reject(new Error(response.error_description || response.error || "Google login failed"));
+              reject(new Error(response.error_description || response.error || t('auth.googleLoginFailed')));
               return;
             }
             if (!response?.access_token) {
-              reject(new Error("Google access token not received"));
+              reject(new Error(t('login.googleAccessTokenMissing')));
               return;
             }
             resolve(response.access_token);
@@ -114,16 +121,16 @@ const Login = () => {
 
         tokenClient.requestAccessToken({ prompt: "consent" });
         window.setTimeout(() => {
-          if (!settled) reject(new Error("Google login was cancelled or timed out"));
+          if (!settled) reject(new Error(t('login.googleCancelledOrTimedOut')));
         }, 20000);
       });
 
       await loginWithGoogle(accessToken);
-      handleSocialSuccess("Logged in with Google");
+      handleSocialSuccess(t('login.loggedInWithGoogle'));
     } catch (err: any) {
-      const message = err.message || "Google login failed";
+      const message = err.message || t('auth.googleLoginFailed');
       setError(message);
-      toast({ variant: "destructive", title: "Google Login Failed", description: message });
+      toast({ variant: "destructive", title: t('auth.googleLoginFailed'), description: message });
     } finally {
       setIsSocialLoading(false);
       setSocialProvider(null);
@@ -132,7 +139,7 @@ const Login = () => {
 
   const handleFacebookLogin = async () => {
     if (!facebookAppId) {
-      setError("Facebook login is not configured.");
+      setError(t('login.facebookNotConfigured'));
       return;
     }
 
@@ -143,7 +150,7 @@ const Login = () => {
     try {
       await loadScript("https://connect.facebook.net/en_US/sdk.js");
       const FB = (window as any).FB;
-      if (!FB) throw new Error("Facebook SDK unavailable");
+      if (!FB) throw new Error(t('login.facebookSdkUnavailable'));
 
       await new Promise<void>((resolve) => {
         FB.init({
@@ -160,7 +167,7 @@ const Login = () => {
           (response: any) => {
             const token = response?.authResponse?.accessToken;
             if (!token) {
-              reject(new Error("Facebook login cancelled"));
+              reject(new Error(t('login.facebookCancelled')));
               return;
             }
             resolve(token);
@@ -170,11 +177,11 @@ const Login = () => {
       });
 
       await loginWithFacebook(accessToken);
-      handleSocialSuccess("Logged in with Facebook");
+      handleSocialSuccess(t('login.loggedInWithFacebook'));
     } catch (err: any) {
-      const message = err.message || "Facebook login failed";
+      const message = err.message || t('auth.facebookLoginFailed');
       setError(message);
-      toast({ variant: "destructive", title: "Facebook Login Failed", description: message });
+      toast({ variant: "destructive", title: t('auth.facebookLoginFailed'), description: message });
     } finally {
       setIsSocialLoading(false);
       setSocialProvider(null);
@@ -193,7 +200,7 @@ const Login = () => {
     setError("");
     
     if (!email || !password) {
-      setError("Please enter email and password");
+      setError(t('login.missingEmailPassword'));
       return;
     }
 
@@ -202,8 +209,8 @@ const Login = () => {
     try {
       await login(email, password);
       toast({
-        title: "Login Successful",
-        description: "Welcome back to your dashboard!",
+        title: t('auth.loginSuccessful'),
+        description: t('login.welcomeBackToast'),
       });
       performPostLoginRedirect();
     } catch (err: any) {
@@ -213,11 +220,11 @@ const Login = () => {
         return;
       }
 
-      setError(err.message || "Login failed. Please check your credentials.");
+      setError(err.message || t('login.invalidCredentials'));
       toast({
         variant: "destructive",
-        title: "Login Failed",
-        description: err.message || "Invalid email or password",
+        title: t('auth.loginFailed'),
+        description: err.message || t('login.invalidEmailPassword'),
       });
     } finally {
       setIsLoading(false);
@@ -225,21 +232,35 @@ const Login = () => {
   };
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-gradient-to-br from-primary/5 via-background to-secondary/5 flex flex-col items-center justify-center px-4 py-4 sm:py-8">
+    <div className="relative h-[100dvh] overflow-hidden bg-gradient-to-br from-primary/5 via-background to-secondary/5 flex flex-col items-center justify-center px-4 py-4 sm:py-8">
+      <div className="absolute top-4 right-4">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" className="inline-flex items-center gap-2 rounded-xl border bg-card px-3 py-2 text-sm text-muted-foreground hover:bg-muted">
+              <Languages className="h-4 w-4" />
+              {t('common.language')}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem onClick={() => { setPreferredLanguage('en'); i18n.changeLanguage('en'); }}>English</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { setPreferredLanguage('hi'); i18n.changeLanguage('hi'); }}>हिंदी</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       <motion.div initial={{ y: -30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="text-center mb-6 sm:mb-8">
         <Link to="/" className="inline-block group">
-          <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary/20 transition-transform group-hover:scale-105">
-            <ShoppingBag className="w-8 h-8 text-primary-foreground" />
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 bg-primary/10 shadow-lg shadow-primary/20 transition-transform group-hover:scale-105 overflow-hidden">
+            <img src={PLATFORM_LOGO_SRC} alt={t('app.name')} className="w-12 h-12 object-contain" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground group-hover:text-primary transition-colors">DukaanSetu</h1>
-          <p className="text-sm text-muted-foreground mt-1">Apni dukaan, online!</p>
+          <h1 className="text-2xl font-bold text-foreground group-hover:text-primary transition-colors">{t('app.name')}</h1>
+          <p className="text-sm text-muted-foreground mt-1">{t('login.tagline')}</p>
         </Link>
       </motion.div>
 
       <motion.div initial={{ y: 30, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.1 }}
         className="w-full max-w-sm bg-card rounded-2xl shadow-xl border p-4 sm:p-6 max-h-[calc(100dvh-2rem)] sm:max-h-[calc(100dvh-4rem)] overflow-y-auto overflow-x-hidden overscroll-contain">
-        <h2 className="text-lg font-bold text-foreground mb-1">Welcome Back</h2>
-        <p className="text-sm text-muted-foreground mb-6">Login to your business dashboard</p>
+        <h2 className="text-lg font-bold text-foreground mb-1">{t('login.welcomeBack')}</h2>
+        <p className="text-sm text-muted-foreground mb-6">{t('login.subtitle')}</p>
         
         {error && (
           <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-start gap-2">
@@ -255,7 +276,7 @@ const Login = () => {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="your@email.com"
+                placeholder={t('login.emailPlaceholder')}
               disabled={isLoading}
               className="w-full pl-11 pr-4 py-3.5 bg-muted border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
             />
@@ -267,7 +288,7 @@ const Login = () => {
               type={showPassword ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter password"
+                placeholder={t('login.passwordPlaceholder')}
               disabled={isLoading}
               className="w-full pl-11 pr-11 py-3.5 bg-muted border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
             />
@@ -276,7 +297,7 @@ const Login = () => {
               onClick={() => setShowPassword((prev) => !prev)}
               disabled={isLoading}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground disabled:opacity-50"
-              aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-label={showPassword ? t('login.hidePassword') : t('login.showPassword')}
             >
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
@@ -291,11 +312,11 @@ const Login = () => {
             {isLoading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Logging in...
+                  {t('login.loggingIn')}
               </>
             ) : (
               <>
-                Login <ArrowRight className="w-4 h-4" />
+                  {t('login.loginCta')} <ArrowRight className="w-4 h-4" />
               </>
             )}
           </motion.button>
@@ -305,7 +326,7 @@ const Login = () => {
             onClick={() => navigate("/forgot-password")}
             className="w-full text-sm text-primary font-semibold"
           >
-            Forgot password?
+            {t('login.forgotPasswordLink')}
           </button>
 
           <div className="relative py-1">
@@ -313,7 +334,7 @@ const Login = () => {
               <span className="w-full border-t" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">or continue with</span>
+                <span className="bg-card px-2 text-muted-foreground">{t('login.orContinueWith')}</span>
             </div>
           </div>
 
@@ -326,11 +347,11 @@ const Login = () => {
             >
               {isSocialLoading && socialProvider === "google" ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> Connecting...
+                  <Loader2 className="w-4 h-4 animate-spin" /> {t('login.connecting')}
                 </>
               ) : (
                 <>
-                  <GoogleColorIcon /> Google
+                  <GoogleColorIcon /> {t('login.googleLabel')}
                 </>
               )}
             </button>
@@ -342,11 +363,11 @@ const Login = () => {
             >
               {isSocialLoading && socialProvider === "facebook" ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> Connecting...
+                  <Loader2 className="w-4 h-4 animate-spin" /> {t('login.connecting')}
                 </>
               ) : (
                 <>
-                  <FacebookColorIcon /> Facebook
+                  <FacebookColorIcon /> {t('login.facebookLabel')}
                 </>
               )}
             </button>
@@ -354,8 +375,8 @@ const Login = () => {
         </form>
 
         <p className="text-xs text-muted-foreground text-center mt-4">
-          Don't have an account?{" "}
-          <button onClick={() => navigate("/onboarding")} className="text-primary font-semibold">Sign Up</button>
+           {t('login.noAccount')}{" "}
+           <button onClick={() => navigate("/onboarding")} className="text-primary font-semibold">{t('login.signUp')}</button>
         </p>
 
       </motion.div>

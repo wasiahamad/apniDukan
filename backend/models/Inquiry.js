@@ -15,6 +15,20 @@ const inquirySchema = new mongoose.Schema(
       required: [true, 'Business reference is required'],
       index: true,
     },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
     listing: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Listing',
@@ -88,6 +102,7 @@ const inquirySchema = new mongoose.Schema(
 inquirySchema.index({ business: 1, status: 1 });
 inquirySchema.index({ business: 1, createdAt: -1 });
 inquirySchema.index({ business: 1, type: 1 });
+inquirySchema.index({ business: 1, isDeleted: 1, createdAt: -1 });
 inquirySchema.index({ listing: 1 });
 inquirySchema.index({ customerPhone: 1 });
 inquirySchema.index({ status: 1, createdAt: -1 });
@@ -127,9 +142,15 @@ inquirySchema.statics.getByBusiness = async function (businessId, filters = {}) 
 };
 
 // Static method to get inquiry stats
-inquirySchema.statics.getStats = async function (businessId) {
+inquirySchema.statics.getStats = async function (businessId, options = {}) {
+  const includeDeleted = options?.includeDeleted === true;
   const stats = await this.aggregate([
-    { $match: { business: new mongoose.Types.ObjectId(businessId) } },
+    {
+      $match: {
+        business: new mongoose.Types.ObjectId(businessId),
+        ...(includeDeleted ? {} : { isDeleted: { $ne: true } }),
+      },
+    },
     {
       $group: {
         _id: '$status',

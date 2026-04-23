@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowLeft, Star, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, Star, Image as ImageIcon, Edit2 } from "lucide-react";
 import { listingApi, type Business, type Listing } from "@/lib/api/index";
 import { useAuth } from "@/contexts/AuthContext";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -150,7 +150,7 @@ const ListingDetail = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-3">
         <button
           onClick={() => navigate(-1)}
           className="h-10 w-10 rounded-xl border border-border hover:bg-muted flex items-center justify-center"
@@ -158,7 +158,7 @@ const ListingDetail = () => {
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="text-xl sm:text-2xl font-bold text-foreground truncate">{listing.title}</h1>
           <p className="text-sm text-muted-foreground truncate">
             {business?.name ? `${business.name} · ` : ""}
@@ -166,6 +166,14 @@ const ListingDetail = () => {
             {!listing.isActive ? " · Inactive" : ""}
           </p>
         </div>
+
+        <button
+          type="button"
+          onClick={() => navigate(`/dashboard/listings?edit=${encodeURIComponent(listing._id)}`)}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-border hover:bg-muted text-sm font-semibold"
+        >
+          <Edit2 className="w-4 h-4" /> Edit
+        </button>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6 lg:h-[calc(100dvh-11rem)] lg:overflow-hidden">
@@ -235,9 +243,31 @@ const ListingDetail = () => {
                 {listing.priceType === "inquiry" ? (
                   <p className="text-xl font-extrabold text-primary">Inquiry / Call</p>
                 ) : (
-                  <p className="text-2xl font-extrabold text-foreground">
-                    ₹{listing.price} <span className="text-xs font-semibold text-muted-foreground">{formatPriceType(listing.priceType)}</span>
-                  </p>
+                  <div>
+                    <p className="text-2xl font-extrabold text-foreground">
+                      ₹{listing.price}{" "}
+                      <span className="text-xs font-semibold text-muted-foreground">{formatPriceType(listing.priceType)}</span>
+                    </p>
+                    {(() => {
+                      const price = Number(listing.price);
+                      const oldPrice = Number((listing as any)?.oldPrice);
+                      if (!Number.isFinite(price) || !Number.isFinite(oldPrice)) return null;
+                      if (oldPrice <= price || oldPrice <= 0) return null;
+
+                      const rawPercent = Number((listing as any)?.discountPercent);
+                      const percent = Number.isFinite(rawPercent) && rawPercent > 0
+                        ? Math.round(rawPercent)
+                        : Math.round(((oldPrice - price) / oldPrice) * 100);
+                      if (!Number.isFinite(percent) || percent <= 0) return null;
+
+                      return (
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className="text-sm text-muted-foreground line-through">₹{oldPrice}</span>
+                          <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">-{percent}%</span>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 )}
                 {listing.stock !== undefined && listing.listingType === "product" && (
                   <p className="text-xs text-muted-foreground mt-1">Stock: {listing.stock}</p>

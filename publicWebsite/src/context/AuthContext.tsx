@@ -8,7 +8,9 @@ type AuthContextValue = {
   isAuthenticated: boolean;
   isInitializing: boolean;
   login: (payload: LoginPayload) => Promise<void>;
-  signup: (payload: SignupPayload) => Promise<void>;
+  signup: (payload: SignupPayload) => Promise<{ verificationRequired: boolean; email?: string; otpExpiresInMinutes?: number }>;
+  verifyEmailOtp: (payload: { email: string; otp: string }) => Promise<void>;
+  resendEmailOtp: (payload: { email: string }) => Promise<{ otpExpiresInMinutes?: number }>;
   socialLogin: (provider: SocialProvider) => Promise<void>;
   updateUser: (fields: Partial<AuthUser>) => void;
   logout: () => void;
@@ -17,7 +19,7 @@ type AuthContextValue = {
 const ACCESS_TOKEN_KEY = "accessToken";
 const REFRESH_TOKEN_KEY = "refreshToken";
 const USER_KEY = "user";
-const AUTH_EVENT = "dukaandirect-auth-changed";
+const AUTH_EVENT = "publicdukan-auth-changed";
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -71,7 +73,7 @@ function createMockSocialAuthData(provider: SocialProvider) {
   const user: AuthUser = {
     _id: `mock-${provider}-${Date.now()}`,
     name: `${label} User`,
-    email: `${provider}.user${Date.now()}@dukaandirect.app`,
+    email: `${provider}.user${Date.now()}@publicdukan.app`,
     avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(label + " User")}&background=1ebe76&color=fff`,
     role: "customer",
     createdAt: now,
@@ -140,40 +142,94 @@ async function requestSocialAuth(provider: SocialProvider) {
 
     await loadGoogleScript();
     const google = (window as any).google;
-    if (!google?.accounts?.oauth2?.initTokenClient) {
-      throw new Error("Google SDK unavailable");
-    }
+    // Prefer Sign-In with Google ID token (no redirect_uri issues), fallback to OAuth access token.
+    const tryIdToken = async (): Promise<{ idToken: string } | null> => {
+      if (!google?.accounts?.id?.initialize || !google?.accounts?.id?.prompt) return null;
 
-    const accessToken = await new Promise<string>((resolve, reject) => {
-      let settled = false;
-      const tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: googleClientId,
-        scope: "openid email profile",
-        callback: (response: any) => {
-          settled = true;
-          if (response?.error) {
-            reject(new Error(response.error_description || response.error || "Google auth failed"));
-            return;
-          }
-          if (!response?.access_token) {
-            reject(new Error("Google access token not received"));
-            return;
-          }
-          resolve(response.access_token);
-        },
+      try {
+        const idToken = await new Promise<string>((resolve, reject) => {
+          let settled = false;
+
+          google.accounts.id.initialize({
+            client_id: googleClientId,
+            auto_select: false,
+            cancel_on_tap_outside: false,
+            callback: (response: any) => {
+              settled = true;
+              const credential = response?.credential;
+              if (!credential) {
+                reject(new Error("Google credential not received"));
+                return;
+              }
+              resolve(String(credential));
+            },
+          });
+
+          google.accounts.id.prompt((notification: any) => {
+            if (notification?.isNotDisplayed?.() || notification?.isSkippedMoment?.()) {
+              if (!settled) {
+                settled = true;
+                reject(new Error("Google prompt not available"));
+              }
+            }
+          });
+
+          window.setTimeout(() => {
+            if (!settled) reject(new Error("Google login timed out or cancelled"));
+          }, 20000);
+        });
+
+        return { idToken };
+      } catch {
+        return null;
+      }
+    };
+
+    const idTokenPayload = await tryIdToken();
+    let response: Response;
+
+    if (idTokenPayload) {
+      response = await fetch(`${API_BASE_URL}/auth/social/google/customer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(idTokenPayload),
+      });
+    } else {
+      if (!google?.accounts?.oauth2?.initTokenClient) {
+        throw new Error("Google SDK unavailable");
+      }
+
+      const accessToken = await new Promise<string>((resolve, reject) => {
+        let settled = false;
+        const tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: googleClientId,
+          scope: "openid email profile",
+          callback: (tokenResponse: any) => {
+            settled = true;
+            if (tokenResponse?.error) {
+              reject(new Error(tokenResponse.error_description || tokenResponse.error || "Google auth failed"));
+              return;
+            }
+            if (!tokenResponse?.access_token) {
+              reject(new Error("Google access token not received"));
+              return;
+            }
+            resolve(tokenResponse.access_token);
+          },
+        });
+
+        tokenClient.requestAccessToken({ prompt: "consent" });
+        window.setTimeout(() => {
+          if (!settled) reject(new Error("Google login timed out or cancelled"));
+        }, 20000);
       });
 
-      tokenClient.requestAccessToken({ prompt: "consent" });
-      window.setTimeout(() => {
-        if (!settled) reject(new Error("Google login timed out or cancelled"));
-      }, 20000);
-    });
-
-    const response = await fetch(`${API_BASE_URL}/auth/social/google/customer`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accessToken }),
-    });
+      response = await fetch(`${API_BASE_URL}/auth/social/google/customer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessToken }),
+      });
+    }
 
     const json = await response.json();
     const authData = json?.data;
@@ -183,7 +239,7 @@ async function requestSocialAuth(provider: SocialProvider) {
     }
 
     if (authData.user.role !== "customer") {
-      throw new Error("Only customer login is allowed in DukaanDirect website");
+      throw new Error("Only customer login is allowed in PublicDukan website");
     }
 
     return authData as { accessToken: string; refreshToken?: string; user: AuthUser };
@@ -234,7 +290,7 @@ async function requestSocialAuth(provider: SocialProvider) {
   }
 
   if (authData.user.role !== "customer") {
-    throw new Error("Only customer login is allowed in DukaanDirect website");
+    throw new Error("Only customer login is allowed in PublicDukan website");
   }
 
   return authData as { accessToken: string; refreshToken?: string; user: AuthUser };
@@ -267,12 +323,19 @@ async function requestAuth(endpoint: string, payload: object) {
   const json = await response.json();
   const authData = json?.data;
 
+  // Registration may require OTP verification (no tokens yet)
+  if (json?.success && authData?.verificationRequired) {
+    return { verificationRequired: true, email: authData?.user?.email, otpExpiresInMinutes: authData?.otpExpiresInMinutes } as any;
+  }
+
   if (!response.ok || !json?.success || !authData?.accessToken || !authData?.user) {
-    throw new Error(json?.message || "Authentication failed");
+    const err: any = new Error(json?.message || "Authentication failed");
+    err.code = json?.code;
+    throw err;
   }
 
   if (authData.user.role !== "customer") {
-    throw new Error("Only customer login is allowed in DukaanDirect website");
+    throw new Error("Only customer login is allowed in PublicDukan website");
   }
 
   return authData as { accessToken: string; refreshToken?: string; user: AuthUser };
@@ -296,11 +359,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (useMockAuth) {
       authData = createMockAuthData(payload);
     } else {
-      try {
-        authData = await requestAuth("/auth/login/customer", payload);
-      } catch {
-        authData = createMockAuthData(payload);
-      }
+      authData = await requestAuth("/auth/login/customer", payload);
     }
 
     persistAuthSession(authData);
@@ -310,24 +369,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signup = useCallback(async (payload: SignupPayload) => {
     const useMockAuth = (import.meta.env.VITE_USE_MOCK_AUTH as string | undefined) === "true";
 
-    let authData: { accessToken: string; refreshToken?: string; user: AuthUser };
+    let authData: any;
 
     if (useMockAuth) {
       authData = createMockAuthData(payload);
     } else {
-      try {
-        authData = await requestAuth("/auth/register/customer", {
-          ...payload,
-          role: "customer",
-        });
-      } catch {
-        authData = createMockAuthData(payload);
-      }
+      authData = await requestAuth("/auth/register/customer", {
+        ...payload,
+        role: "customer",
+      });
+    }
+
+    if (authData?.verificationRequired) {
+      return { verificationRequired: true, email: authData?.email, otpExpiresInMinutes: authData?.otpExpiresInMinutes };
+    }
+
+    persistAuthSession(authData);
+    syncFromStorage();
+    return { verificationRequired: false };
+  }, [syncFromStorage]);
+
+  const verifyEmailOtp = useCallback(async ({ email, otp }: { email: string; otp: string }) => {
+    const response = await fetch(`${API_BASE_URL}/auth/verify-email-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim(), otp: otp.trim() }),
+    });
+    const json = await response.json();
+    const authData = json?.data;
+
+    if (!response.ok || !json?.success || !authData?.accessToken || !authData?.user) {
+      throw new Error(json?.message || 'OTP verification failed');
+    }
+
+    if (authData.user.role !== 'customer') {
+      throw new Error('Only customer login is allowed in PublicDukan website');
     }
 
     persistAuthSession(authData);
     syncFromStorage();
   }, [syncFromStorage]);
+
+  const resendEmailOtp = useCallback(async ({ email }: { email: string }) => {
+    const response = await fetch(`${API_BASE_URL}/auth/resend-email-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim() }),
+    });
+    const json = await response.json();
+    if (!response.ok || !json?.success) {
+      throw new Error(json?.message || 'Failed to resend OTP');
+    }
+    return { otpExpiresInMinutes: json?.data?.otpExpiresInMinutes } as { otpExpiresInMinutes?: number };
+  }, []);
 
   const socialLogin = useCallback(async (provider: SocialProvider) => {
     const useMockAuth = (import.meta.env.VITE_USE_MOCK_AUTH as string | undefined) === "true";
@@ -375,11 +469,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isInitializing,
       login,
       signup,
+      verifyEmailOtp,
+      resendEmailOtp,
       socialLogin,
       updateUser,
       logout,
     }),
-    [isInitializing, login, logout, token, user, signup, socialLogin, updateUser],
+    [isInitializing, login, logout, token, user, signup, verifyEmailOtp, resendEmailOtp, socialLogin, updateUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

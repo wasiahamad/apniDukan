@@ -26,10 +26,31 @@ const connectDB = async () => {
     const clusterHost = hostMatch?.[1];
     const srvName = clusterHost ? `_mongodb._tcp.${clusterHost}` : null;
 
+    const withTimeout = async (promise, ms) => {
+      let timeoutHandle;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          const err = new Error(`Timed out after ${ms}ms`);
+          err.code = 'ETIMEOUT';
+          reject(err);
+        }, ms);
+      });
+
+      try {
+        return await Promise.race([promise, timeoutPromise]);
+      } finally {
+        clearTimeout(timeoutHandle);
+      }
+    };
+
     const tryResolveSrv = async () => {
       if (!srvName) return { ok: true };
       try {
-        await dns.promises.resolveSrv(srvName);
+        // Some DNS servers (especially on corporate/VPN networks) can hang
+        // on SRV lookup without returning an error. Add a short timeout so
+        // we can safely fall back to public resolvers.
+        const dnsTimeoutMs = Number(process.env.MONGO_DNS_TIMEOUT_MS || 2500);
+        await withTimeout(dns.promises.resolveSrv(srvName), dnsTimeoutMs);
         return { ok: true };
       } catch (e) {
         return {
@@ -59,7 +80,7 @@ const connectDB = async () => {
           // If the configured DNS cannot resolve SRV (timeout/refused), fall back to public resolvers.
           if (isSrv) {
             const firstTry = await tryResolveSrv();
-            if (!firstTry.ok && ['ECONNREFUSED', 'ETIMEOUT', 'SERVFAIL', 'REFUSED'].includes(String(firstTry.code || '').toUpperCase())) {
+            if (!firstTry.ok) {
               const fallbackDns = ['1.1.1.1', '8.8.8.8'];
               applyDnsServers(fallbackDns, 'public fallback');
               const secondTry = await tryResolveSrv();
@@ -101,6 +122,18 @@ const connectDB = async () => {
       console.log('📍 Ensured geo index: businesses(address.location) 2dsphere');
     } catch (e) {
       console.warn('⚠️  Failed to ensure geo index for Business.address.location:', e?.message || e);
+    }
+
+    // Ensure unique index for AI usage counters (required for correct daily-limit behavior).
+    try {
+      const { default: AIUsage } = await import('../models/AIUsage.js');
+      await AIUsage.collection.createIndex(
+        { actorType: 1, identifier: 1, dateKey: 1, action: 1 },
+        { unique: true }
+      );
+      console.log('🤖 Ensured unique index: aiusages(actorType,identifier,dateKey,action)');
+    } catch (e) {
+      console.warn('⚠️  Failed to ensure unique index for AIUsage counters:', e?.message || e);
     }
 
     return conn;

@@ -6,6 +6,7 @@ export interface Plan {
   slug?: string;
   price: number;
   durationInDays: number;
+  billingCycle?: 'monthly' | 'quarterly' | 'yearly';
   isPublic?: boolean;
   features: PlanFeatures;
   description?: string;
@@ -18,8 +19,16 @@ export type PlanFeatures = {
   maxListings: number;
   publicShopEnabled: boolean;
   bookingEnabled: boolean;
+  // AI
+  aiCustomerChatEnabled: boolean;
+  aiDukandarAgentEnabled: boolean;
+  storiesEnabled: boolean;
+  listingStoriesEnabled: boolean;
+  ratingsEnabled: boolean;
+  locationEnabled: boolean;
   featuredEnabled: boolean;
   maxFeaturedListings: number;
+  offersEnabled: boolean;
   customDomain: boolean;
   analyticsEnabled: boolean;
   prioritySupport: boolean;
@@ -43,6 +52,7 @@ export type PlanUpsertInput = {
   slug?: string;
   price: number;
   durationInDays: number;
+  billingCycle?: 'monthly' | 'quarterly' | 'yearly';
   isPublic?: boolean;
   features?: Partial<PlanFeatures>;
   description?: string;

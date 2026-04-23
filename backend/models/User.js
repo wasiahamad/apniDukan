@@ -144,6 +144,20 @@ const userSchema = new mongoose.Schema(
       sparse: true, // Allow null values
     },
 
+    // Customer referral earnings (only meaningful for customer role)
+    walletBalance: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    // If this user was referred by a customer (used for business_owner)
+    referredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      index: true,
+    },
+
     // Referral offer selection (dukandar works on one offer at a time)
     activeReferralOffer: {
       type: mongoose.Schema.Types.ObjectId,
@@ -161,10 +175,12 @@ const userSchema = new mongoose.Schema(
 // Index for faster queries - email/phone indexes created automatically by unique:true above
 userSchema.index({ role: 1, isActive: 1 });
 userSchema.index({ currentLocation: '2dsphere' });
+userSchema.index({ referralCode: 1 });
+userSchema.index({ referredBy: 1 });
 
 // Generate referral code if not set
 userSchema.pre('save', async function (next) {
-  if (!this.referralCode && this.role === 'business_owner') {
+  if (!this.referralCode && (this.role === 'business_owner' || this.role === 'customer')) {
     this.referralCode = await generateReferralCode(this.name, this._id);
   }
   next();

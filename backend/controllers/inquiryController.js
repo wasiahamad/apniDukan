@@ -94,6 +94,7 @@ export const getInquiriesByBusiness = async (req, res) => {
   try {
     const { businessId } = req.params;
     const { status, type, page = 1, limit = 20 } = req.query;
+    const includeDeleted = req.user?.role === 'admin' && String(req.query?.includeDeleted || '').toLowerCase() === 'true';
 
     // Verify business ownership
     const business = await Business.findById(businessId)
@@ -125,6 +126,7 @@ export const getInquiriesByBusiness = async (req, res) => {
     const filters = {};
     if (status) filters.status = status;
     if (type) filters.type = type;
+    if (!includeDeleted) filters.isDeleted = { $ne: true };
 
     // Get inquiries using model method
     const skip = (page - 1) * limit;
@@ -177,6 +179,10 @@ export const getInquiryById = async (req, res) => {
         success: false,
         message: 'Inquiry not found',
       });
+    }
+
+    if (inquiry.isDeleted === true && req.user?.role !== 'admin') {
+      return res.status(404).json({ success: false, message: 'Inquiry not found' });
     }
 
     // Check ownership
@@ -234,6 +240,10 @@ export const updateInquiryStatus = async (req, res) => {
         success: false,
         message: 'Inquiry not found',
       });
+    }
+
+    if (inquiry.isDeleted === true && req.user?.role !== 'admin') {
+      return res.status(410).json({ success: false, message: 'Inquiry has been deleted' });
     }
 
     // Check ownership
@@ -297,6 +307,10 @@ export const addInquiryNote = async (req, res) => {
       });
     }
 
+    if (inquiry.isDeleted === true && req.user?.role !== 'admin') {
+      return res.status(410).json({ success: false, message: 'Inquiry has been deleted' });
+    }
+
     // Check ownership
     if (
       inquiry.business.owner.toString() !== req.user._id.toString() &&
@@ -352,6 +366,7 @@ export const addInquiryNote = async (req, res) => {
 export const getInquiryStats = async (req, res) => {
   try {
     const { businessId } = req.params;
+    const includeDeleted = req.user?.role === 'admin' && String(req.query?.includeDeleted || '').toLowerCase() === 'true';
 
     // Verify business ownership
     const business = await Business.findById(businessId)
@@ -380,7 +395,7 @@ export const getInquiryStats = async (req, res) => {
     }
 
     // Get stats using model method
-    const stats = await Inquiry.getStats(businessId);
+    const stats = await Inquiry.getStats(businessId, { includeDeleted });
 
     res.status(200).json({
       success: true,
@@ -408,6 +423,10 @@ export const deleteInquiry = async (req, res) => {
         success: false,
         message: 'Inquiry not found',
       });
+    }
+
+    if (inquiry.isDeleted === true) {
+      return res.status(200).json({ success: true, message: 'Inquiry deleted successfully' });
     }
 
     // Check ownership
@@ -438,7 +457,10 @@ export const deleteInquiry = async (req, res) => {
       }
     }
 
-    await inquiry.deleteOne();
+    inquiry.isDeleted = true;
+    inquiry.deletedAt = new Date();
+    inquiry.deletedBy = req.user?._id || null;
+    await inquiry.save();
 
     res.status(200).json({
       success: true,

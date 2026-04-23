@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ const statusFilters: (OrderStatus | "all")[] = ["all", "pending", "confirmed", "
 
 export default function Orders() {
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,6 +53,8 @@ export default function Orders() {
 
   const itemsText = (o: Order) => (o.items || []).map((it) => `${it.title} x${it.quantity}`).join(", ");
 
+  const normalizePhone = (input?: string) => (input || "").toString().replace(/[^0-9+]/g, "").trim();
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return orders.filter((order) => {
@@ -65,6 +69,80 @@ export default function Orders() {
       return matchSearch && matchStatus;
     });
   }, [orders, search, statusFilter]);
+
+  const summaryByShop = useMemo(() => {
+    type OrderSource = Order["source"];
+
+    type CustomerAgg = { key: string; name: string; phone?: string; orders: number };
+    type ShopAgg = {
+      key: string;
+      businessId: string | null;
+      name: string;
+      slug?: string;
+      whatsapp?: string;
+      orders: number;
+      sources: Record<OrderSource, number>;
+      customers: Map<string, CustomerAgg>;
+    };
+
+    const initSources = (): Record<OrderSource, number> => ({
+      website: 0,
+      whatsapp: 0,
+      manual: 0,
+    });
+
+    const map = new Map<string, ShopAgg>();
+
+    for (const o of filtered) {
+      const businessId = (o.business?._id || o.businessId || null) as string | null;
+      const shopKey = businessId || "unknown";
+
+      if (!map.has(shopKey)) {
+        const isUnknown = !businessId;
+        map.set(shopKey, {
+          key: shopKey,
+          businessId,
+          name: o.business?.name || (isUnknown ? "Unknown shop" : "Shop not found"),
+          slug: o.business?.slug,
+          whatsapp: o.business?.whatsapp,
+          orders: 0,
+          sources: initSources(),
+          customers: new Map(),
+        });
+      }
+
+      const row = map.get(shopKey)!;
+      row.orders += 1;
+      row.sources[o.source] = (row.sources[o.source] || 0) + 1;
+
+      const phone = normalizePhone(o.customer?.phone);
+      const name = (o.customer?.name || "Customer").toString().trim() || "Customer";
+      const customerKey = phone || name.toLowerCase();
+      const existing = row.customers.get(customerKey);
+      if (existing) {
+        existing.orders += 1;
+      } else {
+        row.customers.set(customerKey, {
+          key: customerKey,
+          name,
+          phone: phone || undefined,
+          orders: 1,
+        });
+      }
+    }
+
+    const out = Array.from(map.values()).map((s) => {
+      const customers = Array.from(s.customers.values()).sort((a, b) => b.orders - a.orders);
+      return {
+        ...s,
+        uniqueCustomers: customers.length,
+        topCustomers: customers.slice(0, 5),
+      };
+    });
+
+    out.sort((a, b) => b.orders - a.orders);
+    return out;
+  }, [filtered]);
 
   const handleUpdateStatus = async (orderMongoId: string, status: OrderStatus) => {
     try {
@@ -98,6 +176,74 @@ export default function Orders() {
         </div>
         <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1" />Export</Button>
       </div>
+
+      {!loading && summaryByShop.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div>
+              <h2 className="text-base font-semibold">Orders by Shop</h2>
+              <p className="text-sm text-muted-foreground">Dukandar-wise orders, customers, and source breakdown</p>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Shop</TableHead>
+                    <TableHead>Orders</TableHead>
+                    <TableHead>Customers</TableHead>
+                    <TableHead>Source</TableHead>
+                    <TableHead className="hidden lg:table-cell">Top customers</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {summaryByShop.map((s) => (
+                    <TableRow
+                      key={s.key}
+                      className={s.businessId ? "cursor-pointer hover:bg-muted/50" : undefined}
+                      onClick={s.businessId ? () => navigate(`/orders/shop/${s.businessId}`) : undefined}
+                    >
+                      <TableCell className="text-sm">
+                        <div className="space-y-0.5">
+                          <div className={s.businessId ? "font-medium hover:underline" : "font-medium"}>{s.name}</div>
+                          {s.slug ? (
+                            <div className="text-[10px] text-muted-foreground">/{s.slug}</div>
+                          ) : s.businessId ? (
+                            <div className="text-[10px] text-muted-foreground">Business: {s.businessId}</div>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm font-medium">{s.orders}</TableCell>
+                      <TableCell className="text-sm">{s.uniqueCustomers}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          <Badge variant="outline" className="text-xs">Website {s.sources.website}</Badge>
+                          <Badge variant="outline" className="text-xs">WhatsApp {s.sources.whatsapp}</Badge>
+                          <Badge variant="outline" className="text-xs">Manual {s.sources.manual}</Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        <div className="flex flex-wrap gap-1">
+                          {s.topCustomers.length === 0 ? (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          ) : (
+                            s.topCustomers.map((c) => (
+                              <Badge key={c.key} variant="secondary" className="text-xs">
+                                {c.name}{c.phone ? ` · ${c.phone}` : ""} ({c.orders})
+                              </Badge>
+                            ))
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="pb-3">
@@ -203,7 +349,12 @@ export default function Orders() {
                       </div>
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">
-                      <Badge variant="outline" className="text-xs capitalize">{order.source}</Badge>
+                      <div className="space-y-1">
+                        <Badge variant="outline" className="text-xs capitalize">{order.source}</Badge>
+                        {order.origin && order.origin !== 'unknown' ? (
+                          <div className="text-[10px] text-muted-foreground capitalize">via {order.origin}</div>
+                        ) : null}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">

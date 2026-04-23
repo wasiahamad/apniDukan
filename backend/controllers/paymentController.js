@@ -1,7 +1,12 @@
 import crypto from 'crypto';
 import Razorpay from 'razorpay';
-import { Business, Plan, Referral, Invoice, InvoiceCounter } from '../models/index.js';
+import { Business, Plan, Referral, Invoice, InvoiceCounter, User } from '../models/index.js';
 import { processReferralValidated } from '../services/referralService.js';
+import { processCustomerReferralCommission } from '../services/customerReferralEarningsService.js';
+import { calculatePlanExpiryDate } from '../services/subscriptionService.js';
+import { validateBusinessOwnerReferralEligibility } from '../services/referralEligibilityService.js';
+import { sendPlanActivatedEmails } from '../services/notificationEmailService.js';
+import { sendEmailOnce } from '../services/emailService.js';
 
 const getRazorpayClient = () => {
   const keyId = process.env.RAZORPAY_KEY_ID;
@@ -209,12 +214,18 @@ export const verifyRazorpayPaymentAndActivatePlan = async (req, res) => {
 
     // Free plan: no Razorpay verification required
     if (!plan.price || plan.price <= 0) {
-      const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + plan.durationInDays);
+      const now = new Date();
+      const base = business.planExpiresAt && new Date(business.planExpiresAt) > now ? new Date(business.planExpiresAt) : now;
+      const expiryDate = calculatePlanExpiryDate({ plan, baseDate: base });
 
       business.plan = plan._id;
       business.planExpiresAt = expiryDate;
       await business.save();
+
+      // Best-effort email notification
+      sendPlanActivatedEmails({ businessId: business._id, planId: plan._id, expiresAt: expiryDate, paymentId: null }).catch(() => null);
+
+      // Customer referral commission is only for paid plans; keep explicit.
 
       return res.status(200).json({
         success: true,
@@ -252,8 +263,9 @@ export const verifyRazorpayPaymentAndActivatePlan = async (req, res) => {
       });
     }
 
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + plan.durationInDays);
+    const now = new Date();
+    const base = business.planExpiresAt && new Date(business.planExpiresAt) > now ? new Date(business.planExpiresAt) : now;
+    const expiryDate = calculatePlanExpiryDate({ plan, baseDate: base });
 
     business.plan = plan._id;
     business.planExpiresAt = expiryDate;
@@ -292,6 +304,7 @@ export const verifyRazorpayPaymentAndActivatePlan = async (req, res) => {
           slug: plan.slug,
           price: plan.price,
           durationInDays: plan.durationInDays,
+          ...(plan.billingCycle ? { billingCycle: plan.billingCycle } : {}),
           features: {
             maxListings: plan.features?.maxListings,
             bookingEnabled: plan.features?.bookingEnabled,
@@ -331,7 +344,7 @@ export const verifyRazorpayPaymentAndActivatePlan = async (req, res) => {
     }
 
     // Referral validation: on first paid plan, pending referrals become valid.
-    const now = new Date();
+    const referralNow = new Date();
 
     const referrals = await Referral.find({
       referredUser: req.user._id,
@@ -340,14 +353,85 @@ export const verifyRazorpayPaymentAndActivatePlan = async (req, res) => {
     });
 
     for (const r of referrals) {
+      // Enforce eligibility BEFORE marking valid.
+      try {
+        const eligibility = await validateBusinessOwnerReferralEligibility({
+          referrerUserId: r.referrer,
+          referredOwnerId: req.user._id,
+          maxDistanceKm: Number(process.env.REFERRAL_MAX_DISTANCE_KM || 25),
+        });
+
+        if (!eligibility.ok) {
+          // Mark invalid so it won't validate on payment.
+          if (r.status === 'pending') {
+            await r.markAsInvalid(eligibility.message || 'Referral is not eligible');
+          }
+          continue;
+        }
+      } catch (e) {
+        console.warn('Referral eligibility validation failed:', e?.message || e);
+        // If eligibility check fails unexpectedly, do NOT mark as valid.
+        continue;
+      }
+
       // Marks referral valid if it was pending.
-      await r.updatePaymentStatus(true, now);
+      await r.updatePaymentStatus(true, referralNow);
 
       if (r.status === 'valid') {
         // Updates ReferralCode stats; reward request is created explicitly by dukandar.
         await processReferralValidated({ referral: r });
       }
     }
+
+    // Customer referral commission: credit 5% to customer referrer (non-blocking)
+    try {
+      const commissionResult = await processCustomerReferralCommission({
+        referredOwnerId: req.user._id,
+        planId: plan._id,
+        planPrice: plan.price,
+      });
+
+      if (commissionResult?.commission) {
+        // Notify the customer referrer (if any)
+        try {
+          const referredOwner = await User.findById(req.user._id).select('_id name referredBy role');
+          if (referredOwner?.role === 'business_owner' && referredOwner?.referredBy) {
+            const referrer = await User.findById(referredOwner.referredBy).select('_id name email role isActive');
+            if (referrer?.role === 'customer' && referrer?.isActive !== false && referrer?.email) {
+              const key = `customer_referral_commission:${String(referrer._id)}:${String(req.user._id)}:${String(razorpay_payment_id)}`;
+              await sendEmailOnce({
+                dedupeKey: key,
+                type: 'customer_referral_commission',
+                to: referrer.email,
+                userId: referrer._id,
+                subject: 'You earned referral commission on ApniDukan',
+                text: `Hi ${referrer.name || 'Customer'},\n\nYou earned ₹${Number(commissionResult.commission).toFixed(2)} referral commission.\n\nThanks for referring a dukandar!`,
+                html: `
+                  <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827;">
+                    <h2 style="margin:0 0 12px;">Referral reward</h2>
+                    <p>You earned <strong>₹${Number(commissionResult.commission).toFixed(2)}</strong> referral commission.</p>
+                    <p>Thanks for referring a dukandar!</p>
+                  </div>
+                `,
+                meta: { paymentId: razorpay_payment_id, referredOwnerId: String(req.user._id) },
+              });
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    } catch (e) {
+      console.warn('Customer referral commission processing failed:', e?.message || e);
+    }
+
+    // Best-effort plan activation email
+    sendPlanActivatedEmails({
+      businessId: business._id,
+      planId: plan._id,
+      expiresAt: expiryDate,
+      paymentId: razorpay_payment_id,
+    }).catch(() => null);
 
     res.status(200).json({
       success: true,

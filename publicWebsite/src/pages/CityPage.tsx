@@ -12,6 +12,7 @@ import PageTransition from "@/components/PageTransition";
 import StaggerChildren, { StaggerItem } from "@/components/StaggerChildren";
 import ScrollReveal from "@/components/ScrollReveal";
 import { fetchBusinessTypes, fetchPublicShops } from "@/lib/publicShopsApi";
+import { useTranslation } from "react-i18next";
 
 const slugToCityLabel = (slug: string) =>
   String(slug || "")
@@ -21,17 +22,18 @@ const slugToCityLabel = (slug: string) =>
     .join(" ");
 
 export default function CityPage() {
+  const { t, i18n } = useTranslation();
   const { city, shopSlug } = useParams<{ city?: string; shopSlug?: string }>();
   const slug = city || shopSlug || "";
 
   const shopsQuery = useQuery({
-    queryKey: ["public-shops-city", slug],
+    queryKey: ["public-shops-city", i18n.language, slug],
     queryFn: () => fetchPublicShops({ city: slugToCityLabel(slug) }),
     enabled: !!slug,
   });
 
   const businessTypesQuery = useQuery({
-    queryKey: ["business-types"],
+    queryKey: ["business-types", i18n.language],
     queryFn: fetchBusinessTypes,
   });
 
@@ -50,13 +52,9 @@ export default function CityPage() {
     setSortRating("desc");
   }, [slug]);
 
-  const availableCategorySlugs = useMemo(() => {
-    return new Set(allShops.map((shop) => shop.categorySlug));
-  }, [allShops]);
-
   const cityBusinessTypes = useMemo(() => {
-    return (businessTypesQuery.data || []).filter((type) => availableCategorySlugs.has(type.slug));
-  }, [businessTypesQuery.data, availableCategorySlugs]);
+    return businessTypesQuery.data || [];
+  }, [businessTypesQuery.data]);
 
   const filteredShops = useMemo(() => {
     let result = [...allShops];
@@ -87,11 +85,11 @@ export default function CityPage() {
   if (shopsQuery.isError) {
     return (
       <div className="container py-20 text-center">
-        <h1 className="text-2xl font-bold">Shops load nahi ho paye</h1>
+        <h1 className="text-2xl font-bold">{t("cityPage.errors.loadTitle")}</h1>
         <p className="text-muted-foreground mt-2">
-          {shopsQuery.error instanceof Error ? shopsQuery.error.message : "Something went wrong"}
+          {shopsQuery.error instanceof Error ? shopsQuery.error.message : t("cityPage.errors.generic")}
         </p>
-        <button onClick={() => shopsQuery.refetch()} className="text-primary mt-4 inline-block">Retry</button>
+        <button onClick={() => shopsQuery.refetch()} className="text-primary mt-4 inline-block">{t("shopsPage.actions.retry")}</button>
       </div>
     );
   }
@@ -99,8 +97,8 @@ export default function CityPage() {
   if (!slug) {
     return (
       <div className="container py-20 text-center">
-        <h1 className="text-2xl font-bold">City not found</h1>
-        <Link to="/" className="text-primary mt-4 inline-block">← Back to Home</Link>
+        <h1 className="text-2xl font-bold">{t("cityPage.notFound.title")}</h1>
+        <Link to="/" className="text-primary mt-4 inline-block">{t("cityPage.notFound.backHome")}</Link>
       </div>
     );
   }
@@ -112,12 +110,12 @@ export default function CityPage() {
       <section className="bg-gradient-to-r from-primary/10 to-accent/10 py-12">
         <div className="container">
           <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
-            <Link to="/" className="hover:text-primary">Home</Link> / <span>{cityName}</span>
+            <Link to="/" className="hover:text-primary">{t("nav.home")}</Link> / <span>{cityName}</span>
           </div>
           <h1 className="text-3xl md:text-4xl font-bold flex items-center gap-2">
-            <MapPin className="h-8 w-8 text-primary" /> Shops in {cityName}
+            <MapPin className="h-8 w-8 text-primary" /> {t("cityPage.title", { city: cityName })}
           </h1>
-          <p className="text-muted-foreground mt-2">{filteredShops.length} shops available</p>
+          <p className="text-muted-foreground mt-2">{t("cityPage.available", { count: filteredShops.length })}</p>
         </div>
       </section>
 
@@ -130,7 +128,7 @@ export default function CityPage() {
               className={`cursor-pointer transition-colors ${selectedCategory === "all" ? "bg-primary text-primary-foreground border-primary" : "hover:bg-primary hover:text-primary-foreground"}`}
               onClick={() => setSelectedCategory("all")}
             >
-              All
+              {t("filters.all")}
             </Badge>
             {cityBusinessTypes.map(cat => (
               <Badge
@@ -151,17 +149,17 @@ export default function CityPage() {
             <Filter className="h-4 w-4 text-muted-foreground" />
             <Select value={areaFilter} onValueChange={setAreaFilter}>
               <SelectTrigger className="w-full sm:w-44">
-                <SelectValue placeholder="Area" />
+                <SelectValue placeholder={t("filters.area")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Areas</SelectItem>
+                <SelectItem value="all">{t("filters.allAreas")}</SelectItem>
                 {areas.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
               </SelectContent>
             </Select>
 
             <div className="flex items-center gap-2">
               <Switch id="open-city" checked={openOnly} onCheckedChange={setOpenOnly} />
-              <Label htmlFor="open-city" className="text-sm">Open Now</Label>
+              <Label htmlFor="open-city" className="text-sm">{t("shopsPage.filters.openNow")}</Label>
             </div>
 
             <Select value={sortRating} onValueChange={setSortRating}>
@@ -169,8 +167,8 @@ export default function CityPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="desc">Rating: High → Low</SelectItem>
-                <SelectItem value="asc">Rating: Low → High</SelectItem>
+                <SelectItem value="desc">{t("cityPage.sort.highToLow")}</SelectItem>
+                <SelectItem value="asc">{t("cityPage.sort.lowToHigh")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -185,7 +183,7 @@ export default function CityPage() {
         </StaggerChildren>
 
         {filteredShops.length === 0 && (
-          <p className="text-center text-muted-foreground py-12">No shops found. Try adjusting filters.</p>
+          <p className="text-center text-muted-foreground py-12">{t("cityPage.empty")}</p>
         )}
       </div>
     </PageTransition>

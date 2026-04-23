@@ -1,4 +1,5 @@
 import { Referral, ReferralCode, ReferralOffer, ReferralRewardRequest, User, Business } from '../models/index.js';
+import { validateBusinessOwnerReferralEligibility } from '../services/referralEligibilityService.js';
 
 const addMonths = (date, months) => {
   const d = new Date(date);
@@ -338,10 +339,46 @@ export const createReferral = async (req, res) => {
     });
 
     if (existingReferral) {
+      // Even if a referral already exists (e.g. created during signup), enforce geo/city rules
+      // so ineligible referrals can't be used/validated later.
+      const isSameReferrer = String(existingReferral.referrer) === String(referrer._id);
+      if (!isSameReferrer) {
+        return res.status(400).json({
+          success: false,
+          message: 'Referral already applied with a different code',
+        });
+      }
+
+      const eligibility = await validateBusinessOwnerReferralEligibility({
+        referrerUserId: referrer._id,
+        referredOwnerId: referredUserId,
+        maxDistanceKm: Number(process.env.REFERRAL_MAX_DISTANCE_KM || 25),
+      });
+
+      if (!eligibility.ok) {
+        // Best-effort: mark the existing referral as invalid so it won't validate on payment.
+        try {
+          if (existingReferral.status === 'pending') {
+            await existingReferral.markAsInvalid(eligibility.message || 'Referral is not eligible');
+          }
+        } catch {
+          // Non-blocking
+        }
+
+        return res.status(400).json({
+          success: false,
+          message: eligibility.message || 'Referral code is not eligible',
+          code: eligibility.code,
+          data: {
+            ...(Number.isFinite(eligibility.distanceKm) ? { distanceKm: eligibility.distanceKm } : {}),
+            ...(Number.isFinite(eligibility.maxDistanceKm) ? { maxDistanceKm: eligibility.maxDistanceKm } : {}),
+          },
+        });
+      }
+
       // Idempotency: repeated submissions should not block onboarding.
       // If the user selected a different offer and the referral isn't already used in a reward,
       // allow updating the offer.
-      const isSameReferrer = String(existingReferral.referrer) === String(referrer._id);
       const selectedOfferId = offer?._id ? String(offer._id) : null;
       const currentOfferId = existingReferral.offer ? String(existingReferral.offer) : null;
       const canUpdateOffer =
@@ -362,6 +399,25 @@ export const createReferral = async (req, res) => {
         success: true,
         message: 'Referral already exists',
         data: existingReferral,
+      });
+    }
+
+    // Enforce geo/city eligibility before creating a new referral
+    const eligibility = await validateBusinessOwnerReferralEligibility({
+      referrerUserId: referrer._id,
+      referredOwnerId: referredUserId,
+      maxDistanceKm: Number(process.env.REFERRAL_MAX_DISTANCE_KM || 25),
+    });
+
+    if (!eligibility.ok) {
+      return res.status(400).json({
+        success: false,
+        message: eligibility.message || 'Referral code is not eligible',
+        code: eligibility.code,
+        data: {
+          ...(Number.isFinite(eligibility.distanceKm) ? { distanceKm: eligibility.distanceKm } : {}),
+          ...(Number.isFinite(eligibility.maxDistanceKm) ? { maxDistanceKm: eligibility.maxDistanceKm } : {}),
+        },
       });
     }
 

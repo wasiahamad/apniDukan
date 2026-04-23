@@ -1,12 +1,15 @@
 import express from 'express';
 import { orderController } from '../controllers/index.js';
-import { protect, authorize } from '../middleware/auth.js';
+import { protect, authorize, optionalAuth } from '../middleware/auth.js';
 import { requireOwnerFeature } from '../middleware/entitlements.js';
 
 const router = express.Router();
 
 // Public storefront order create
-router.post('/public', orderController.createPublicOrder);
+router.post('/public', optionalAuth, orderController.createPublicOrder);
+
+// Customer orders
+router.get('/me', protect, authorize('customer'), orderController.getMyCustomerOrders);
 
 // Owner orders
 router.get(

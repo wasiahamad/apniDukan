@@ -2,6 +2,7 @@ import { apiClient, type ApiResponse } from '../api';
 
 export type OrderStatus = 'pending' | 'confirmed' | 'delivered' | 'cancelled';
 export type OrderSource = 'website' | 'whatsapp' | 'manual';
+export type OrderOrigin = 'website' | 'map' | 'unknown';
 
 export type OrderItem = {
   listing?: string;
@@ -18,6 +19,7 @@ export type Order = {
   orderId: string;
   orderNumber: number;
   source: OrderSource;
+  origin?: OrderOrigin;
   status: OrderStatus;
   customer: { name: string; phone?: string; address?: string; note?: string };
   items: OrderItem[];

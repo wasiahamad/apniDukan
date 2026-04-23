@@ -10,8 +10,10 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { CheckCircle } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 export default function PricingPage() {
+  const { t } = useTranslation();
   const plansQuery = useQuery({
     queryKey: ["public-plans"],
     queryFn: fetchPublicPlans,
@@ -24,9 +26,9 @@ export default function PricingPage() {
       <div className="container py-16">
         <ScrollReveal>
           <div className="text-center mb-12">
-            <h1 className="text-3xl md:text-4xl font-bold mb-3">Simple, Transparent Plans</h1>
+            <h1 className="text-3xl md:text-4xl font-bold mb-3">{t("pricing.title")}</h1>
             <p className="text-muted-foreground max-w-md mx-auto">
-              Apne business ke size aur needs ke hisaab se plan choose karo. Start free, upgrade anytime.
+              {t("pricing.subtitle")}
             </p>
           </div>
         </ScrollReveal>
@@ -45,7 +47,6 @@ export default function PricingPage() {
                 <CardContent>
                   <div className="space-y-3 mb-8">
                     <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-4 w-2/3" />
                     <Skeleton className="h-4 w-4/5" />
                     <Skeleton className="h-4 w-1/2" />
                   </div>
@@ -55,15 +56,15 @@ export default function PricingPage() {
             ))}
           </div>
         ) : plansQuery.isError ? (
-          <p className="text-center text-muted-foreground">Pricing abhi load nahi ho pa rahi.</p>
+          <p className="text-center text-muted-foreground">{t("pricing.unavailable")}</p>
         ) : (
           <StaggerChildren className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {pricingPlans.map(plan => (
-              <StaggerItem key={plan.name}>
+            {pricingPlans.map((plan: any) => (
+              <StaggerItem key={plan?.id || plan?.name}>
                 <motion.div whileHover={{ y: -8 }} transition={{ type: "spring", stiffness: 300 }}>
                   <Card className={`relative ${plan.popular ? "border-primary shadow-lg scale-105" : ""}`}>
                     {plan.popular && (
-                      <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary">Most Popular</Badge>
+                      <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary">{t("pricing.mostPopular")}</Badge>
                     )}
                     <CardHeader className="text-center">
                       <CardTitle className="text-xl">{plan.name}</CardTitle>
@@ -74,7 +75,7 @@ export default function PricingPage() {
                     </CardHeader>
                     <CardContent>
                       <ul className="space-y-3 mb-8">
-                        {plan.features.map((f, i) => (
+                        {(plan.features || []).map((f: string, i: number) => (
                           <li key={i} className="flex items-start gap-2 text-sm">
                             <CheckCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
                             {f}

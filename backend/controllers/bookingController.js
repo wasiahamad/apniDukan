@@ -1,4 +1,5 @@
-import { BookingSlot, BookingSlotTemplate, Business, BusinessType } from '../models/index.js';
+import mongoose from 'mongoose';
+import { BookingSlot, BookingSlotTemplate, Business, BusinessType, Listing } from '../models/index.js';
 import { getEffectiveEntitlementsForBusiness } from '../services/entitlementsService.js';
 
 /**
@@ -33,6 +34,15 @@ const getDayBounds = (date) => {
   const endOfDay = new Date(date);
   endOfDay.setHours(23, 59, 59, 999);
   return { startOfDay, endOfDay };
+};
+
+const resolveCustomerLocationFromUser = (user) => {
+  const coords = user?.currentLocation?.coordinates;
+  if (!Array.isArray(coords) || coords.length !== 2) return null;
+  const lng = Number(coords[0]);
+  const lat = Number(coords[1]);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+  return { type: 'Point', coordinates: [lng, lat] };
 };
 
 const resolveDefaultTimings = async (business) => {
@@ -70,6 +80,9 @@ export const replaceSlotTemplates = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (req.user?.role !== 'admin' && entitlements?.features?.bookingEnabled !== true) {
+      return res.status(403).json({ success: false, message: 'Bookings are not enabled for this business' });
+    }
     if (entitlements.planIsActive !== true) {
       return res.status(403).json({ success: false, message: 'Your subscription is not active. Please renew to use bookings.' });
     }
@@ -95,8 +108,18 @@ export const replaceSlotTemplates = async (req, res) => {
       return res.status(400).json({ success: false, message: 'startTime must be before endTime' });
     }
 
-    // Replace all templates for simplicity (single source of truth).
-    await BookingSlotTemplate.deleteMany({ business: businessId });
+    // Soft delete existing templates for backup/audit.
+    await BookingSlotTemplate.updateMany(
+      { business: businessId, isDeleted: { $ne: true } },
+      {
+        $set: {
+          isActive: false,
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedBy: req.user?._id || null,
+        },
+      }
+    );
     const tpl = await BookingSlotTemplate.create({
       business: businessId,
       listing: listing || undefined,
@@ -106,6 +129,7 @@ export const replaceSlotTemplates = async (req, res) => {
       price: Number.isFinite(Number(price)) ? Number(price) : undefined,
       notes: notes || undefined,
       isActive: true,
+      isDeleted: false,
     });
 
     return res.status(200).json({ success: true, message: 'Slot timings saved', data: [tpl] });
@@ -130,7 +154,12 @@ export const getSlotTemplatesForBusiness = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorized to view templates for this business' });
     }
 
-    const templates = await BookingSlotTemplate.find({ business: businessId, isActive: true })
+    const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (req.user?.role !== 'admin' && entitlements?.features?.bookingEnabled !== true) {
+      return res.status(403).json({ success: false, message: 'Bookings are not enabled for this business' });
+    }
+
+    const templates = await BookingSlotTemplate.find({ business: businessId, isActive: true, isDeleted: { $ne: true } })
       .select('_id startTime endTime duration price notes')
       .sort({ startTime: 1 })
       .lean();
@@ -166,6 +195,12 @@ export const createBookingSlot = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (req.user?.role !== 'admin' && entitlements?.features?.bookingEnabled !== true) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bookings are not enabled for this business',
+      });
+    }
     if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
@@ -222,6 +257,12 @@ export const createBulkSlots = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (req.user?.role !== 'admin' && entitlements?.features?.bookingEnabled !== true) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bookings are not enabled for this business',
+      });
+    }
     if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
@@ -285,6 +326,12 @@ export const getAvailableSlots = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (entitlements?.features?.bookingEnabled !== true) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bookings are not available for this business',
+      });
+    }
     if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
@@ -331,6 +378,12 @@ export const getAvailableSlotsBySlug = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (entitlements?.features?.bookingEnabled !== true) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bookings are not available for this business',
+      });
+    }
     if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
@@ -377,6 +430,12 @@ export const getSlotsBySlug = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (entitlements?.features?.bookingEnabled !== true) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bookings are not available for this business',
+      });
+    }
     if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
@@ -442,15 +501,25 @@ export const getSlotsBySlug = async (req, res) => {
 
 // @desc    Book a slot by business slug + date + startTime (template-based)
 // @route   POST /api/bookings/book/slug/:slug
-// @access  Public (or Private for logged-in users)
+// @access  Private (customer)
 export const bookSlotBySlug = async (req, res) => {
   try {
     const { slug } = req.params;
-    const { date, startTime, customerName, customerPhone, customerEmail, customerNotes } = req.body;
+    const { date, startTime, customerNotes, listingId, listing } = req.body;
 
-    const resolvedCustomerName = customerName || req.user?.name;
-    const resolvedCustomerPhone = customerPhone || req.user?.phone;
-    const resolvedCustomerEmail = customerEmail || req.user?.email;
+    const parseLocalDateTime = (dateStr, timeStr) => {
+      const ds = String(dateStr || '').trim();
+      const ts = String(timeStr || '').trim();
+      const [yy, mm, dd] = ds.split('-').map((n) => Number(n));
+      const [hh, mi] = ts.split(':').map((n) => Number(n));
+      if (!Number.isFinite(yy) || !Number.isFinite(mm) || !Number.isFinite(dd)) return null;
+      if (!Number.isFinite(hh) || !Number.isFinite(mi)) return null;
+      return new Date(yy, mm - 1, dd, hh, mi, 0, 0);
+    };
+
+    const resolvedCustomerName = String(req.user?.name || '').trim();
+    const resolvedCustomerPhone = String(req.user?.phone || '').trim();
+    const resolvedCustomerEmail = String(req.user?.email || '').trim();
 
     if (!date) {
       return res.status(400).json({ success: false, message: 'Date is required' });
@@ -470,7 +539,24 @@ export const bookSlotBySlug = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Business not found' });
     }
 
+    const requestedListingId = String(listingId || listing || '').trim();
+    let requestedListingDoc = null;
+    if (requestedListingId) {
+      if (!mongoose.Types.ObjectId.isValid(requestedListingId)) {
+        return res.status(400).json({ success: false, message: 'Invalid item selected' });
+      }
+      requestedListingDoc = await Listing.findOne({ _id: requestedListingId, business: business._id })
+        .select('_id')
+        .lean();
+      if (!requestedListingDoc) {
+        return res.status(400).json({ success: false, message: 'Invalid item selected' });
+      }
+    }
+
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (entitlements?.features?.bookingEnabled !== true) {
+      return res.status(403).json({ success: false, message: 'Bookings are not available for this business' });
+    }
     if (entitlements.planIsActive !== true) {
       return res.status(403).json({ success: false, message: 'Bookings are not available for this business' });
     }
@@ -510,7 +596,14 @@ export const bookSlotBySlug = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid slot time for this business' });
     }
 
+    const slotStart = parseLocalDateTime(date, match.startTime);
+    if (slotStart && slotStart.getTime() <= Date.now()) {
+      return res.status(400).json({ success: false, message: 'This time slot has already passed' });
+    }
+
     const { startOfDay, endOfDay } = getDayBounds(date);
+
+    const customerLocation = resolveCustomerLocationFromUser(req.user);
 
     // Try to book an existing available slot for this day/time (supports legacy pre-generated slots).
     const updated = await BookingSlot.findOneAndUpdate(
@@ -530,10 +623,11 @@ export const bookSlotBySlug = async (req, res) => {
           customerPhone: resolvedCustomerPhone,
           customerEmail: resolvedCustomerEmail || null,
           customerNotes: customerNotes || null,
+          ...(customerLocation ? { customerLocation } : {}),
           bookedAt: new Date(),
           bookedBy: req.user?._id || null,
           duration: match.duration,
-          listing: match.listing || undefined,
+          listing: requestedListingDoc?._id || match.listing || undefined,
           price: match.price,
           notes: match.notes,
         },
@@ -549,7 +643,7 @@ export const bookSlotBySlug = async (req, res) => {
     const slotDate = new Date(date);
     const created = await BookingSlot.create({
       business: business._id,
-      listing: match.listing || undefined,
+      listing: requestedListingDoc?._id || match.listing || undefined,
       date: slotDate,
       startTime: match.startTime,
       endTime: match.endTime,
@@ -560,6 +654,7 @@ export const bookSlotBySlug = async (req, res) => {
       customerPhone: resolvedCustomerPhone,
       customerEmail: resolvedCustomerEmail || null,
       customerNotes: customerNotes || null,
+      ...(customerLocation ? { customerLocation } : {}),
       bookedAt: new Date(),
       bookedBy: req.user?._id || null,
       price: match.price,
@@ -579,15 +674,15 @@ export const bookSlotBySlug = async (req, res) => {
 
 // @desc    Book a slot
 // @route   POST /api/bookings/:id/book
-// @access  Public (or Private for logged-in users)
+// @access  Private (customer)
 export const bookSlot = async (req, res) => {
   try {
     const { id } = req.params;
-    const { customerName, customerPhone, customerEmail, customerNotes } = req.body;
+    const { customerNotes } = req.body;
 
-    const resolvedCustomerName = customerName || req.user?.name;
-    const resolvedCustomerPhone = customerPhone || req.user?.phone;
-    const resolvedCustomerEmail = customerEmail || req.user?.email;
+    const resolvedCustomerName = String(req.user?.name || '').trim();
+    const resolvedCustomerPhone = String(req.user?.phone || '').trim();
+    const resolvedCustomerEmail = String(req.user?.email || '').trim();
 
     if (!resolvedCustomerName) {
       return res.status(400).json({
@@ -619,12 +714,20 @@ export const bookSlot = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (entitlements?.features?.bookingEnabled !== true) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bookings are not available for this business',
+      });
+    }
     if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
         message: 'Bookings are not available for this business',
       });
     }
+
+    const customerLocation = resolveCustomerLocationFromUser(req.user);
 
     // Atomic booking: prevent double booking under concurrency.
     const bookedSlot = await BookingSlot.findOneAndUpdate(
@@ -637,6 +740,7 @@ export const bookSlot = async (req, res) => {
           customerPhone: resolvedCustomerPhone,
           customerEmail: resolvedCustomerEmail || null,
           customerNotes: customerNotes || null,
+          ...(customerLocation ? { customerLocation } : {}),
           bookedAt: new Date(),
           bookedBy: req.user?._id || null,
         },
@@ -751,6 +855,12 @@ export const cancelBooking = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (req.user?.role !== 'admin' && entitlements?.features?.bookingEnabled !== true) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bookings are not enabled for this business',
+      });
+    }
     if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
@@ -799,6 +909,12 @@ export const getBusinessBookings = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (req.user?.role !== 'admin' && entitlements?.features?.bookingEnabled !== true) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bookings are not enabled for this business',
+      });
+    }
     if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
@@ -821,6 +937,7 @@ export const getBusinessBookings = async (req, res) => {
     const [bookings, total] = await Promise.all([
       BookingSlot.find(query)
         .populate('listing', 'title')
+        .populate('bookedBy', 'name email phone')
         .sort({ date: 1, startTime: 1 })
         .skip(skip)
         .limit(parseInt(limit))
@@ -886,6 +1003,12 @@ export const updateBookingStatus = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (req.user?.role !== 'admin' && entitlements?.features?.bookingEnabled !== true) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bookings are not enabled for this business',
+      });
+    }
     if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,
@@ -935,6 +1058,12 @@ export const getBookingStats = async (req, res) => {
     }
 
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
+    if (req.user?.role !== 'admin' && entitlements?.features?.bookingEnabled !== true) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bookings are not enabled for this business',
+      });
+    }
     if (entitlements.planIsActive !== true) {
       return res.status(403).json({
         success: false,

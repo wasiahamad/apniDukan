@@ -11,7 +11,7 @@ import { getDashboardUrl } from "@/lib/dashboardUrl";
 import { looksLikeCitySlug } from "@/lib/publicShopsApi";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import AboutPage from "./pages/AboutPage";
 import AccountPage from "./pages/AccountPage";
 import AllShopsPage from "./pages/AllShopsPage";
@@ -20,13 +20,16 @@ import SignupPage from "./pages/auth/SignupPage";
 import CityCategoryPage from "./pages/CityCategoryPage";
 import CityPage from "./pages/CityPage";
 import ContactPage from "./pages/ContactPage";
+import CategoriesPage from "./pages/CategoriesPage";
 import ForBusinessPage from "./pages/ForBusinessPage";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import PricingPage from "./pages/PricingPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
+import ReferralProgramPage from "./pages/ReferralProgramPage";
 import ShopPage from "./pages/ShopPage";
 import TermsPage from "./pages/TermsPage";
+import StoriesPage from "./pages/StoriesPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,27 +51,31 @@ const App = () => (
             <Toaster />
             <Sonner />
             <BrowserRouter>
+              <ScrollToTop />
               <Routes>
-                <Route element={<Layout />}>
-                  <Route path="/" element={<Index />} />
-                  <Route path="/plans" element={<PricingPage />} />
-                  <Route path="/pricing" element={<Navigate to="/plans" replace />} />
-                  <Route path="/for-business" element={<ForBusinessPage />} />
-                  <Route path="/contact" element={<ContactPage />} />
-                  <Route path="/about" element={<AboutPage />} />
-                  <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
-                  <Route path="/terms" element={<TermsPage />} />
-                  <Route path="/shops" element={<AllShopsPage />} />
-                  <Route path="/login" element={<LoginPage />} />
-                  <Route path="/signup" element={<SignupPage />} />
+                <Route path="/" element={<Layout />}>
+                  <Route index element={<Index />} />
+                  <Route path="plans" element={<PricingPage />} />
+                  <Route path="pricing" element={<Navigate to="/plans" replace />} />
+                  <Route path="for-business" element={<ForBusinessPage />} />
+                  <Route path="contact" element={<ContactPage />} />
+                  <Route path="about" element={<AboutPage />} />
+                  <Route path="stories" element={<StoriesPage />} />
+                  <Route path="referral-program" element={<ReferralProgramPage />} />
+                  <Route path="privacy-policy" element={<PrivacyPolicyPage />} />
+                  <Route path="terms" element={<TermsPage />} />
+                  <Route path="categories" element={<CategoriesPage />} />
+                  <Route path="shops" element={<AllShopsPage />} />
+                  <Route path="login" element={<LoginPage />} />
+                  <Route path="signup" element={<SignupPage />} />
                   <Route element={<ProtectedRoute />}>
-                    <Route path="/account" element={<AccountPage />} />
+                    <Route path="account" element={<AccountPage />} />
                   </Route>
-                  <Route path="/:city/:category" element={<CityCategoryPage />} />
-                  <Route path="/dashboard/*" element={<DashboardRedirect />} />
-                  <Route path="/:shopSlug" element={<ShopOrCityPage />} />
+                  <Route path="shops/:category" element={<CityCategoryPage />} />
+                  <Route path="dashboard/*" element={<DashboardRedirect />} />
+                  <Route path=":shopSlug" element={<ShopOrCityPage />} />
+                  <Route path="*" element={<NotFound />} />
                 </Route>
-                <Route path="*" element={<NotFound />} />
               </Routes>
             </BrowserRouter>
           </TooltipProvider>
@@ -86,6 +93,16 @@ function DashboardRedirect() {
     const target = suffix ? `${root}/${suffix}` : root;
     window.location.replace(target);
   }, []);
+
+  return null;
+}
+
+function ScrollToTop() {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [pathname]);
 
   return null;
 }

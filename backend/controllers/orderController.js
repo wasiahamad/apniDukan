@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { Business, Listing, Order, OrderCounter } from '../models/index.js';
 import { getEffectiveEntitlementsForBusiness } from '../services/entitlementsService.js';
 
@@ -40,7 +41,7 @@ const optionMatch = (a, b) => {
 // @access  Public
 export const createPublicOrder = async (req, res) => {
   try {
-    const { businessId, items, source, customer } = req.body || {};
+    const { businessId, items, source, origin, customer } = req.body || {};
 
     if (!businessId) {
       return res.status(400).json({ success: false, message: 'businessId is required' });
@@ -176,8 +177,12 @@ export const createPublicOrder = async (req, res) => {
 
     const { orderNumber, orderId } = await nextOrderNumber(businessId);
 
-    const customerName = (customer?.name || '').toString().trim() || 'Customer';
-    const customerPhone = normalizePhone(customer?.phone);
+    const authedCustomerId = req.user?.role === 'customer' ? req.user._id : null;
+    const authedCustomerName = (req.user?.role === 'customer' ? req.user?.name : '') || '';
+    const authedCustomerPhone = req.user?.role === 'customer' ? req.user?.phone : '';
+
+    const customerName = (customer?.name || authedCustomerName || '').toString().trim() || 'Customer';
+    const customerPhone = normalizePhone(customer?.phone || authedCustomerPhone);
     const customerAddress = (customer?.address || '').toString().trim();
     const customerNote = (customer?.note || '').toString().trim();
 
@@ -186,9 +191,11 @@ export const createPublicOrder = async (req, res) => {
 
     const order = await Order.create({
       business: businessId,
+      ...(authedCustomerId ? { customerUser: authedCustomerId } : {}),
       orderNumber,
       orderId,
       source: ['website', 'whatsapp', 'manual'].includes(source) ? source : 'website',
+      origin: ['website', 'map', 'unknown'].includes(origin) ? origin : 'unknown',
       status: 'pending',
       customer: {
         name: customerName,
@@ -210,6 +217,35 @@ export const createPublicOrder = async (req, res) => {
   } catch (error) {
     console.error('Create public order error:', error);
     res.status(500).json({ success: false, message: error.message || 'Error creating order' });
+  }
+};
+
+// @desc    Customer: Get my orders
+// @route   GET /api/orders/me
+// @access  Private (customer)
+export const getMyCustomerOrders = async (req, res) => {
+  try {
+    if (req.user?.role !== 'customer') {
+      return res.status(403).json({ success: false, message: 'Only customers can view this' });
+    }
+
+    const { status, limit = 50 } = req.query;
+
+    const query = { customerUser: req.user._id };
+    if (status && ['pending', 'confirmed', 'delivered', 'cancelled'].includes(status)) query.status = status;
+
+    const limitNum = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 100);
+
+    const orders = await Order.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limitNum)
+      .populate('business', 'name slug whatsapp phone')
+      .lean();
+
+    return res.status(200).json({ success: true, data: { orders } });
+  } catch (error) {
+    console.error('Get my customer orders error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Error fetching orders' });
   }
 };
 
@@ -256,10 +292,36 @@ export const adminListOrders = async (req, res) => {
       }
     }
 
-    const orders = await Order.find(query)
-      .sort({ createdAt: -1 })
-      .populate('business', 'name slug whatsapp owner')
-      .lean();
+    const rawOrders = await Order.find(query).sort({ createdAt: -1 }).lean();
+
+    const uniqueBusinessIds = Array.from(
+      new Set(
+        rawOrders
+          .map((o) => (o && o.business != null ? String(o.business) : ''))
+          .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      )
+    );
+
+    const businesses = uniqueBusinessIds.length
+      ? await Business.find({ _id: { $in: uniqueBusinessIds } })
+          .select('name slug whatsapp owner')
+          .lean()
+      : [];
+
+    const businessById = new Map(businesses.map((b) => [String(b._id), b]));
+
+    const orders = rawOrders.map((o) => {
+      const originalBusinessId = o && o.business != null ? String(o.business) : null;
+      const validBusinessId = originalBusinessId && mongoose.Types.ObjectId.isValid(originalBusinessId)
+        ? originalBusinessId
+        : null;
+
+      return {
+        ...o,
+        businessId: validBusinessId,
+        business: validBusinessId ? businessById.get(validBusinessId) || null : null,
+      };
+    });
 
     res.status(200).json({ success: true, data: orders });
   } catch (error) {
@@ -311,8 +373,25 @@ export const updateOrderStatus = async (req, res) => {
     order.status = status;
     await order.save();
 
-    const populated = await Order.findById(order._id).populate('business', 'name slug whatsapp').lean();
-    res.status(200).json({ success: true, message: 'Order updated', data: populated });
+    const updated = await Order.findById(order._id).lean();
+    const originalBusinessId = updated && updated.business != null ? String(updated.business) : null;
+    const validBusinessId = originalBusinessId && mongoose.Types.ObjectId.isValid(originalBusinessId)
+      ? originalBusinessId
+      : null;
+
+    const business = validBusinessId
+      ? await Business.findById(validBusinessId).select('name slug whatsapp').lean()
+      : null;
+
+    res.status(200).json({
+      success: true,
+      message: 'Order updated',
+      data: {
+        ...updated,
+        businessId: validBusinessId,
+        business: business || null,
+      },
+    });
   } catch (error) {
     console.error('Update order status error:', error);
     res.status(500).json({ success: false, message: error.message || 'Error updating order' });

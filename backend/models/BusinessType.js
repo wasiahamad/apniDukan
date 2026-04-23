@@ -16,6 +16,12 @@ const businessTypeSchema = new mongoose.Schema(
       trim: true,
       maxlength: [100, 'Name cannot exceed 100 characters'],
     },
+    // Optional Hindi display name (Devanagari). Does NOT affect slug generation.
+    nameHi: {
+      type: String,
+      trim: true,
+      maxlength: [100, 'Hindi name cannot exceed 100 characters'],
+    },
     slug: {
       type: String,
       unique: true,
@@ -25,6 +31,11 @@ const businessTypeSchema = new mongoose.Schema(
     description: {
       type: String,
       maxlength: [500, 'Description cannot exceed 500 characters'],
+    },
+    // Optional Hindi description (Devanagari)
+    descriptionHi: {
+      type: String,
+      maxlength: [500, 'Hindi description cannot exceed 500 characters'],
     },
     icon: {
       type: String, // URL to icon/image
@@ -102,6 +113,12 @@ const businessTypeSchema = new mongoose.Schema(
     ownerCanEditBookingTimings: {
       type: Boolean,
       default: false,
+    },
+    // Controls whether booking module is enabled by default for businesses
+    // created under this business type.
+    defaultBookingEnabled: {
+      type: Boolean,
+      default: true,
     },
     isActive: {
       type: Boolean,

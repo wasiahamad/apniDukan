@@ -2,10 +2,12 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowLeft, Loader2, LockKeyhole, Mail } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { authApi } from "@/lib/api/index";
 import { useToast } from "@/hooks/use-toast";
 
 const ForgotPassword = () => {
+  const { t } = useTranslation();
   const [step, setStep] = useState<"request" | "reset">("request");
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
@@ -23,15 +25,15 @@ const ForgotPassword = () => {
 
     try {
       const res = await authApi.forgotPassword({ email });
-      if (!res.success) throw new Error(res.message || "Unable to send OTP");
+      if (!res.success) throw new Error(res.message || t('forgotPassword.unableToSendOtp'));
 
       toast({
-        title: "OTP sent",
-        description: "Check your email for password reset OTP.",
+        title: t('forgotPassword.otpSent'),
+        description: t('forgotPassword.otpSentDesc'),
       });
       setStep("reset");
     } catch (err: any) {
-      setError(err.message || "Unable to send OTP");
+      setError(err.message || t('forgotPassword.unableToSendOtp'));
     } finally {
       setLoading(false);
     }
@@ -43,10 +45,10 @@ const ForgotPassword = () => {
 
     try {
       const res = await authApi.resendResetOtp(email);
-      if (!res.success) throw new Error(res.message || "Unable to resend OTP");
-      toast({ title: "OTP resent", description: "A fresh OTP is sent to your email." });
+      if (!res.success) throw new Error(res.message || t('forgotPassword.unableToResendOtp'));
+      toast({ title: t('forgotPassword.otpResent'), description: t('forgotPassword.otpResentDesc') });
     } catch (err: any) {
-      setError(err.message || "Unable to resend OTP");
+      setError(err.message || t('forgotPassword.unableToResendOtp'));
     } finally {
       setLoading(false);
     }
@@ -56,12 +58,12 @@ const ForgotPassword = () => {
     e.preventDefault();
 
     if (otp.length !== 6) {
-      setError("Please enter valid 6-digit OTP");
+      setError(t('forgotPassword.invalidOtp'));
       return;
     }
 
     if (newPassword.length < 6) {
-      setError("Password must be at least 6 characters");
+      setError(t('forgotPassword.passwordMinLength'));
       return;
     }
 
@@ -70,12 +72,12 @@ const ForgotPassword = () => {
 
     try {
       const res = await authApi.resetPassword({ email, otp, newPassword });
-      if (!res.success) throw new Error(res.message || "Password reset failed");
+      if (!res.success) throw new Error(res.message || t('forgotPassword.passwordResetFailed'));
 
-      toast({ title: "Password updated", description: "You are now logged in." });
+      toast({ title: t('forgotPassword.passwordUpdated'), description: t('forgotPassword.passwordUpdatedDesc') });
       navigate("/dashboard");
     } catch (err: any) {
-      setError(err.message || "Password reset failed");
+      setError(err.message || t('forgotPassword.passwordResetFailed'));
     } finally {
       setLoading(false);
     }
@@ -92,14 +94,14 @@ const ForgotPassword = () => {
           onClick={() => navigate("/login")}
           className="inline-flex items-center gap-1 text-sm text-muted-foreground mb-4"
         >
-          <ArrowLeft className="w-4 h-4" /> Back to login
+          <ArrowLeft className="w-4 h-4" /> {t('forgotPassword.backToLogin')}
         </button>
 
-        <h1 className="text-xl font-bold">Forgot Password</h1>
+        <h1 className="text-xl font-bold">{t('forgotPassword.title')}</h1>
         <p className="text-sm text-muted-foreground mt-1 mb-5">
           {step === "request"
-            ? "Enter your email to receive OTP"
-            : "Enter OTP and set your new password"}
+            ? t('forgotPassword.requestSubtitle')
+            : t('forgotPassword.resetSubtitle')}
         </p>
 
         {step === "request" ? (
@@ -110,7 +112,7 @@ const ForgotPassword = () => {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="your@email.com"
+                placeholder={t('forgotPassword.emailPlaceholder')}
                 className="w-full pl-11 pr-4 py-3.5 bg-muted border rounded-xl text-sm"
               />
             </div>
@@ -124,16 +126,16 @@ const ForgotPassword = () => {
             >
               {loading ? (
                 <span className="inline-flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Sending OTP...
+                  <Loader2 className="w-4 h-4 animate-spin" /> {t('forgotPassword.sendingOtp')}
                 </span>
               ) : (
-                "Send OTP"
+                t('forgotPassword.sendOtp')
               )}
             </button>
           </form>
         ) : (
           <form onSubmit={resetPassword} className="space-y-4">
-            <div className="text-xs text-muted-foreground break-all">Email: {email}</div>
+            <div className="text-xs text-muted-foreground break-all">{t('forgotPassword.emailLabel', { email })}</div>
 
             <input
               type="text"
@@ -141,7 +143,7 @@ const ForgotPassword = () => {
               maxLength={6}
               value={otp}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
-              placeholder="6-digit OTP"
+              placeholder={t('forgotPassword.otpPlaceholder')}
               className="w-full px-4 py-3.5 bg-muted border rounded-xl text-sm tracking-[0.2em]"
             />
 
@@ -151,7 +153,7 @@ const ForgotPassword = () => {
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="New password"
+                placeholder={t('forgotPassword.newPasswordPlaceholder')}
                 className="w-full pl-11 pr-4 py-3.5 bg-muted border rounded-xl text-sm"
               />
             </div>
@@ -165,10 +167,10 @@ const ForgotPassword = () => {
             >
               {loading ? (
                 <span className="inline-flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Resetting...
+                  <Loader2 className="w-4 h-4 animate-spin" /> {t('forgotPassword.resetting')}
                 </span>
               ) : (
-                "Reset Password"
+                t('forgotPassword.resetPassword')
               )}
             </button>
 
@@ -178,7 +180,7 @@ const ForgotPassword = () => {
               disabled={loading}
               className="w-full text-sm text-primary font-semibold"
             >
-              Resend OTP
+              {t('forgotPassword.resendOtp')}
             </button>
           </form>
         )}

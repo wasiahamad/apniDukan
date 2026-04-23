@@ -17,6 +17,7 @@ export type BookingSlot = {
   customerPhone?: string | null;
   customerEmail?: string | null;
   customerNotes?: string | null;
+  customerLocation?: { type: "Point"; coordinates: [number, number] } | null;
   bookedAt?: string | null;
   createdAt?: string;
 };
@@ -62,6 +63,7 @@ export const bookingApi = {
   async getBusinessBookings(input: {
     businessId: string;
     date?: string;
+    status?: string;
   }): Promise<
     ApiResponse<{
       bookings: BookingSlot[];
@@ -70,6 +72,7 @@ export const bookingApi = {
   > {
     const q = new URLSearchParams();
     if (input.date) q.set("date", input.date);
+    if (input.status) q.set("status", input.status);
     q.set("page", "1");
     q.set("limit", "200");
     const qs = q.toString();

@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
  * Flexible: Uses dynamic attributes instead of hardcoded fields
  * REMOVES: productRam, size, productWeight, duplicate category fields
  * Multi-tenant: Every listing belongs to a business
- */
+ */   
 
 const listingSchema = new mongoose.Schema(
     {
@@ -22,10 +22,21 @@ const listingSchema = new mongoose.Schema(
             trim: true,
             maxlength: [200, 'Title cannot exceed 200 characters'],
         },
+        // Optional Hindi title (Devanagari)
+        titleHi: {
+            type: String,
+            trim: true,
+            maxlength: [200, 'Hindi title cannot exceed 200 characters'],
+        },
         description: {
             type: String,
             required: [true, 'Description is required'],
             maxlength: [5000, 'Description cannot exceed 5000 characters'],
+        },
+        // Optional Hindi description (Devanagari)
+        descriptionHi: {
+            type: String,
+            maxlength: [5000, 'Hindi description cannot exceed 5000 characters'],
         },
         images: [
             {
@@ -43,6 +54,24 @@ const listingSchema = new mongoose.Schema(
             type: Number,
             required: [true, 'Price is required'],
             min: [0, 'Price cannot be negative'],
+        },
+        oldPrice: {
+            type: Number,
+            min: [0, 'Old price cannot be negative'],
+            validate: {
+                validator: function (val) {
+                    if (val === null || val === undefined || val === '') return true;
+                    if (typeof this.price !== 'number') return true;
+                    return Number(val) > this.price;
+                },
+                message: 'Old price must be greater than current price',
+            },
+        },
+        discountPercent: {
+            type: Number,
+            min: 0,
+            max: 100,
+            default: 0,
         },
         priceType: {
             type: String,
@@ -76,10 +105,26 @@ const listingSchema = new mongoose.Schema(
                     required: true,
                     trim: true,
                 },
+                // Optional Hindi label (Devanagari)
+                labelHi: {
+                    type: String,
+                    trim: true,
+                    maxlength: [120, 'Hindi pricing label cannot exceed 120 characters'],
+                },
                 price: {
                     type: Number,
                     required: true,
                     min: [0, 'Price cannot be negative'],
+                },
+                oldPrice: {
+                    type: Number,
+                    min: [0, 'Old price cannot be negative'],
+                },
+                discountPercent: {
+                    type: Number,
+                    min: 0,
+                    max: 100,
+                    default: 0,
                 },
             },
         ],
@@ -134,6 +179,29 @@ listingSchema.virtual('inStock').get(function () {
         return this.stock !== undefined && this.stock > 0;
     }
     return true; // Services, courses, etc. are always "in stock"
+});
+
+listingSchema.pre('save', function (next) {
+    const computeDiscount = (oldPrice, price) => {
+        const oldNum = Number(oldPrice);
+        const priceNum = Number(price);
+        if (!Number.isFinite(oldNum) || !Number.isFinite(priceNum)) return 0;
+        if (oldNum <= 0) return 0;
+        if (oldNum <= priceNum) return 0;
+        return Math.round(((oldNum - priceNum) / oldNum) * 100);
+    };
+
+    this.discountPercent = computeDiscount(this.oldPrice, this.price);
+
+    if (Array.isArray(this.pricingOptions)) {
+        this.pricingOptions = this.pricingOptions.map((opt) => {
+            const nextOpt = opt;
+            nextOpt.discountPercent = computeDiscount(nextOpt.oldPrice, nextOpt.price);
+            return nextOpt;
+        });
+    }
+
+    next();
 });
 
 // Method to increment stats

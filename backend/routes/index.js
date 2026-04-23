@@ -19,7 +19,16 @@ import orderRoutes from './orderRoutes.js';
 import supportRoutes from './supportRoutes.js';
 import invoiceRoutes from './invoiceRoutes.js';
 import reviewRoutes from './reviewRoutes.js';
+import platformFeedbackRoutes from './platformFeedbackRoutes.js';
+import contactRoutes from './contactRoutes.js';
+import aboutRoutes from './aboutRoutes.js';
 import mapsRoutes from './mapsRoutes.js';
+import cityRoutes from './cityRoutes.js';
+import storyRoutes from './storyRoutes.js';
+import customerReferralEarningsRoutes from './customerReferralEarningsRoutes.js';
+import walletRoutes from './walletRoutes.js';
+import offerRoutes from './offerRoutes.js';
+import aiRoutes from './aiRoutes.js';
 
 /**
  * Mount routes to Express app
@@ -52,7 +61,17 @@ export const mountRoutes = (app) => {
   app.use('/api/support', supportRoutes);
   app.use('/api/invoices', invoiceRoutes);
   app.use('/api/reviews', reviewRoutes);
+  app.use('/api/platform-feedback', platformFeedbackRoutes);
+  app.use('/api/contact', contactRoutes);
+  app.use('/api/about', aboutRoutes);
   app.use('/api/maps', mapsRoutes);
+  app.use('/api/public/cities', cityRoutes);
+  app.use('/api/customer-referrals', customerReferralEarningsRoutes);
+  app.use('/api/wallet', walletRoutes);
+  app.use('/api/offers', offerRoutes);
+  app.use('/api/ai', aiRoutes);
+  // Stories & Reels (endpoints: /api/story, /api/stories)
+  app.use('/api', storyRoutes);
 };
 
 export default mountRoutes;

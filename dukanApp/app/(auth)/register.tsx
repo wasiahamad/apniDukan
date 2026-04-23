@@ -52,13 +52,18 @@ export default function RegisterScreen() {
     }
     setLoading(true);
     try {
-      await register({
+      const result = await register({
         name: name.trim(),
         email: email.trim().toLowerCase(),
         password,
         role,
         phone: phone10,
       });
+
+      if (result?.verificationRequired) {
+        router.replace({ pathname: "/(auth)/verify-email", params: { email: String(result.email || email).trim().toLowerCase() } });
+        return;
+      }
 
       router.replace(role === "customer" ? "/(customer)" : "/(owner)");
     } catch (err: any) {

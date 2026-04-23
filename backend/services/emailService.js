@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { EmailEventLog } from '../models/index.js';
 
 let cachedTransporter = null;
 
@@ -43,6 +44,80 @@ export const sendEmail = async ({ to, subject, text, html }) => {
   });
 
   return { sent: true, fallback: false };
+};
+
+const safeKey = (v) => String(v || '').replace(/[\s\r\n]+/g, ' ').trim();
+
+/**
+ * sendEmailOnce({ dedupeKey, type, to, subject, text, html, userId, businessId, meta })
+ *
+ * - Ensures exactly-once semantics per `dedupeKey` when status is already 'sent'.
+ * - Allows retry if previous status is 'failed'.
+ */
+export const sendEmailOnce = async ({
+  dedupeKey,
+  type,
+  to,
+  subject,
+  text,
+  html,
+  userId,
+  businessId,
+  meta,
+}) => {
+  const key = safeKey(dedupeKey);
+  const emailTo = safeKey(to).toLowerCase();
+  if (!key) throw new Error('dedupeKey is required');
+  if (!emailTo) throw new Error('to is required');
+
+  // Reserve the send slot unless already sent.
+  let reserved;
+  try {
+    reserved = await EmailEventLog.findOneAndUpdate(
+      { dedupeKey: key, status: { $ne: 'sent' } },
+      {
+        $setOnInsert: {
+          dedupeKey: key,
+          type: safeKey(type) || 'email',
+          to: emailTo,
+          ...(userId ? { user: userId } : {}),
+          ...(businessId ? { business: businessId } : {}),
+        },
+        $set: {
+          lastAttemptAt: new Date(),
+          status: 'sending',
+          ...(meta ? { meta } : {}),
+        },
+        $inc: { attempts: 1 },
+      },
+      { new: true, upsert: true }
+    ).lean();
+  } catch (e) {
+    // Under concurrency, two upserts may race and one can lose with E11000.
+    if (String(e?.code) === '11000') {
+      return { sent: false, skipped: true, reason: 'dedupe_race' };
+    }
+    throw e;
+  }
+
+  if (!reserved) {
+    return { sent: false, skipped: true, reason: 'already_sent' };
+  }
+
+  try {
+    const result = await sendEmail({ to: emailTo, subject, text, html });
+    await EmailEventLog.updateOne(
+      { dedupeKey: key },
+      { $set: { status: result?.sent ? 'sent' : 'failed', sentAt: result?.sent ? new Date() : undefined, error: result?.sent ? undefined : 'email_fallback' } }
+    );
+    return { ...result, skipped: false };
+  } catch (e) {
+    await EmailEventLog.updateOne(
+      { dedupeKey: key },
+      { $set: { status: 'failed', error: safeKey(e?.message || e) } }
+    );
+    throw e;
+  }
 };
 
 export const sendOtpEmail = async ({ to, name, otp, purpose, ttlMinutes }) => {

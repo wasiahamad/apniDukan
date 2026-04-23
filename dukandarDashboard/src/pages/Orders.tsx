@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Package, Search, Eye, MessageCircle, Clock, CheckCircle2, XCircle, Truck } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,19 +11,41 @@ import { Separator } from "@/components/ui/separator";
 import { orderApi, type Order as ApiOrder, type OrderStatus } from "@/lib/api/orders";
 import { useToast } from "@/hooks/use-toast";
 
-const statusConfig: Record<OrderStatus, { label: string; icon: typeof Clock; class: string }> = {
-  pending: { label: "Pending", icon: Clock, class: "bg-amber-500/10 text-amber-600 border-amber-200 dark:border-amber-800" },
-  confirmed: { label: "Confirmed", icon: CheckCircle2, class: "bg-blue-500/10 text-blue-600 border-blue-200 dark:border-blue-800" },
-  delivered: { label: "Delivered", icon: Truck, class: "bg-primary/10 text-primary border-primary/20" },
-  cancelled: { label: "Cancelled", icon: XCircle, class: "bg-destructive/10 text-destructive border-destructive/20" },
-};
-
 const filters: (OrderStatus | "all")[] = ["all", "pending", "confirmed", "delivered", "cancelled"];
 
 const normalizePhone = (value?: string) => (value || "").replace(/[^0-9]/g, "").trim();
 
 const Orders = () => {
+  const { t, i18n } = useTranslation();
   const { toast } = useToast();
+
+  const dateLocale = i18n.language === "hi" ? "hi-IN" : "en-IN";
+
+  const statusConfig: Record<OrderStatus, { label: string; icon: typeof Clock; class: string }> = useMemo(
+    () => ({
+      pending: {
+        label: t("orders.status.pending"),
+        icon: Clock,
+        class: "bg-amber-500/10 text-amber-600 border-amber-200 dark:border-amber-800",
+      },
+      confirmed: {
+        label: t("orders.status.confirmed"),
+        icon: CheckCircle2,
+        class: "bg-blue-500/10 text-blue-600 border-blue-200 dark:border-blue-800",
+      },
+      delivered: {
+        label: t("orders.status.delivered"),
+        icon: Truck,
+        class: "bg-primary/10 text-primary border-primary/20",
+      },
+      cancelled: {
+        label: t("orders.status.cancelled"),
+        icon: XCircle,
+        class: "bg-destructive/10 text-destructive border-destructive/20",
+      },
+    }),
+    [i18n.language, t]
+  );
 
   const [orders, setOrders] = useState<ApiOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,8 +67,8 @@ const Orders = () => {
       } catch (err: any) {
         if (cancelled) return;
         toast({
-          title: "Failed to load orders",
-          description: err?.message || "Please try again.",
+          title: t("orders.toasts.loadFailedTitle"),
+          description: err?.message || t("orders.toasts.loadFailedDesc"),
           variant: "destructive",
         });
       } finally {
@@ -90,14 +113,17 @@ const Orders = () => {
       setUpdatingStatus(true);
       const res = await orderApi.updateStatus(orderId, status);
       if (!res.success || !res.data) {
-        throw new Error(res.message || "Failed to update status");
+        throw new Error(res.message || t("orders.toasts.updateFailedDesc"));
       }
       setOrderInState(res.data);
-      toast({ title: "Order updated", description: `Status set to ${status}` });
+      toast({
+        title: t("orders.toasts.updatedTitle"),
+        description: t("orders.toasts.updatedDesc", { statusLabel: t(`orders.status.${status}`) }),
+      });
     } catch (err: any) {
       toast({
-        title: "Failed to update status",
-        description: err?.message || "Please try again.",
+        title: t("orders.toasts.updateFailedTitle"),
+        description: err?.message || t("orders.toasts.updateFailedDesc"),
         variant: "destructive",
       });
     } finally {
@@ -109,20 +135,20 @@ const Orders = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Orders</h1>
-          <p className="text-muted-foreground text-sm">Manage and track all customer orders</p>
+          <h1 className="text-2xl font-bold text-foreground">{t("orders.title")}</h1>
+          <p className="text-muted-foreground text-sm">{t("orders.subtitle")}</p>
         </div>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: "Total Orders", value: stats.total, icon: Package, color: "text-primary" },
-          { label: "Pending", value: stats.pending, icon: Clock, color: "text-amber-500" },
-          { label: "Delivered", value: stats.delivered, icon: Truck, color: "text-primary" },
-          { label: "Cancelled", value: stats.cancelled, icon: XCircle, color: "text-destructive" },
+          { id: "totalOrders", label: t("orders.stats.totalOrders"), value: stats.total, icon: Package, color: "text-primary" },
+          { id: "pending", label: t("orders.stats.pending"), value: stats.pending, icon: Clock, color: "text-amber-500" },
+          { id: "delivered", label: t("orders.stats.delivered"), value: stats.delivered, icon: Truck, color: "text-primary" },
+          { id: "cancelled", label: t("orders.stats.cancelled"), value: stats.cancelled, icon: XCircle, color: "text-destructive" },
         ].map((s, i) => (
-          <motion.div key={s.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+          <motion.div key={s.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
             <Card className="border">
               <CardContent className="p-4 flex items-center gap-3">
                 <div className={`p-2 rounded-xl bg-muted ${s.color}`}>
@@ -142,13 +168,13 @@ const Orders = () => {
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search by name or order ID..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+          <Input placeholder={t("orders.searchPlaceholder")} value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
         </div>
         <div className="flex gap-1.5 overflow-x-auto pb-1">
           {filters.map(f => (
             <Button key={f} size="sm" variant={activeFilter === f ? "default" : "outline"}
               onClick={() => setActiveFilter(f)} className="capitalize whitespace-nowrap text-xs">
-              {f === "all" ? "All" : f}
+              {f === "all" ? t("orders.filters.all") : t(`orders.filters.${f}`)}
             </Button>
           ))}
         </div>
@@ -157,17 +183,17 @@ const Orders = () => {
       {/* Order Cards */}
       <div className="space-y-3">
         {loading && (
-          <Card className="border"><CardContent className="p-12 text-center text-muted-foreground">Loading orders…</CardContent></Card>
+          <Card className="border"><CardContent className="p-12 text-center text-muted-foreground">{t("orders.loading")}</CardContent></Card>
         )}
 
         {!loading && filtered.length === 0 && (
-          <Card className="border"><CardContent className="p-12 text-center text-muted-foreground">No orders found</CardContent></Card>
+          <Card className="border"><CardContent className="p-12 text-center text-muted-foreground">{t("orders.empty")}</CardContent></Card>
         )}
 
         {!loading && filtered.map((order, i) => {
           const sc = statusConfig[order.status];
           const StatusIcon = sc.icon;
-          const customerName = order.customer?.name || "Customer";
+          const customerName = order.customer?.name || t("orders.customerFallback");
           const customerPhone = normalizePhone(order.customer?.phone);
           const itemText = (order.items || []).map((it) => `${it.title} x${it.quantity}`).join(", ");
           return (
@@ -181,6 +207,9 @@ const Orders = () => {
                         <Badge variant="outline" className={`text-[11px] ${sc.class}`}>
                           <StatusIcon className="w-3 h-3 mr-1" /> {sc.label}
                         </Badge>
+                        <Badge variant="secondary" className="text-[11px] capitalize">
+                          {order.source}{order.origin && order.origin !== 'unknown' ? ` · ${order.origin}` : ''}
+                        </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">{customerName}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">{itemText}</p>
@@ -188,7 +217,7 @@ const Orders = () => {
                     <div className="flex items-center gap-3">
                       <div className="text-right">
                         <p className="font-bold text-foreground">₹{order.total}</p>
-                        <p className="text-xs text-muted-foreground">{new Date(order.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</p>
+                        <p className="text-xs text-muted-foreground">{new Date(order.createdAt).toLocaleDateString(dateLocale, { day: "numeric", month: "short", year: "numeric" })}</p>
                       </div>
                       <div className="flex gap-1.5">
                         <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setSelectedOrder(order)}>
@@ -220,7 +249,7 @@ const Orders = () => {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              Order {selectedOrder?.orderId}
+              {selectedOrder ? t("orders.detailTitle", { orderId: selectedOrder.orderId }) : t("orders.title")}
               {selectedOrder && (
                 <Badge variant="outline" className={statusConfig[selectedOrder.status].class}>
                   {statusConfig[selectedOrder.status].label}
@@ -231,13 +260,23 @@ const Orders = () => {
           {selectedOrder && (
             <div className="space-y-4">
               <div>
-                <p className="text-sm font-medium text-foreground">{selectedOrder.customer?.name || "Customer"}</p>
-                <p className="text-xs text-muted-foreground">WhatsApp: {selectedOrder.customer?.phone || "-"}</p>
-                <p className="text-xs text-muted-foreground">Date: {new Date(selectedOrder.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })}</p>
+                <p className="text-sm font-medium text-foreground">{selectedOrder.customer?.name || t("orders.customerFallback")}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("orders.whatsappLabel", { phone: selectedOrder.customer?.phone || "-" })}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t("orders.dateLabel", {
+                    date: new Date(selectedOrder.createdAt).toLocaleDateString(dateLocale, {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                    }),
+                  })}
+                </p>
               </div>
               <Separator />
               <div>
-                <p className="text-sm font-medium text-foreground mb-2">Update status</p>
+                <p className="text-sm font-medium text-foreground mb-2">{t("orders.updateStatus")}</p>
                 <div className="flex flex-wrap gap-2">
                   {filters.filter((f) => f !== "all").map((s) => (
                     <Button
@@ -248,14 +287,14 @@ const Orders = () => {
                       onClick={() => handleUpdateStatus(selectedOrder._id, s as OrderStatus)}
                       className="capitalize"
                     >
-                      {s}
+                      {t(`orders.status.${s}`)}
                     </Button>
                   ))}
                 </div>
               </div>
               <Separator />
               <div>
-                <p className="text-sm font-medium text-foreground mb-2">Items</p>
+                <p className="text-sm font-medium text-foreground mb-2">{t("orders.items")}</p>
                 <ul className="space-y-1.5">
                   {selectedOrder.items.map((item, idx) => (
                     <li key={idx} className="text-sm text-muted-foreground flex items-center gap-2">
@@ -267,24 +306,27 @@ const Orders = () => {
               </div>
               <Separator />
               <div className="flex justify-between items-center">
-                <span className="font-medium text-foreground">Total</span>
+                <span className="font-medium text-foreground">{t("orders.total")}</span>
                 <span className="text-lg font-bold text-primary">₹{selectedOrder.total}</span>
               </div>
               {normalizePhone(selectedOrder.customer?.phone) ? (
                 <Button className="w-full" asChild>
                   <a
                     href={`https://wa.me/${normalizePhone(selectedOrder.customer?.phone)}?text=${encodeURIComponent(
-                      `Hi ${(selectedOrder.customer?.name || "Customer").trim()}, regarding your order ${selectedOrder.orderId}`
+                      t("orders.whatsappMessage", {
+                        name: (selectedOrder.customer?.name || t("orders.customerFallback")).trim(),
+                        orderId: selectedOrder.orderId,
+                      })
                     )}`}
                     target="_blank"
                     rel="noreferrer"
                   >
-                    <MessageCircle className="w-4 h-4 mr-2" /> Message on WhatsApp
+                    <MessageCircle className="w-4 h-4 mr-2" /> {t("orders.messageWhatsApp")}
                   </a>
                 </Button>
               ) : (
                 <Button className="w-full" disabled>
-                  <MessageCircle className="w-4 h-4 mr-2" /> No customer phone
+                  <MessageCircle className="w-4 h-4 mr-2" /> {t("orders.noCustomerPhone")}
                 </Button>
               )}
             </div>

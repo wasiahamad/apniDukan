@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Store, ArrowRight, Star, MessageCircle, Users, TrendingUp, CheckCircle } from "lucide-react";
+import { Search, Store, ArrowRight, Star, MessageCircle, Users, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,29 +13,40 @@ import ShopCard from "@/components/ShopCard";
 import PageTransition from "@/components/PageTransition";
 import ScrollReveal from "@/components/ScrollReveal";
 import StaggerChildren, { StaggerItem } from "@/components/StaggerChildren";
-import { pricingPlans } from "@/data/mockData";
-import { fetchPublicPlans } from "@/lib/plansApi";
-import { fetchBusinessTypes, fetchNearbyPublicShops, fetchPublicShops } from "@/lib/publicShopsApi";
+import StoriesTray from "@/components/StoriesTray";
+import GlobalSearch from "@/components/GlobalSearch";
+import { fetchActiveStories, fetchBusinessTypes, fetchNearbyPublicShops, fetchPublicShops, fetchCityImages, fetchPlatformFeedbackStats } from "@/lib/publicShopsApi";
 import { motion } from "framer-motion";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { getDukandarOnboardingUrl } from "@/lib/dukandarDashboard";
+import { Trans, useTranslation } from "react-i18next";
 
-const howItWorks = [
-  { icon: Search, title: "Search Karo", desc: "Apne area mein category ya shop name search karo" },
-  { icon: Store, title: "Shop Dekho", desc: "Products, prices, ratings aur reviews dekho" },
-  { icon: MessageCircle, title: "Seedha Contact Karo", desc: "WhatsApp, call ya map se directly connect karo" },
-];
+function TransSpan({ className, children, ...rest }: React.HTMLAttributes<HTMLSpanElement>) {
+  const { i18nIsDynamicList: _i18nIsDynamicList, ...safe } = rest as any;
+  return (
+    <span className={className} {...safe}>
+      {children}
+    </span>
+  );
+}
 
 export default function HomePage() {
+  const { t, i18n } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { requestLocation, userLocation } = useUserLocation();
   const [featuredCity, setFeaturedCity] = useState(searchParams.get("city") || "all");
   const [featuredCategory, setFeaturedCategory] = useState(searchParams.get("type") || "all");
   const [featuredOpenOnly, setFeaturedOpenOnly] = useState(searchParams.get("open") === "1");
+  const [cityImages, setCityImages] = useState<Record<string, string>>({});
 
   const shopsQuery = useQuery({
-    queryKey: ["public-shops", userLocation?.latitude ?? null, userLocation?.longitude ?? null],
+    queryKey: [
+      "public-shops",
+      i18n.language,
+      userLocation?.latitude ?? null,
+      userLocation?.longitude ?? null,
+    ],
     queryFn: () =>
       fetchPublicShops(
         userLocation
@@ -45,7 +56,12 @@ export default function HomePage() {
   });
 
   const nearbyShopsQuery = useQuery({
-    queryKey: ["public-shops-nearby", userLocation?.latitude ?? null, userLocation?.longitude ?? null],
+    queryKey: [
+      "public-shops-nearby",
+      i18n.language,
+      userLocation?.latitude ?? null,
+      userLocation?.longitude ?? null,
+    ],
     enabled: !!userLocation,
     queryFn: () =>
       fetchNearbyPublicShops({
@@ -57,14 +73,20 @@ export default function HomePage() {
   });
 
   const businessTypesQuery = useQuery({
-    queryKey: ["business-types"],
+    queryKey: ["business-types", i18n.language],
     queryFn: fetchBusinessTypes,
   });
 
-  const plansQuery = useQuery({
-    queryKey: ["public-plans"],
-    queryFn: fetchPublicPlans,
+  const platformStatsQuery = useQuery({
+    queryKey: ["platform-feedback-stats"],
+    queryFn: fetchPlatformFeedbackStats,
   });
+
+  const storiesQuery = useQuery({
+    queryKey: ["public-stories", "story"],
+    queryFn: () => fetchActiveStories("story"),
+  });
+
 
   const allShops = shopsQuery.data || [];
   const businessTypes = businessTypesQuery.data || [];
@@ -90,6 +112,20 @@ export default function HomePage() {
   const defaultCitySlug = cities[0]?.slug || "delhi";
   const mostActiveCitySlug = cities[0]?.slug || null;
 
+  // Fetch city images
+  useEffect(() => {
+    if (cities.length > 0) {
+      const cityNames = cities.map((c) => c.name);
+      fetchCityImages(cityNames)
+        .then((images) => {
+          setCityImages(images);
+        })
+        .catch((error) => {
+          console.error("Failed to fetch city images:", error);
+        });
+    }
+  }, [cities.length, cities.map((c) => c.name).join(",")]);
+
   useEffect(() => {
     const next = new URLSearchParams(searchParams);
 
@@ -102,7 +138,10 @@ export default function HomePage() {
     if (featuredOpenOnly) next.set("open", "1");
     else next.delete("open");
 
-    setSearchParams(next, { replace: true });
+    // Prevent redundant navigations that can cause UI flicker.
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
   }, [featuredCategory, featuredCity, featuredOpenOnly, searchParams, setSearchParams]);
 
   const filteredAllShops = useMemo(() => {
@@ -114,10 +153,10 @@ export default function HomePage() {
   }, [allShops, featuredCategory, featuredCity, featuredOpenOnly]);
 
   const featuredPool = useMemo(() => {
-    // Featured shops should be nearby (25km) when location available.
-    if (!userLocation) return filteredAllShops;
-    const nearby = nearbyShopsQuery.data || [];
-    let items = [...nearby];
+    // Prefer nearby (25km) when available, but fall back to all shops
+    // so filters never leave the section empty.
+    const nearby = userLocation ? (nearbyShopsQuery.data || []) : [];
+    let items = userLocation && nearby.length > 0 ? [...nearby] : [...filteredAllShops];
     if (featuredCity !== "all") items = items.filter((shop) => shop.citySlug === featuredCity);
     if (featuredCategory !== "all") items = items.filter((shop) => shop.categorySlug === featuredCategory);
     if (featuredOpenOnly) items = items.filter((shop) => shop.isOpen);
@@ -145,6 +184,7 @@ export default function HomePage() {
     };
 
     let items = featuredPool.filter((shop) => shop.verified);
+    if (items.length === 0) items = [...featuredPool];
     items.sort(byPlanAndRating);
     return items.slice(0, 8);
   }, [featuredPool]);
@@ -157,17 +197,14 @@ export default function HomePage() {
   const heroStats = useMemo(() => {
     const totalShops = allShops.length;
     const totalCities = cities.length;
-    const avgRating =
-      totalShops > 0
-        ? (allShops.reduce((sum, shop) => sum + (Number.isFinite(shop.rating) ? shop.rating : 0), 0) / totalShops)
-        : 0;
+    const avgRating = Number(platformStatsQuery.data?.avgRating || 0);
 
     return {
       totalShops,
       totalCities,
       avgRating,
     };
-  }, [allShops, cities.length]);
+  }, [allShops.length, cities.length, platformStatsQuery.data?.avgRating]);
 
   const renderBusinessTypeIcon = (icon: string | undefined) => {
     if (!icon) return <span className="text-2xl">🏪</span>;
@@ -176,6 +213,15 @@ export default function HomePage() {
     }
     return <span className="text-4xl mb-2">{icon}</span>;
   };
+
+  const howItWorks = useMemo(
+    () => [
+      { icon: Search, title: t("home.howItWorks.steps.search.title"), desc: t("home.howItWorks.steps.search.desc") },
+      { icon: Store, title: t("home.howItWorks.steps.view.title"), desc: t("home.howItWorks.steps.view.desc") },
+      { icon: MessageCircle, title: t("home.howItWorks.steps.contact.title"), desc: t("home.howItWorks.steps.contact.desc") },
+    ],
+    [t],
+  );
 
   return (
     <PageTransition>
@@ -188,14 +234,24 @@ export default function HomePage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: "easeOut" }}
           >
-            <Badge className="mb-4 bg-primary/10 text-primary border-primary/20">🇮🇳 India's Local Business Platform</Badge>
+            <Badge className="mb-4 bg-primary/10 text-primary border-primary/20">{t("home.hero.badge")}</Badge>
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight mb-4 text-foreground">
-              Find <span className="text-primary">the Best</span>  Shops
-              <br /> in Your <span className="text-secondary">Neighborhood</span> 
+              <Trans
+                i18nKey="home.hero.title"
+                components={[
+                  <TransSpan key="best" className="text-primary" />,
+                  <TransSpan key="neighborhood" className="text-secondary" />,
+                ]}
+              />
             </h1>
             <p className="text-lg text-muted-foreground mb-8 max-w-lg mx-auto">
-              Discover trusted shops in your area like salons, restaurants, grocery stores, and tailors — and connect directly via WhatsApp.
+              {t("home.hero.description")}
             </p>
+
+            <div className="mb-5 md:hidden max-w-lg mx-auto">
+              <GlobalSearch mode="hero" />
+            </div>
+
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }}>
                 <Button
@@ -207,10 +263,10 @@ export default function HomePage() {
                     } catch {
                       // ignore
                     }
-                    navigate("/shops");
+                    navigate("/shops?nearby=1");
                   }}
                 >
-                  <Search className="h-5 w-5" /> Explore Nearby Shops
+                  <Search className="h-5 w-5" /> {t("home.hero.exploreNearby")}
                 </Button>
               </motion.div>
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }}>
@@ -220,7 +276,7 @@ export default function HomePage() {
                   className="gap-2 text-base border-secondary text-secondary hover:bg-secondary hover:text-secondary-foreground"
                   onClick={() => window.open(getDukandarOnboardingUrl(), "_blank", "noopener,noreferrer")}
                 >
-                  <Store className="h-5 w-5" /> Register Your Shop
+                  <Store className="h-5 w-5" /> {t("home.hero.registerShop")}
                 </Button>
               </motion.div>
             </div>
@@ -235,15 +291,15 @@ export default function HomePage() {
                 {shopsQuery.isLoading ? (
                   <Skeleton className="h-4 w-16 rounded" />
                 ) : (
-                  `${heroStats.totalShops.toLocaleString("en-IN")} Shops`
+                  t("home.hero.stats.shops", { count: heroStats.totalShops.toLocaleString("en-IN") })
                 )}
               </span>
               <span className="flex items-center gap-1">
                 <Star className="h-4 w-4 text-secondary" />
-                {shopsQuery.isLoading ? (
+                {platformStatsQuery.isLoading ? (
                   <Skeleton className="h-4 w-14 rounded" />
                 ) : (
-                  `${heroStats.avgRating > 0 ? heroStats.avgRating.toFixed(1) : "0.0"} Rating`
+                  t("home.hero.stats.rating", { rating: heroStats.avgRating > 0 ? heroStats.avgRating.toFixed(1) : "0.0" })
                 )}
               </span>
               <span className="flex items-center gap-1">
@@ -251,7 +307,7 @@ export default function HomePage() {
                 {shopsQuery.isLoading ? (
                   <Skeleton className="h-4 w-12 rounded" />
                 ) : (
-                  `${heroStats.totalCities} Cities`
+                  t("home.hero.stats.cities", { count: heroStats.totalCities })
                 )}
               </span>
             </motion.div>
@@ -259,10 +315,12 @@ export default function HomePage() {
         </div>
       </section>
 
+      
+
       {/* How It Works */}
       <section className="container py-16">
         <ScrollReveal>
-          <h2 className="text-2xl md:text-3xl font-bold text-center mb-10">How Does It Work 🤔?</h2>
+          <h2 className="text-2xl md:text-3xl font-bold text-center mb-10">{t("home.howItWorks.title")}</h2>
         </ScrollReveal>
         <StaggerChildren className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {howItWorks.map((step, i) => (
@@ -271,7 +329,7 @@ export default function HomePage() {
                 <div className="mx-auto w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
                   <step.icon className="h-8 w-8 text-primary" />
                 </div>
-                <div className="text-sm font-medium text-primary mb-1">Step {i + 1}</div>
+                <div className="text-sm font-medium text-primary mb-1">{t("home.howItWorks.stepLabel", { step: i + 1 })}</div>
                 <h3 className="font-semibold text-lg mb-2">{step.title}</h3>
                 <p className="text-muted-foreground text-sm">{step.desc}</p>
               </div>
@@ -285,9 +343,11 @@ export default function HomePage() {
         <div className="container">
           <ScrollReveal>
             <div className="flex items-center justify-between mb-8">
-              <h2 className="text-2xl md:text-3xl font-bold">Featured Shops ⭐</h2>
+              <h2 className="text-2xl md:text-3xl font-bold">{t("home.featured.title")}</h2>
               <Button variant="ghost" asChild className="gap-1">
-                <Link to="/shops">View All <ArrowRight className="h-4 w-4" /></Link>
+                <Link to="/shops">
+                  {t("actions.viewAll")} <ArrowRight className="h-4 w-4" />
+                </Link>
               </Button>
             </div>
           </ScrollReveal>
@@ -296,10 +356,10 @@ export default function HomePage() {
             <div className="flex flex-wrap items-center gap-3 mb-6 p-4 rounded-xl border bg-card">
               <Select value={featuredCity} onValueChange={setFeaturedCity}>
                 <SelectTrigger className="w-44">
-                  <SelectValue placeholder="City" />
+                  <SelectValue placeholder={t("home.featured.filters.city")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Cities</SelectItem>
+                  <SelectItem value="all">{t("home.featured.filters.allCities")}</SelectItem>
                   {cities.map((city) => (
                     <SelectItem key={city.slug} value={city.slug}>{city.name}</SelectItem>
                   ))}
@@ -308,10 +368,10 @@ export default function HomePage() {
 
               <Select value={featuredCategory} onValueChange={setFeaturedCategory}>
                 <SelectTrigger className="w-52">
-                  <SelectValue placeholder="Business Type" />
+                  <SelectValue placeholder={t("home.featured.filters.businessType")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Business Types</SelectItem>
+                  <SelectItem value="all">{t("home.featured.filters.allBusinessTypes")}</SelectItem>
                   {businessTypes.map((cat) => (
                     <SelectItem key={cat.id} value={cat.slug}>{cat.name}</SelectItem>
                   ))}
@@ -320,12 +380,12 @@ export default function HomePage() {
 
               <div className="flex items-center gap-2">
                 <Switch id="featured-open-only" checked={featuredOpenOnly} onCheckedChange={setFeaturedOpenOnly} />
-                <Label htmlFor="featured-open-only" className="text-sm">Open now only</Label>
+                <Label htmlFor="featured-open-only" className="text-sm">{t("home.featured.filters.openNowOnly")}</Label>
               </div>
             </div>
           </ScrollReveal>
 
-          {shopsQuery.isLoading || (userLocation ? nearbyShopsQuery.isLoading : false) ? (
+          {shopsQuery.isLoading || (userLocation ? (nearbyShopsQuery.isLoading && allShops.length === 0) : false) ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               <Skeleton className="h-[360px] w-full rounded-xl" />
               <Skeleton className="h-[360px] w-full rounded-xl" />
@@ -333,9 +393,7 @@ export default function HomePage() {
             </div>
           ) : featuredShops.length === 0 ? (
             <p className="text-center text-muted-foreground py-10">
-              {userLocation
-                ? "Aapke 25km ke andar koi featured shop nahi mili."
-                : "Filter ke hisab se koi featured shop nahi mili."}
+              {t("home.featured.noMatches")}
             </p>
           ) : (
           <StaggerChildren className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -352,7 +410,7 @@ export default function HomePage() {
       {/* Categories */}
       <section className="container py-16">
         <ScrollReveal>
-          <h2 className="text-2xl md:text-3xl font-bold text-center mb-10">Browse by Category</h2>
+          <h2 className="text-2xl md:text-3xl font-bold text-center mb-10">{t("home.categories.title")}</h2>
         </ScrollReveal>
         {businessTypesQuery.isLoading ? (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -365,7 +423,7 @@ export default function HomePage() {
         <StaggerChildren className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {businessTypes.map(cat => (
             <StaggerItem key={cat.slug}>
-              <Link to={`/${defaultCitySlug}/${cat.slug}`}>
+              <Link to={`/shops/${cat.slug}`}>
                 <motion.div whileHover={{ scale: 1.05, y: -4 }} transition={{ type: "spring", stiffness: 300 }}>
                   <Card className="hover:shadow-md transition-shadow hover:border-primary/30 text-center py-6 cursor-pointer">
                     <CardContent className="p-0">
@@ -385,9 +443,11 @@ export default function HomePage() {
       <section className="container py-16">
         <ScrollReveal>
           <div className="flex items-center justify-between mb-8">
-            <h2 className="text-2xl md:text-3xl font-bold">More Shops</h2>
+            <h2 className="text-2xl md:text-3xl font-bold">{t("home.more.title")}</h2>
             <Button variant="ghost" asChild className="gap-1">
-              <Link to="/shops">View All <ArrowRight className="h-4 w-4" /></Link>
+              <Link to="/shops">
+                {t("actions.viewAll")} <ArrowRight className="h-4 w-4" />
+              </Link>
             </Button>
           </div>
         </ScrollReveal>
@@ -399,10 +459,10 @@ export default function HomePage() {
             <Skeleton className="h-[360px] w-full rounded-xl" />
           </div>
         ) : remainingShops.length === 0 ? (
-          <p className="text-center text-muted-foreground py-10">Abhi aur shops available nahi hai.</p>
+          <p className="text-center text-muted-foreground py-10">{t("home.more.none")}</p>
         ) : (
           <>
-            <p className="text-sm text-muted-foreground mb-4">{remainingShops.length} shops</p>
+            <p className="text-sm text-muted-foreground mb-4">{t("home.more.count", { count: remainingShops.length })}</p>
             <StaggerChildren className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {remainingShops.map((shop) => (
                 <StaggerItem key={shop.id}>
@@ -418,11 +478,11 @@ export default function HomePage() {
       <section className="bg-muted/50 py-16">
         <div className="container">
           <ScrollReveal>
-            <h2 className="text-2xl md:text-3xl font-bold text-center mb-10">Browse by City 🏙️</h2>
+            <h2 className="text-2xl md:text-3xl font-bold text-center mb-10">{t("home.cities.title")}</h2>
           </ScrollReveal>
           {shopsQuery.isLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-              {Array.from({ length: 5 }).map((_, i) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {Array.from({ length: Math.max(4, Math.min(cities.length || 5, 8)) }).map((_, i) => (
                 <Card key={i} className="overflow-hidden">
                   <Skeleton className="h-32 w-full" />
                   <CardContent className="p-3 text-center space-y-2">
@@ -433,25 +493,28 @@ export default function HomePage() {
               ))}
             </div>
           ) : (
-            <StaggerChildren className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+            <StaggerChildren className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {cities.map((city) => (
                 <StaggerItem key={city.slug}>
                   <Link to={`/${city.slug}`}>
                     <motion.div whileHover={{ y: -6 }} transition={{ type: "spring", stiffness: 300 }}>
                       <Card className="overflow-hidden hover:shadow-lg transition-shadow group cursor-pointer">
-                        <div className="h-32 overflow-hidden">
+                        <div className="h-32 overflow-hidden bg-muted animate-pulse">
                           <img
-                            src={city.image}
+                            src={cityImages[city.name] || city.image}
                             alt={city.name}
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                             loading="lazy"
+                            onLoad={(e) => {
+                              (e.currentTarget as HTMLImageElement).classList.remove('animate-pulse');
+                            }}
                           />
                         </div>
                         <CardContent className="p-3 text-center">
                           <h3 className="font-semibold inline-flex items-center gap-2">
                             {city.name}
                             {mostActiveCitySlug === city.slug ? (
-                              <Badge className="bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5">Most Active</Badge>
+                              <Badge className="bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5">{t("home.cities.mostActive")}</Badge>
                             ) : null}
                           </h3>
                           <p className="text-xs text-muted-foreground">{city.totalShops} shops</p>
@@ -466,122 +529,38 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Pricing Preview */}
-      <section className="container py-16">
-        <ScrollReveal>
-          <h2 className="text-2xl md:text-3xl font-bold text-center mb-2">Simple Pricing 💰</h2>
-          <p className="text-muted-foreground text-center mb-10">Apne business ke liye sahi plan choose karo</p>
-        </ScrollReveal>
-        {plansQuery.isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Card key={i} className="relative">
-                <CardHeader className="text-center">
-                  <Skeleton className="h-5 w-24 mx-auto" />
-                  <div className="mt-2 flex items-baseline justify-center gap-2">
-                    <Skeleton className="h-9 w-24" />
-                    <Skeleton className="h-3 w-14" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2 mb-6">
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-4 w-2/3" />
-                    <Skeleton className="h-4 w-4/5" />
-                    <Skeleton className="h-4 w-1/2" />
-                  </div>
-                  <Skeleton className="h-10 w-full" />
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        ) : plansQuery.isError ? (
-          <StaggerChildren className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {pricingPlans.map(plan => (
-              <StaggerItem key={plan.name}>
-                <Card className={`relative ${plan.popular ? "border-primary shadow-lg scale-105" : ""}`}>
-                  {plan.popular && (
-                    <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary">Most Popular</Badge>
-                  )}
-                  <CardHeader className="text-center">
-                    <CardTitle className="text-lg">{plan.name}</CardTitle>
-                    <div className="mt-2">
-                      <span className="text-3xl font-bold">₹{plan.price}</span>
-                      <span className="text-muted-foreground text-sm">/{plan.billingCycle}</span>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <ul className="space-y-2 mb-6">
-                      {plan.features.map((f, i) => (
-                        <li key={i} className="flex items-start gap-2 text-sm">
-                          <CheckCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                          {f}
-                        </li>
-                      ))}
-                    </ul>
-                    <Button className="w-full" variant={plan.popular ? "default" : "outline"} asChild>
-                      <Link to="/for-business">{plan.cta}</Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              </StaggerItem>
-            ))}
-          </StaggerChildren>
-        ) : (
-          <StaggerChildren className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {(plansQuery.data || []).map(plan => (
-              <StaggerItem key={plan.name}>
-                <Card className={`relative ${plan.popular ? "border-primary shadow-lg scale-105" : ""}`}>
-                  {plan.popular && (
-                    <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary">Most Popular</Badge>
-                  )}
-                  <CardHeader className="text-center">
-                    <CardTitle className="text-lg">{plan.name}</CardTitle>
-                    <div className="mt-2">
-                      <span className="text-3xl font-bold">₹{plan.price}</span>
-                      <span className="text-muted-foreground text-sm">/{plan.billingCycle}</span>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <ul className="space-y-2 mb-6">
-                      {plan.features.map((f, i) => (
-                        <li key={i} className="flex items-start gap-2 text-sm">
-                          <CheckCircle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                          {f}
-                        </li>
-                      ))}
-                    </ul>
-                    <Button className="w-full" variant={plan.popular ? "default" : "outline"} asChild>
-                      <Link to="/for-business">{plan.cta}</Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              </StaggerItem>
-            ))}
-          </StaggerChildren>
-        )}
-      </section>
-
       {/* CTA Banner */}
       <ScrollReveal>
         <section className="bg-primary py-16">
           <div className="container text-center">
             <h2 className="text-2xl md:text-3xl font-bold text-primary-foreground mb-3">
-              Apni Dukaan Ko Online Lao! 🚀
+              {t("home.cta.title")}
             </h2>
             <p className="text-primary-foreground/80 mb-6 max-w-md mx-auto">
-              10 minute mein apni shop ka professional page banao. WhatsApp se orders lo. Customers badhao.
+              {t("home.cta.description")}
             </p>
-            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }} className="inline-block">
-              <Button
-                size="lg"
-                variant="secondary"
-                className="gap-2"
-                onClick={() => window.open(getDukandarOnboardingUrl(), "_blank", "noopener,noreferrer")}
-              >
-                <Store className="h-5 w-5" /> Abhi Register Karo — Free Hai!
-              </Button>
-            </motion.div>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }}>
+                <Button
+                  size="lg"
+                  variant="secondary"
+                  className="gap-2"
+                  onClick={() => window.open(getDukandarOnboardingUrl(), "_blank", "noopener,noreferrer")}
+                >
+                  <Store className="h-5 w-5" /> {t("home.cta.registerShop")}
+                </Button>
+              </motion.div>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }}>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="bg-transparent border-primary-foreground text-primary-foreground hover:bg-primary-foreground/10"
+                  asChild
+                >
+                  <Link to="/signup">{t("home.cta.createCustomer")}</Link>
+                </Button>
+              </motion.div>
+            </div>
           </div>
         </section>
       </ScrollReveal>

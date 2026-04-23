@@ -2,15 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Save, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/contexts/AuthContext";
 import { businessApi, type Business } from "@/lib/api/index";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 
+const PREVIEW_BUBBLE_TEXT_COLOR = "#0f172a";
+
 const WhatsAppSettings = () => {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { t } = useTranslation();
 
   const [business, setBusiness] = useState<Business | null>(null);
   const [loading, setLoading] = useState(true);
@@ -18,9 +22,9 @@ const WhatsAppSettings = () => {
   const [saved, setSaved] = useState(false);
 
   const [number, setNumber] = useState("");
-  const [orderMsg, setOrderMsg] = useState("Hello {{business_name}}, I want to order {{product_name}}.");
+  const [orderMsg, setOrderMsg] = useState(() => t("whatsapp.defaults.orderTemplate"));
   const [autoGreetingEnabled, setAutoGreetingEnabled] = useState(true);
-  const [greeting, setGreeting] = useState("Welcome! How can we help you?");
+  const [greeting, setGreeting] = useState(() => t("whatsapp.defaults.greeting"));
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -44,14 +48,14 @@ const WhatsAppSettings = () => {
         setNumber(biz.whatsapp || "");
         setOrderMsg(
           biz.whatsappOrderMessageTemplate ||
-            "Hello {{business_name}}, I want to order {{product_name}}."
+            t("whatsapp.defaults.orderTemplate")
         );
         setAutoGreetingEnabled(biz.whatsappAutoGreetingEnabled ?? true);
-        setGreeting(biz.whatsappAutoGreetingMessage || "Welcome! How can we help you?");
+        setGreeting(biz.whatsappAutoGreetingMessage || t("whatsapp.defaults.greeting"));
       } catch (err: any) {
         toast({
-          title: "Error",
-          description: err.message || "Failed to load WhatsApp settings",
+          title: t("whatsapp.toasts.errorTitle"),
+          description: err.message || t("whatsapp.toasts.loadFailedDesc"),
           variant: "destructive",
         });
       } finally {
@@ -65,13 +69,13 @@ const WhatsAppSettings = () => {
   }, [isAuthenticated, navigate, toast]);
 
   const previewOrder = useMemo(() => {
-    const businessName = business?.name || "Your Store";
+    const businessName = business?.name || t("whatsapp.preview.yourStore");
     return orderMsg
       .replace(/{{\s*business_name\s*}}/g, businessName)
-      .replace(/{{\s*product_name\s*}}/g, "Tata Salt")
-      .replace(/{{\s*order_items\s*}}/g, "Tata Salt x1 - ₹30")
-      .replace(/{{\s*total\s*}}/g, "₹30");
-  }, [business?.name, orderMsg]);
+      .replace(/{{\s*product_name\s*}}/g, t("whatsapp.preview.sampleProduct"))
+      .replace(/{{\s*order_items\s*}}/g, t("whatsapp.preview.sampleItems"))
+      .replace(/{{\s*total\s*}}/g, t("whatsapp.preview.sampleTotal"));
+  }, [business?.name, orderMsg, t]);
 
   const previewFullMessage = useMemo(() => {
     const g = (greeting || "").trim();
@@ -94,17 +98,17 @@ const WhatsAppSettings = () => {
         whatsappAutoGreetingMessage: greeting,
       });
 
-      if (!res.success || !res.data) throw new Error(res.message || "Failed to save settings");
+      if (!res.success || !res.data) throw new Error(res.message || t("whatsapp.toasts.saveFailedDesc"));
       setBusiness(res.data);
       setSaved(true);
       toast({
-        title: "Saved",
-        description: "WhatsApp settings updated successfully",
+        title: t("whatsapp.toasts.savedTitle"),
+        description: t("whatsapp.toasts.savedDesc"),
       });
     } catch (err: any) {
       toast({
-        title: "Save Error",
-        description: err.message || "Failed to save settings",
+        title: t("whatsapp.toasts.saveErrorTitle"),
+        description: err.message || t("whatsapp.toasts.saveFailedDesc"),
         variant: "destructive",
       });
     } finally {
@@ -126,26 +130,26 @@ const WhatsAppSettings = () => {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-xl font-bold">WhatsApp Settings</h1>
+      <h1 className="text-xl font-bold">{t("whatsapp.title")}</h1>
 
       <div className="bg-card border rounded-xl p-4 space-y-4">
-        <h3 className="font-bold text-sm">Business WhatsApp</h3>
+        <h3 className="font-bold text-sm">{t("whatsapp.businessNumber.title")}</h3>
         <input value={number} onChange={e => { setNumber(e.target.value); setSaved(false); }}
-          className="w-full px-3 py-2.5 bg-muted border rounded-lg text-sm" placeholder="WhatsApp number" />
+          className="w-full px-3 py-2.5 bg-muted border rounded-lg text-sm" placeholder={t("whatsapp.businessNumber.placeholder")} />
       </div>
 
       <div className="bg-card border rounded-xl p-4 space-y-4">
-        <h3 className="font-bold text-sm">Default Order Message</h3>
+        <h3 className="font-bold text-sm">{t("whatsapp.orderMessage.title")}</h3>
         <textarea value={orderMsg} onChange={e => { setOrderMsg(e.target.value); setSaved(false); }} rows={3}
           className="w-full px-3 py-2.5 bg-muted border rounded-lg text-sm resize-none" />
         <p className="text-xs text-muted-foreground">
-          Placeholders: {"{{business_name}}"}, {"{{product_name}}"}, {"{{order_items}}"}, {"{{total}}"}
+          {t("whatsapp.orderMessage.placeholdersLabel")}: {"{{business_name}}"}, {"{{product_name}}"}, {"{{order_items}}"}, {"{{total}}"}
         </p>
       </div>
 
       <div className="bg-card border rounded-xl p-4 space-y-4">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="font-bold text-sm">Auto Greeting</h3>
+          <h3 className="font-bold text-sm">{t("whatsapp.autoGreeting.title")}</h3>
           <label className="flex items-center gap-2 text-sm text-muted-foreground select-none">
             <input
               type="checkbox"
@@ -153,7 +157,7 @@ const WhatsAppSettings = () => {
               onChange={(e) => { setAutoGreetingEnabled(e.target.checked); setSaved(false); }}
               className="h-4 w-4 accent-primary"
             />
-            Enabled
+            {t("whatsapp.autoGreeting.enabled")}
           </label>
         </div>
         <textarea value={greeting} onChange={e => { setGreeting(e.target.value); setSaved(false); }} rows={2}
@@ -161,21 +165,24 @@ const WhatsAppSettings = () => {
       </div>
 
       <div className="bg-card border rounded-xl p-4">
-        <h3 className="font-bold text-sm mb-3">Preview</h3>
+        <h3 className="font-bold text-sm mb-3">{t("whatsapp.preview.title")}</h3>
         <div className="bg-green-50 rounded-xl p-3 space-y-2">
-          <div className="bg-green-100 rounded-lg p-2.5 text-sm shadow-sm max-w-[90%] ml-auto whitespace-pre-wrap">
+          <div
+            className="bg-green-100 rounded-lg p-2.5 text-sm shadow-sm max-w-[90%] ml-auto whitespace-pre-wrap"
+            style={{ color: PREVIEW_BUBBLE_TEXT_COLOR }}
+          >
             {previewFullMessage}
           </div>
         </div>
         <p className="text-xs text-muted-foreground mt-3">
-          Note: WhatsApp link message auto-send nahi hota — message pre-filled aata hai, customer ko WhatsApp me "Send" tap karna hota hai.
+          {t("whatsapp.preview.note")}
         </p>
       </div>
 
       <motion.button whileTap={{ scale: 0.97 }} onClick={handleSave} disabled={saving}
         className="w-full flex items-center justify-center gap-2 bg-primary text-primary-foreground py-3.5 rounded-xl font-semibold shadow-lg shadow-primary/20 disabled:opacity-70">
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-        {saved ? "Saved ✓" : "Save Settings"}
+        {saved ? t("whatsapp.actions.saved") : t("whatsapp.actions.save")}
       </motion.button>
     </div>
   );

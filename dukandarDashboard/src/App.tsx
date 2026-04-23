@@ -2,8 +2,10 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useEffect, useLayoutEffect } from "react";
+import i18n from "@/i18n";
+import { getPreferredLanguage } from "@/lib/language";
 import { AuthProvider } from "./contexts/AuthContext";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
@@ -24,12 +26,14 @@ import WhatsAppSettings from "./pages/WhatsAppSettings";
 import LocationPage from "./pages/LocationPage";
 import Analytics from "./pages/Analytics";
 import Subscription from "./pages/Subscription";
-import Invoices from "./pages/Invoices";
 import Support from "./pages/Support";
 import SettingsPage from "./pages/SettingsPage";
+import ShopOffers from "./pages/ShopOffers";
+import StoriesPage from "./pages/Stories";
 import Referrals from "./pages/Referrals";
 import Orders from "./pages/Orders";
 import Bookings from "./pages/Bookings";
+import Ratings from "./pages/Ratings";
 import RequireFeature from "./components/RequireFeature";
 
 const queryClient = new QueryClient();
@@ -76,6 +80,24 @@ const RouteThemeScope = () => {
   return null;
 };
 
+const LanguageScope = () => {
+  useEffect(() => {
+    const apply = () => {
+      i18n.changeLanguage(getPreferredLanguage());
+    };
+
+    apply();
+    window.addEventListener('dukaansetu:lang', apply);
+    window.addEventListener('storage', apply);
+    return () => {
+      window.removeEventListener('dukaansetu:lang', apply);
+      window.removeEventListener('storage', apply);
+    };
+  }, []);
+
+  return null;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -83,6 +105,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <LanguageScope />
           <RouteThemeScope />
           <Routes>
             <Route path="/" element={<Index />} />
@@ -99,13 +122,16 @@ const App = () => (
               <Route path="branding" element={<RequireFeature feature="brandingEnabled" title="Branding is not enabled"><Branding /></RequireFeature>} />
               <Route path="listings" element={<Products />} />
               <Route path="listings/:listingId" element={<ProductDetail />} />
+              <Route path="offers" element={<RequireFeature feature="offersEnabled" title="Offers are not enabled"><ShopOffers /></RequireFeature>} />
               <Route path="orders" element={<RequireFeature feature="ordersEnabled" title="Orders are not enabled"><Orders /></RequireFeature>} />
-              <Route path="bookings" element={<Bookings />} />
+              <Route path="bookings" element={<RequireFeature feature="bookingEnabled" title="Bookings are not enabled"><Bookings /></RequireFeature>} />
+              <Route path="stories" element={<RequireFeature feature="storiesEnabled" title="Stories are not enabled"><StoriesPage /></RequireFeature>} />
+              <Route path="ratings" element={<RequireFeature feature="ratingsEnabled" title="Ratings are not enabled"><Ratings /></RequireFeature>} />
               <Route path="whatsapp" element={<RequireFeature feature="whatsappSettingsEnabled" title="WhatsApp settings are not enabled"><WhatsAppSettings /></RequireFeature>} />
-              <Route path="location" element={<LocationPage />} />
+              <Route path="location" element={<RequireFeature feature="locationEnabled" title="Location is not enabled"><LocationPage /></RequireFeature>} />
               <Route path="analytics" element={<RequireFeature feature="analyticsEnabled" title="Analytics is not enabled"><Analytics /></RequireFeature>} />
               <Route path="subscription" element={<Subscription />} />
-              <Route path="invoices" element={<RequireFeature feature="invoicesEnabled" title="Invoices are not enabled"><Invoices /></RequireFeature>} />
+              <Route path="invoices" element={<Navigate to="/dashboard/subscription?section=invoices" replace />} />
               <Route path="referrals" element={<RequireFeature feature="referralsEnabled" title="Referrals are not enabled"><Referrals /></RequireFeature>} />
               <Route path="support" element={<Support />} />
               <Route path="settings" element={<SettingsPage />} />

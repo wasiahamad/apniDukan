@@ -1,5 +1,50 @@
 import { BusinessType } from '../models/index.js';
 
+const getRequestedLang = (req) => {
+  const q = String(req.query?.lang || '').toLowerCase();
+  if (q.startsWith('hi')) return 'hi';
+  if (q.startsWith('en')) return 'en';
+
+  const header = String(req.headers?.['accept-language'] || '').toLowerCase();
+  if (header.startsWith('hi')) return 'hi';
+  return 'en';
+};
+
+const looksLikeHindi = (value) => /[\u0900-\u097F]/.test(String(value || ''));
+
+// Fallback labels for popular business types when DB doesn't have Hindi content yet.
+const HI_BUSINESS_TYPE_LABELS = {
+  'kirana-store': 'किराना स्टोर',
+  restaurant: 'रेस्टोरेंट',
+  'coaching-center': 'कोचिंग सेंटर',
+  'property-rental': 'किराये की प्रॉपर्टी',
+
+  // Variants based on slug generation / seed naming
+  'salon-spa': 'सैलून और स्पा',
+  'salon-and-spa': 'सैलून और स्पा',
+
+  'clothing-store': 'कपड़ों की दुकान',
+  'electronics-shop': 'इलेक्ट्रॉनिक्स दुकान',
+  'medical-store': 'मेडिकल स्टोर',
+
+  'gym-fitness': 'जिम और फिटनेस',
+  'gym-and-fitness': 'जिम और फिटनेस',
+
+  'bakery-cafe': 'बेकरी और कैफ़े',
+  'bakery-and-cafe': 'बेकरी और कैफ़े',
+
+  'stationery-shop': 'स्टेशनरी शॉप',
+  'stationery-store': 'स्टेशनरी स्टोर',
+
+  'mobile-repair': 'मोबाइल रिपेयर',
+  'furniture-store': 'फर्नीचर स्टोर',
+  'pet-shop': 'पेट शॉप',
+
+  'car-service-center': 'कार सर्विस सेंटर',
+  'car-bike-service-center': 'कार और बाइक सर्विस सेंटर',
+  'car-bike-service-centre': 'कार और बाइक सर्विस सेंटर',
+};
+
 const normalizeWhyChooseUsTemplates = (raw) => {
   if (!Array.isArray(raw)) return [];
   const unique = new Set();
@@ -76,9 +121,25 @@ export const getAllBusinessTypes = async (req, res) => {
       .select('-__v')
       .lean();
 
+    const lang = getRequestedLang(req);
+    const localized = lang === 'hi'
+      ? businessTypes.map((bt) => {
+          const slug = String(bt?.slug || '').toLowerCase();
+          const fallbackName = HI_BUSINESS_TYPE_LABELS[slug];
+          const resolvedName = String(bt?.nameHi || '').trim() || (!looksLikeHindi(bt?.name) ? fallbackName : undefined) || bt?.name;
+          const resolvedDescription = String(bt?.descriptionHi || '').trim() || bt?.description;
+
+          return {
+            ...bt,
+            name: resolvedName,
+            description: resolvedDescription,
+          };
+        })
+      : businessTypes;
+
     res.status(200).json({
       success: true,
-      data: businessTypes,
+      data: localized,
     });
   } catch (error) {
     console.error('Get all business types error:', error);
@@ -111,9 +172,25 @@ export const getAllBusinessTypesAdmin = async (req, res) => {
       .select('-__v')
       .lean();
 
+    const lang = getRequestedLang(req);
+    const localized = lang === 'hi'
+      ? businessTypes.map((bt) => {
+          const slug = String(bt?.slug || '').toLowerCase();
+          const fallbackName = HI_BUSINESS_TYPE_LABELS[slug];
+          const resolvedName = String(bt?.nameHi || '').trim() || (!looksLikeHindi(bt?.name) ? fallbackName : undefined) || bt?.name;
+          const resolvedDescription = String(bt?.descriptionHi || '').trim() || bt?.description;
+
+          return {
+            ...bt,
+            name: resolvedName,
+            description: resolvedDescription,
+          };
+        })
+      : businessTypes;
+
     res.status(200).json({
       success: true,
-      data: businessTypes,
+      data: localized,
     });
   } catch (error) {
     console.error('Admin get all business types error:', error);
@@ -136,7 +213,7 @@ export const getBusinessType = async (req, res) => {
       ? { _id: identifier }
       : { slug: identifier };
 
-    const businessType = await BusinessType.findOne(query);
+    const businessType = await BusinessType.findOne(query).select('-__v').lean();
 
     if (!businessType) {
       return res.status(404).json({
@@ -145,9 +222,25 @@ export const getBusinessType = async (req, res) => {
       });
     }
 
+    const lang = getRequestedLang(req);
+    const payload = lang === 'hi'
+      ? (() => {
+          const slug = String(businessType?.slug || '').toLowerCase();
+          const fallbackName = HI_BUSINESS_TYPE_LABELS[slug];
+          const resolvedName = String(businessType?.nameHi || '').trim() || (!looksLikeHindi(businessType?.name) ? fallbackName : undefined) || businessType?.name;
+          const resolvedDescription = String(businessType?.descriptionHi || '').trim() || businessType?.description;
+
+          return {
+            ...businessType,
+            name: resolvedName,
+            description: resolvedDescription,
+          };
+        })()
+      : businessType;
+
     res.status(200).json({
       success: true,
-      data: businessType,
+      data: payload,
     });
   } catch (error) {
     console.error('Get business type error:', error);
@@ -165,7 +258,9 @@ export const createBusinessType = async (req, res) => {
   try {
     const {
       name,
+      nameHi,
       description,
+      descriptionHi,
       icon,
       iconName,
       suggestedListingType,
@@ -175,6 +270,7 @@ export const createBusinessType = async (req, res) => {
       whyChooseUsTemplates,
       defaultBookingTimings,
       ownerCanEditBookingTimings,
+      defaultBookingEnabled,
       displayOrder,
       isActive,
     } = req.body;
@@ -193,7 +289,9 @@ export const createBusinessType = async (req, res) => {
 
     const businessType = await BusinessType.create({
       name,
+      ...(nameHi !== undefined ? { nameHi } : {}),
       description,
+      ...(descriptionHi !== undefined ? { descriptionHi } : {}),
       icon,
       iconName,
       suggestedListingType,
@@ -205,6 +303,7 @@ export const createBusinessType = async (req, res) => {
         ? { defaultBookingTimings: normalizeDefaultBookingTimings(defaultBookingTimings) }
         : {}),
       ...(typeof ownerCanEditBookingTimings === 'boolean' ? { ownerCanEditBookingTimings } : {}),
+      ...(typeof defaultBookingEnabled === 'boolean' ? { defaultBookingEnabled } : {}),
       displayOrder,
       ...(typeof isActive === 'boolean' ? { isActive } : {}),
     });
@@ -231,7 +330,9 @@ export const updateBusinessType = async (req, res) => {
     const { id } = req.params;
     const {
       name,
+      nameHi,
       description,
+      descriptionHi,
       icon,
       iconName,
       suggestedListingType,
@@ -241,6 +342,7 @@ export const updateBusinessType = async (req, res) => {
       whyChooseUsTemplates,
       defaultBookingTimings,
       ownerCanEditBookingTimings,
+      defaultBookingEnabled,
       isActive,
       displayOrder,
     } = req.body;
@@ -271,7 +373,9 @@ export const updateBusinessType = async (req, res) => {
 
     // Update fields
     if (name !== undefined) businessType.name = name;
+    if (nameHi !== undefined) businessType.nameHi = nameHi;
     if (description !== undefined) businessType.description = description;
+    if (descriptionHi !== undefined) businessType.descriptionHi = descriptionHi;
     if (icon !== undefined) businessType.icon = icon;
     if (iconName !== undefined) businessType.iconName = iconName;
     if (suggestedListingType !== undefined) businessType.suggestedListingType = suggestedListingType;
@@ -289,6 +393,7 @@ export const updateBusinessType = async (req, res) => {
       }
     }
     if (ownerCanEditBookingTimings !== undefined) businessType.ownerCanEditBookingTimings = !!ownerCanEditBookingTimings;
+    if (defaultBookingEnabled !== undefined) businessType.defaultBookingEnabled = !!defaultBookingEnabled;
     if (isActive !== undefined) businessType.isActive = isActive;
     if (displayOrder !== undefined) businessType.displayOrder = displayOrder;
 
@@ -351,8 +456,6 @@ export const deleteBusinessType = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const hard = String(req.query?.hard || '').toLowerCase() === 'true';
-
     const businessType = await BusinessType.findById(id);
 
     if (!businessType) {
@@ -366,32 +469,18 @@ export const deleteBusinessType = async (req, res) => {
     const { Business } = await import('../models/index.js');
     const businessCount = await Business.countDocuments({ businessType: id });
 
-    // Default behavior: deactivate (safe), even if used.
-    if (!hard) {
+    // Soft delete only: keep record for backup/audit.
+    if (businessType.isActive !== false) {
       businessType.isActive = false;
       await businessType.save();
-      return res.status(200).json({
-        success: true,
-        message: businessCount > 0
-          ? `Business type deactivated (in use by ${businessCount} business(es))`
-          : 'Business type deactivated',
-        data: businessType,
-      });
     }
-
-    // Hard delete only allowed if unused.
-    if (businessCount > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot hard delete. ${businessCount} business(es) are using this type. Use soft delete instead.`,
-      });
-    }
-
-    await businessType.deleteOne();
 
     return res.status(200).json({
       success: true,
-      message: 'Business type deleted successfully',
+      message: businessCount > 0
+        ? `Business type deactivated (in use by ${businessCount} business(es))`
+        : 'Business type deactivated',
+      data: businessType,
     });
   } catch (error) {
     console.error('Delete business type error:', error);

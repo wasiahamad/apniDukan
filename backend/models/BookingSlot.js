@@ -44,6 +44,15 @@ const bookingSlotSchema = new mongoose.Schema(
     customerPhone: String,
     customerEmail: String,
     customerNotes: String,
+    customerLocation: {
+      type: {
+        type: String,
+        enum: ['Point'],
+      },
+      coordinates: {
+        type: [Number],
+      },
+    },
     // Booking details
     bookedAt: Date,
     bookedBy: {
@@ -75,6 +84,7 @@ bookingSlotSchema.index({ business: 1, date: 1, isBooked: 1 });
 bookingSlotSchema.index({ business: 1, status: 1 });
 bookingSlotSchema.index({ date: 1, startTime: 1 });
 bookingSlotSchema.index({ customerPhone: 1 });
+bookingSlotSchema.index({ customerLocation: '2dsphere' });
 
 // Prevent duplicate slots for the same business/date/time window
 bookingSlotSchema.index(
@@ -102,6 +112,9 @@ bookingSlotSchema.methods.book = async function (customerData, userId = null) {
   this.customerPhone = customerData.phone;
   this.customerEmail = customerData.email || null;
   this.customerNotes = customerData.notes || null;
+  if (customerData?.location?.type === 'Point' && Array.isArray(customerData?.location?.coordinates)) {
+    this.customerLocation = customerData.location;
+  }
   this.bookedAt = new Date();
   this.bookedBy = userId;
 
@@ -121,6 +134,7 @@ bookingSlotSchema.methods.cancel = async function () {
   this.customerPhone = null;
   this.customerEmail = null;
   this.customerNotes = null;
+  this.customerLocation = null;
   this.bookedAt = null;
   this.bookedBy = null;
 

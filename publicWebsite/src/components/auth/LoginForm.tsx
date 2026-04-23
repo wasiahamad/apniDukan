@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 type LoginFormProps = {
   isLoading: boolean;
@@ -13,6 +14,7 @@ type LoginFormProps = {
 };
 
 export default function LoginForm({ isLoading, onSubmit, onForgotPassword, defaultEmail = "" }: LoginFormProps) {
+  const { t } = useTranslation();
   const emailRef = useRef<HTMLInputElement | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState(defaultEmail);
@@ -28,15 +30,15 @@ export default function LoginForm({ isLoading, onSubmit, onForgotPassword, defau
     const nextErrors: { email?: string; password?: string } = {};
 
     if (!email.trim()) {
-      nextErrors.email = "Email is required";
+      nextErrors.email = t("auth.validation.emailRequired");
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      nextErrors.email = "Enter a valid email";
+      nextErrors.email = t("auth.validation.emailInvalid");
     }
 
     if (!password) {
-      nextErrors.password = "Password is required";
+      nextErrors.password = t("auth.validation.passwordRequired");
     } else if (password.length < 6) {
-      nextErrors.password = "Password must be at least 6 characters";
+      nextErrors.password = t("auth.validation.passwordMin");
     }
 
     setErrors(nextErrors);
@@ -65,7 +67,7 @@ export default function LoginForm({ isLoading, onSubmit, onForgotPassword, defau
           htmlFor="login-email"
           className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm transition-all peer-placeholder-shown:top-1/2 peer-focus:top-0 peer-focus:text-xs peer-focus:bg-white peer-focus:px-1 peer-focus:text-[rgb(30,190,118)] peer-[:not(:placeholder-shown)]:top-0 peer-[:not(:placeholder-shown)]:text-xs peer-[:not(:placeholder-shown)]:bg-white peer-[:not(:placeholder-shown)]:px-1"
         >
-          Email
+          {t("auth.login.email")}
         </label>
         {errors.email ? <p className="mt-1 text-xs text-red-600">{errors.email}</p> : null}
       </div>
@@ -83,7 +85,7 @@ export default function LoginForm({ isLoading, onSubmit, onForgotPassword, defau
           htmlFor="login-password"
           className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm transition-all peer-placeholder-shown:top-1/2 peer-focus:top-0 peer-focus:text-xs peer-focus:bg-white peer-focus:px-1 peer-focus:text-[rgb(30,190,118)] peer-[:not(:placeholder-shown)]:top-0 peer-[:not(:placeholder-shown)]:text-xs peer-[:not(:placeholder-shown)]:bg-white peer-[:not(:placeholder-shown)]:px-1"
         >
-          Password
+          {t("auth.login.password")}
         </label>
         <button
           type="button"
@@ -98,10 +100,10 @@ export default function LoginForm({ isLoading, onSubmit, onForgotPassword, defau
       <div className="flex items-center justify-between gap-3 text-sm">
         <label className="flex items-center gap-2 text-slate-600">
           <Checkbox checked={rememberMe} onCheckedChange={(checked) => setRememberMe(Boolean(checked))} />
-          Remember me
+          {t("auth.login.rememberMe")}
         </label>
         <button type="button" className="text-[rgb(255,136,0)] font-medium hover:underline" onClick={onForgotPassword}>
-          Forgot password?
+          {t("auth.login.forgotPassword")}
         </button>
       </div>
 
@@ -112,12 +114,12 @@ export default function LoginForm({ isLoading, onSubmit, onForgotPassword, defau
           className="h-12 w-full rounded-2xl bg-[rgb(30,190,118)] hover:bg-[rgb(25,163,101)] text-white"
         >
           {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-          {isLoading ? "Logging in..." : "Login"}
+          {isLoading ? t("auth.login.loggingIn") : t("auth.login.login")}
         </Button>
       </div>
 
       <p className="text-sm text-center text-slate-600">
-        New to DukaanDirect? <Link to="/signup" className="font-semibold text-[rgb(255,136,0)] hover:underline">Create account</Link>
+        {t("auth.login.newTo")} <Link to="/signup" className="font-semibold text-[rgb(255,136,0)] hover:underline">{t("auth.login.createAccount")}</Link>
       </p>
     </form>
   );

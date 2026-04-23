@@ -44,6 +44,11 @@ const orderSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    customerUser: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      index: true,
+    },
     orderId: {
       type: String,
       required: true,
@@ -59,6 +64,13 @@ const orderSchema = new mongoose.Schema(
       type: String,
       enum: ['website', 'whatsapp', 'manual'],
       default: 'website',
+      index: true,
+    },
+    origin: {
+      // Discovery origin (where the customer came from before ordering)
+      type: String,
+      enum: ['website', 'map', 'unknown'],
+      default: 'unknown',
       index: true,
     },
     status: {

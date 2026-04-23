@@ -4,6 +4,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, 
 import { businessApi, type Business } from "@/lib/api/index";
 import { orderApi, type Order } from "@/lib/api/orders";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTranslation } from "react-i18next";
 
 const getLastNDays = (days: number) => {
   const out: Date[] = [];
@@ -27,6 +28,8 @@ const Analytics = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [stats, setStats] = useState<{ totalViews: number; whatsappClicks: number; callClicks: number; mapClicks: number } | null>(null);
   const [loading, setLoading] = useState(true);
+  const { t, i18n } = useTranslation();
+  const dateLocale = i18n.language === "hi" ? "hi-IN" : "en-IN";
 
   useEffect(() => {
     let cancelled = false;
@@ -97,22 +100,22 @@ const Analytics = () => {
       const dayOrders = counts.get(key) || 0;
       const ratio = dayOrders / totalOrders;
       return {
-        date: d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" }),
+        date: d.toLocaleDateString(dateLocale, { day: "2-digit", month: "short" }),
         views: dayOrders,
         whatsapp: Math.round(totalWhatsapp * ratio),
         calls: Math.round(totalCalls * ratio),
       };
     });
-  }, [orders, range, stats]);
+  }, [orders, range, stats, dateLocale]);
 
   const funnelData = useMemo(
     () => [
-      { name: "Views", value: Number(stats?.totalViews || 0), fill: "hsl(153, 73%, 43%)" },
-      { name: "WhatsApp", value: Number(stats?.whatsappClicks || 0), fill: "hsl(153, 73%, 55%)" },
-      { name: "Calls", value: Number(stats?.callClicks || 0), fill: "hsl(224, 76%, 53%)" },
-      { name: "Map", value: Number(stats?.mapClicks || 0), fill: "hsl(33, 100%, 50%)" },
+      { name: t("analytics.metrics.views"), value: Number(stats?.totalViews || 0), fill: "hsl(153, 73%, 43%)" },
+      { name: t("analytics.metrics.whatsapp"), value: Number(stats?.whatsappClicks || 0), fill: "hsl(153, 73%, 55%)" },
+      { name: t("analytics.metrics.calls"), value: Number(stats?.callClicks || 0), fill: "hsl(224, 76%, 53%)" },
+      { name: t("analytics.metrics.map"), value: Number(stats?.mapClicks || 0), fill: "hsl(33, 100%, 50%)" },
     ],
-    [stats]
+    [stats, t]
   );
 
   const sourceData = useMemo(() => {
@@ -122,11 +125,11 @@ const Analytics = () => {
     const total = Math.max(1, website + whatsapp + manual);
 
     return [
-      { name: "Website", value: Math.round((website / total) * 100), fill: "hsl(153, 73%, 43%)" },
-      { name: "WhatsApp", value: Math.round((whatsapp / total) * 100), fill: "hsl(224, 76%, 53%)" },
-      { name: "Manual", value: Math.max(0, 100 - Math.round((website / total) * 100) - Math.round((whatsapp / total) * 100)), fill: "hsl(33, 100%, 50%)" },
+      { name: t("analytics.sources.website"), value: Math.round((website / total) * 100), fill: "hsl(153, 73%, 43%)" },
+      { name: t("analytics.sources.whatsapp"), value: Math.round((whatsapp / total) * 100), fill: "hsl(224, 76%, 53%)" },
+      { name: t("analytics.sources.manual"), value: Math.max(0, 100 - Math.round((website / total) * 100) - Math.round((whatsapp / total) * 100)), fill: "hsl(33, 100%, 50%)" },
     ];
-  }, [orders]);
+  }, [orders, t]);
 
   const hourlyActivity = useMemo(() => {
     const data = HOUR_TEMPLATE.map((row) => ({ ...row }));
@@ -155,17 +158,17 @@ const Analytics = () => {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-xl font-bold">Analytics</h1>
+      <h1 className="text-xl font-bold">{t("analytics.title")}</h1>
 
       {/* Views Over Time */}
       <div className="bg-card border rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold">Views Over Time</h3>
+          <h3 className="text-sm font-bold">{t("analytics.viewsOverTime")}</h3>
           <div className="flex bg-muted rounded-lg p-0.5">
             {(["7d", "30d"] as const).map(r => (
               <button key={r} onClick={() => setRange(r)}
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${range === r ? "bg-card shadow text-foreground" : "text-muted-foreground"}`}>
-                {r === "7d" ? "7 Days" : "30 Days"}
+                {r === "7d" ? t("analytics.range.7d") : t("analytics.range.30d")}
               </button>
             ))}
           </div>
@@ -175,8 +178,8 @@ const Analytics = () => {
             <XAxis dataKey="date" tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} width={30} />
             <Tooltip />
-            <Line type="monotone" dataKey="views" stroke="hsl(153, 73%, 43%)" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="whatsapp" stroke="hsl(33, 100%, 50%)" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="views" name={t("analytics.metrics.orders")} stroke="hsl(153, 73%, 43%)" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="whatsapp" name={t("analytics.metrics.whatsappClicks")} stroke="hsl(33, 100%, 50%)" strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -184,7 +187,7 @@ const Analytics = () => {
       <div className="grid lg:grid-cols-2 gap-4">
         {/* Conversion Funnel */}
         <div className="bg-card border rounded-xl p-4">
-          <h3 className="text-sm font-bold mb-3">Conversion Funnel</h3>
+          <h3 className="text-sm font-bold mb-3">{t("analytics.conversionFunnel")}</h3>
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={funnelData} layout="vertical">
               <XAxis type="number" tick={{ fontSize: 10 }} />
@@ -199,7 +202,7 @@ const Analytics = () => {
 
         {/* Order Source Distribution */}
         <div className="bg-card border rounded-xl p-4">
-          <h3 className="text-sm font-bold mb-3">Order Source Distribution</h3>
+          <h3 className="text-sm font-bold mb-3">{t("analytics.orderSourceDistribution")}</h3>
           <div className="flex items-center">
             <ResponsiveContainer width="50%" height={160}>
               <PieChart>
@@ -223,7 +226,7 @@ const Analytics = () => {
 
       {/* Peak Activity */}
       <div className="bg-card border rounded-xl p-4">
-        <h3 className="text-sm font-bold mb-3">Peak Order Time</h3>
+        <h3 className="text-sm font-bold mb-3">{t("analytics.peakOrderTime")}</h3>
         <ResponsiveContainer width="100%" height={180}>
           <AreaChart data={hourlyActivity}>
             <XAxis dataKey="hour" tick={{ fontSize: 9 }} interval={2} />
@@ -235,7 +238,7 @@ const Analytics = () => {
       </div>
 
       {!business && (
-        <div className="text-sm text-muted-foreground">Business profile nahi mila. Analytics load nahi ho saki.</div>
+        <div className="text-sm text-muted-foreground">{t("analytics.noBusiness")}</div>
       )}
     </div>
   );

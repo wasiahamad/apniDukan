@@ -6,6 +6,7 @@ import ShopCard from "@/components/ShopCard";
 import PageTransition from "@/components/PageTransition";
 import ScrollReveal from "@/components/ScrollReveal";
 import StaggerChildren, { StaggerItem } from "@/components/StaggerChildren";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -14,13 +15,23 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { fetchBusinessTypes, fetchNearbyPublicShops, fetchPublicShops } from "@/lib/publicShopsApi";
 import { useUserLocation } from "@/hooks/useUserLocation";
+import { useTranslation } from "react-i18next";
 
 export default function AllShopsPage() {
+  const { t, i18n } = useTranslation();
   const [query, setQuery] = useState("");
   const [selectedCity, setSelectedCity] = useState("all");
   const [selectedType, setSelectedType] = useState("all");
   const [openOnly, setOpenOnly] = useState(false);
   const { userLocation } = useUserLocation();
+
+  const renderBusinessTypeIcon = (icon: string | undefined) => {
+    if (!icon) return <span className="text-2xl">🏪</span>;
+    if (/^https?:\/\//i.test(icon)) {
+      return <img src={icon} alt="" className="w-8 h-8 object-cover rounded-md" loading="lazy" />;
+    }
+    return <span className="text-4xl">{icon}</span>;
+  };
 
   const location = useMemo(() => {
     if (!userLocation) return null;
@@ -28,18 +39,19 @@ export default function AllShopsPage() {
   }, [userLocation]);
 
   const allShopsQuery = useQuery({
-    queryKey: ["public-shops-all"],
+    queryKey: ["public-shops-all", i18n.language],
     queryFn: () => fetchPublicShops(),
   });
 
   const businessTypesQuery = useQuery({
-    queryKey: ["business-types"],
+    queryKey: ["business-types", i18n.language],
     queryFn: fetchBusinessTypes,
   });
 
   const shopsQuery = useQuery({
     queryKey: [
       "public-shops",
+      i18n.language,
       selectedCity,
       selectedType,
       location?.lat ?? null,
@@ -107,15 +119,10 @@ export default function AllShopsPage() {
     return unique;
   }, [allShopsQuery.data]);
 
-  const availableTypeSlugs = useMemo(() => {
-    const all = allShopsQuery.data || [];
-    return new Set(all.map((s) => s.categorySlug).filter(Boolean));
-  }, [allShopsQuery.data]);
-
   const businessTypes = useMemo(() => {
-    const types = businessTypesQuery.data || [];
-    return types.filter((t) => availableTypeSlugs.has(t.slug));
-  }, [businessTypesQuery.data, availableTypeSlugs]);
+    return businessTypesQuery.data || [];
+  }, [businessTypesQuery.data]);
+
 
   const filtered = useMemo(() => {
     const all = shopsQuery.data || [];
@@ -148,19 +155,21 @@ export default function AllShopsPage() {
       <section className="bg-gradient-to-r from-primary/10 to-accent/10 py-12">
         <div className="container">
           <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
-            <Link to="/" className="hover:text-primary">Home</Link> / <span>All Dukaan</span>
+            <Link to="/" className="hover:text-primary">{t("nav.home")}</Link> / <span>{t("shopsPage.all.title")}</span>
           </div>
-          <h1 className="text-3xl md:text-4xl font-bold">All Dukaan</h1>
-          <p className="text-muted-foreground mt-2">Backend se real verified dukandar list</p>
+          <h1 className="text-3xl md:text-4xl font-bold">{t("shopsPage.all.title")}</h1>
+          <p className="text-muted-foreground mt-2">{t("shopsPage.all.subtitle")}</p>
         </div>
       </section>
 
       <div className="container py-8">
+        
+
         <ScrollReveal>
           <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-4 mb-8 p-4 rounded-xl border bg-card">
             <div className="flex items-center gap-2 text-muted-foreground">
               <Filter className="h-4 w-4" />
-              <span className="text-sm">Filters</span>
+              <span className="text-sm">{t("shopsPage.filters.title")}</span>
             </div>
 
             <div className="relative flex-1 min-w-[220px]">
@@ -168,17 +177,17 @@ export default function AllShopsPage() {
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Shop, category, city ya area search karein"
+                placeholder={t("shopsPage.filters.searchPlaceholder")}
                 className="pl-9"
               />
             </div>
 
             <Select value={selectedCity} onValueChange={setSelectedCity}>
               <SelectTrigger className="w-full sm:w-48">
-                <SelectValue placeholder="City" />
+                <SelectValue placeholder={t("home.featured.filters.city")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Cities</SelectItem>
+                <SelectItem value="all">{t("home.featured.filters.allCities")}</SelectItem>
                 {cities.map((c) => (
                   <SelectItem key={c} value={c}>
                     {c}
@@ -189,10 +198,10 @@ export default function AllShopsPage() {
 
             <Select value={selectedType} onValueChange={setSelectedType}>
               <SelectTrigger className="w-full sm:w-56">
-                <SelectValue placeholder="Business Type" />
+                <SelectValue placeholder={t("home.featured.filters.businessType")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Business Types</SelectItem>
+                <SelectItem value="all">{t("home.featured.filters.allBusinessTypes")}</SelectItem>
                 {businessTypes.map((t) => (
                   <SelectItem key={t.slug} value={t.slug}>
                     {t.icon || "🏪"} {t.name}
@@ -204,12 +213,12 @@ export default function AllShopsPage() {
             <div className="flex items-center gap-2">
               <Switch id="open-all" checked={openOnly} onCheckedChange={setOpenOnly} />
               <Label htmlFor="open-all" className="text-sm">
-                Open Now
+                {t("shopsPage.filters.openNow")}
               </Label>
             </div>
 
             <Button variant="outline" className="gap-2 w-full sm:w-auto" onClick={clearFilters}>
-              Clear
+              {t("shopsPage.filters.clear")}
             </Button>
           </div>
         </ScrollReveal>
@@ -223,15 +232,15 @@ export default function AllShopsPage() {
           </div>
         ) : shopsQuery.isError ? (
           <div className="text-center py-12">
-            <p className="text-destructive font-medium">{shopsQuery.error instanceof Error ? shopsQuery.error.message : "Failed to load shops"}</p>
-            <p className="text-muted-foreground text-sm mt-1">Backend server chal raha ho aur public shops API accessible ho, fir retry karein.</p>
-            <Button className="mt-4" onClick={() => shopsQuery.refetch()}>Retry</Button>
+            <p className="text-destructive font-medium">{shopsQuery.error instanceof Error ? shopsQuery.error.message : t("shopsPage.errors.failedToLoad")}</p>
+            <p className="text-muted-foreground text-sm mt-1">{t("shopsPage.errors.backendHint")}</p>
+            <Button className="mt-4" onClick={() => shopsQuery.refetch()}>{t("shopsPage.actions.retry")}</Button>
           </div>
         ) : filtered.length === 0 ? (
-          <p className="text-center text-muted-foreground py-12">Koi dukaan nahi mili. Search change karke try karein.</p>
+          <p className="text-center text-muted-foreground py-12">{t("shopsPage.empty")}</p>
         ) : (
           <>
-            <p className="text-sm text-muted-foreground mb-4">{filtered.length} dukaan mil gayi</p>
+            <p className="text-sm text-muted-foreground mb-4">{t("shopsPage.found", { count: filtered.length })}</p>
             <StaggerChildren className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {filtered.map((shop) => (
                 <StaggerItem key={shop.id}>

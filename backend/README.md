@@ -13,6 +13,7 @@
 - [Environment Variables](#environment-variables)
 - [Database Models](#database-models)
 - [API Endpoints](#api-endpoints)
+- [AI Agent System (Cloudflare Worker)](#ai-agent-system-cloudflare-worker)
 - [Multi-Tenant Design](#multi-tenant-design)
 - [Authentication](#authentication)
 - [Running the Server](#running-the-server)
@@ -266,6 +267,41 @@ POST   /api/plans              - Create plan (admin only)
 PUT    /api/plans/:id          - Update plan (admin only)
 DELETE /api/plans/:id          - Delete plan (admin only)
 ```
+
+---
+
+## 🤖 AI Agent System (Cloudflare Worker)
+
+This repo also includes an **AI microservice** built on **Cloudflare Workers + D1 + KV + Workers AI**.
+
+**Location:** `ai-worker/`
+
+### AI Endpoints
+
+These endpoints are served by the Worker (not by this Express server):
+
+```
+POST /api/ai/chat      - Public customer chatbot (IP daily limit)
+POST /api/ai/generate  - Dukandar content generator (owner/admin, plan limit)
+POST /api/ai/insights  - Business insights (owner/admin, saves daily summary)
+```
+
+### Auth + Tokens
+
+- `generate` and `insights` require `Authorization: Bearer <accessToken>`
+- The Worker verifies JWT with `JWT_SECRET` configured in `ai-worker/wrangler.toml`
+- Keep the Worker `JWT_SECRET` consistent with your auth issuer
+
+### Frontend Integration (recommended)
+
+- Call the Worker directly from frontends using a dedicated base URL like:
+  - `https://ai.apnidukan.com` (custom domain), or
+  - `https://<worker>.workers.dev`
+
+### Optional: Proxy via Express
+
+If you prefer a single origin (`/api/...`) for all calls, you can add an Express proxy route later.
+This README keeps backend code unchanged; see `ai-worker/README.md` for Worker setup.
 
 ---
 

@@ -1,4 +1,4 @@
-import { Plan } from '../models/index.js';
+import { Plan, BusinessType } from '../models/index.js';
 
 const DEFAULT_FEATURES = {
   maxListings: 10,
@@ -14,6 +14,12 @@ const DEFAULT_FEATURES = {
   seoTools: false,
   apiAccess: false,
 
+  // Social/engagement modules
+  storiesEnabled: false,
+  listingStoriesEnabled: false,
+  ratingsEnabled: true,
+  locationEnabled: true,
+
   supportTicketsEnabled: true,
   referralsEnabled: true,
   invoicesEnabled: true,
@@ -22,6 +28,12 @@ const DEFAULT_FEATURES = {
 
   ordersEnabled: true,
   inquiriesEnabled: true,
+
+  offersEnabled: false,
+
+  // AI modules (plan controlled)
+  aiCustomerChatEnabled: true,
+  aiDukandarAgentEnabled: false,
 };
 
 // Features exposed when subscription is not active.
@@ -41,6 +53,12 @@ const INACTIVE_PLAN_FEATURES = {
   seoTools: false,
   apiAccess: false,
 
+  // Social/engagement modules
+  storiesEnabled: false,
+  listingStoriesEnabled: false,
+  ratingsEnabled: false,
+  locationEnabled: false,
+
   supportTicketsEnabled: false,
   referralsEnabled: false,
   invoicesEnabled: false,
@@ -49,6 +67,12 @@ const INACTIVE_PLAN_FEATURES = {
 
   ordersEnabled: false,
   inquiriesEnabled: false,
+
+  offersEnabled: false,
+
+  // AI modules (plan controlled)
+  aiCustomerChatEnabled: false,
+  aiDukandarAgentEnabled: false,
 };
 
 const mergeFeatures = (base, overrides) => {
@@ -64,6 +88,30 @@ const mergeFeatures = (base, overrides) => {
   });
 
   return result;
+};
+
+const hasBookingOverride = (businessDoc) => {
+  const overrides = businessDoc?.featureOverrides;
+  if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) return false;
+  return Object.prototype.hasOwnProperty.call(overrides, 'bookingEnabled') && typeof overrides.bookingEnabled === 'boolean';
+};
+
+const resolveBusinessTypeDefaultBookingEnabled = async (businessDoc) => {
+  const raw = businessDoc?.businessType;
+  if (!raw) return true;
+
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    if (typeof raw.defaultBookingEnabled === 'boolean') {
+      return raw.defaultBookingEnabled;
+    }
+    if (raw._id) {
+      const doc = await BusinessType.findById(raw._id).select('defaultBookingEnabled').lean();
+      return doc?.defaultBookingEnabled !== false;
+    }
+  }
+
+  const doc = await BusinessType.findById(raw).select('defaultBookingEnabled').lean();
+  return doc?.defaultBookingEnabled !== false;
 };
 
 export const getEffectiveEntitlementsForBusiness = async (businessDoc, options = {}) => {
@@ -84,9 +132,11 @@ export const getEffectiveEntitlementsForBusiness = async (businessDoc, options =
     const baseFeatures = plan?.features || DEFAULT_FEATURES;
     features = mergeFeatures(baseFeatures, businessDoc?.featureOverrides);
 
-    // Business rule: slot booking system is available to all active subscriptions.
-    // Keep it disabled only when the plan itself is inactive/expired.
-    features.bookingEnabled = true;
+    // Booking module default comes from business type when there is no explicit per-business override.
+    if (!hasBookingOverride(businessDoc)) {
+      const bookingAllowedByType = await resolveBusinessTypeDefaultBookingEnabled(businessDoc);
+      features.bookingEnabled = features.bookingEnabled === true && bookingAllowedByType;
+    }
   }
 
   return {

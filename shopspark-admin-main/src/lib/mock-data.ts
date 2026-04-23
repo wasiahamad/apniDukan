@@ -109,7 +109,7 @@ export const mockShops: Shop[] = Array.from({ length: 24 }, (_, i) => ({
   paymentModes: ["Cash", "UPI", "Card"],
   subscriptionPlan: ["Starter", "Growth", "Pro", "Enterprise"][i % 4],
   status: i % 5 === 0 ? "suspended" : i % 7 === 0 ? "inactive" : "active",
-  subdomain: `shop${i + 1}.localbooster.in`,
+  subdomain: `shop${i + 1}.publicdukan.in`,
   customDomain: i % 3 === 0 ? `www.shop${i + 1}.com` : undefined,
   sslStatus: i % 4 === 0 ? "pending" : "active",
   googleIndexing: i % 3 === 0 ? "indexed" : i % 3 === 1 ? "pending" : "not_indexed",

@@ -23,6 +23,12 @@ const getPublicBusinessBySlugOrThrow = async (slug) => {
       error.statusCode = 404;
       throw error;
     }
+
+    if (entitlements?.features?.ratingsEnabled !== true) {
+      const error = new Error('Ratings not available');
+      error.statusCode = 404;
+      throw error;
+    }
   }
 
   return business;
@@ -99,9 +105,23 @@ export const getReviewsBySlug = async (req, res) => {
 
 // @desc    Create a review for business slug
 // @route   POST /api/reviews/business/:slug
-// @access  Public
+// @access  Private (customer)
 export const createReviewBySlug = async (req, res) => {
   try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Login required',
+      });
+    }
+
+    if (req.user.role !== 'customer') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only customer can submit reviews',
+      });
+    }
+
     const { slug } = req.params;
     const business = await getPublicBusinessBySlugOrThrow(slug);
 
@@ -115,7 +135,7 @@ export const createReviewBySlug = async (req, res) => {
       });
     }
 
-    const customerName = String(req.body?.customerName || '').trim();
+    const customerName = String(req.user?.name || '').trim();
     const comment = String(req.body?.comment || '').trim();
 
     const created = await Review.create({

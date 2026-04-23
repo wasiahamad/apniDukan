@@ -45,6 +45,8 @@ export function BusinessCard({ business, onPress }: { business: Business; onPres
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   const typeColor = BUSINESS_TYPE_COLORS[business.businessType] || "#6B7280";
   const typeIcon = BUSINESS_TYPE_ICONS[business.businessType] || "briefcase";
+  const hasRating = typeof business.rating === "number" && Number.isFinite(business.rating);
+  const locationText = [business.city, business.address].find((v) => typeof v === "string" && v.trim().length > 0) || null;
 
   function handlePress() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -82,19 +84,19 @@ export function BusinessCard({ business, onPress }: { business: Business; onPres
         <View style={styles.info}>
           <View style={styles.nameRow}>
             <Text style={styles.name} numberOfLines={1}>{business.name}</Text>
-            {business.rating && (
+            {hasRating ? (
               <View style={styles.ratingRow}>
                 <Feather name="star" size={12} color="#F59E0B" />
-                <Text style={styles.rating}>{business.rating.toFixed(1)}</Text>
+                <Text style={styles.rating}>{(business.rating as number).toFixed(1)}</Text>
               </View>
-            )}
+            ) : null}
           </View>
-          {(business.city || business.address) && (
+          {locationText ? (
             <View style={styles.locationRow}>
               <Feather name="map-pin" size={12} color={Colors.light.textSecondary} />
-              <Text style={styles.location} numberOfLines={1}>{business.city || business.address}</Text>
+              <Text style={styles.location} numberOfLines={1}>{locationText}</Text>
             </View>
-          )}
+          ) : null}
         </View>
       </Pressable>
     </Animated.View>

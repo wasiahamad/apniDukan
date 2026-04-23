@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 type SignupFormProps = {
   isLoading: boolean;
@@ -18,6 +19,7 @@ const getInitials = (value: string) => {
 };
 
 export default function SignupForm({ isLoading, onSubmit }: SignupFormProps) {
+  const { t } = useTranslation();
   const nameRef = useRef<HTMLInputElement | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -31,29 +33,29 @@ export default function SignupForm({ isLoading, onSubmit }: SignupFormProps) {
     nameRef.current?.focus();
   }, []);
 
-  const initials = useMemo(() => getInitials(name || email || "Dukaan"), [name, email]);
+  const initials = useMemo(() => getInitials(name || email || "User"), [name, email]);
 
   const validate = () => {
     const nextErrors: { name?: string; email?: string; password?: string; confirmPassword?: string } = {};
 
-    if (!name.trim()) nextErrors.name = "Name is required";
+    if (!name.trim()) nextErrors.name = t("auth.validation.nameRequired");
 
     if (!email.trim()) {
-      nextErrors.email = "Email is required";
+      nextErrors.email = t("auth.validation.emailRequired");
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      nextErrors.email = "Enter a valid email";
+      nextErrors.email = t("auth.validation.emailInvalid");
     }
 
     if (!password) {
-      nextErrors.password = "Password is required";
+      nextErrors.password = t("auth.validation.passwordRequired");
     } else if (password.length < 6) {
-      nextErrors.password = "Password must be at least 6 characters";
+      nextErrors.password = t("auth.validation.passwordMin");
     }
 
     if (!confirmPassword) {
-      nextErrors.confirmPassword = "Please confirm password";
+      nextErrors.confirmPassword = t("auth.validation.confirmPasswordRequired");
     } else if (confirmPassword !== password) {
-      nextErrors.confirmPassword = "Passwords do not match";
+      nextErrors.confirmPassword = t("auth.validation.passwordMismatch");
     }
 
     setErrors(nextErrors);
@@ -73,26 +75,26 @@ export default function SignupForm({ isLoading, onSubmit }: SignupFormProps) {
           <AvatarFallback className="bg-[rgb(30,190,118)]/15 text-[rgb(30,190,118)] font-bold">{initials}</AvatarFallback>
         </Avatar>
         <div>
-          <p className="text-sm font-semibold text-slate-800">Profile preview</p>
-          <p className="text-xs text-slate-500">Your avatar initials appear after signup</p>
+          <p className="text-sm font-semibold text-slate-800">{t("auth.signup.profilePreview.title")}</p>
+          <p className="text-xs text-slate-500">{t("auth.signup.profilePreview.desc")}</p>
         </div>
       </div>
 
       <div className="relative">
         <Input ref={nameRef} id="signup-name" type="text" placeholder=" " value={name} onChange={(e) => setName(e.target.value)} className="peer h-12 rounded-2xl bg-white/80" />
-        <label htmlFor="signup-name" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm transition-all peer-placeholder-shown:top-1/2 peer-focus:top-0 peer-focus:text-xs peer-focus:bg-white peer-focus:px-1 peer-focus:text-[rgb(30,190,118)] peer-[:not(:placeholder-shown)]:top-0 peer-[:not(:placeholder-shown)]:text-xs peer-[:not(:placeholder-shown)]:bg-white peer-[:not(:placeholder-shown)]:px-1">Full Name</label>
+        <label htmlFor="signup-name" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm transition-all peer-placeholder-shown:top-1/2 peer-focus:top-0 peer-focus:text-xs peer-focus:bg-white peer-focus:px-1 peer-focus:text-[rgb(30,190,118)] peer-[:not(:placeholder-shown)]:top-0 peer-[:not(:placeholder-shown)]:text-xs peer-[:not(:placeholder-shown)]:bg-white peer-[:not(:placeholder-shown)]:px-1">{t("auth.signup.name")}</label>
         {errors.name ? <p className="mt-1 text-xs text-red-600">{errors.name}</p> : null}
       </div>
 
       <div className="relative">
         <Input id="signup-email" type="email" placeholder=" " value={email} onChange={(e) => setEmail(e.target.value)} className="peer h-12 rounded-2xl bg-white/80" />
-        <label htmlFor="signup-email" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm transition-all peer-placeholder-shown:top-1/2 peer-focus:top-0 peer-focus:text-xs peer-focus:bg-white peer-focus:px-1 peer-focus:text-[rgb(30,190,118)] peer-[:not(:placeholder-shown)]:top-0 peer-[:not(:placeholder-shown)]:text-xs peer-[:not(:placeholder-shown)]:bg-white peer-[:not(:placeholder-shown)]:px-1">Email</label>
+        <label htmlFor="signup-email" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm transition-all peer-placeholder-shown:top-1/2 peer-focus:top-0 peer-focus:text-xs peer-focus:bg-white peer-focus:px-1 peer-focus:text-[rgb(30,190,118)] peer-[:not(:placeholder-shown)]:top-0 peer-[:not(:placeholder-shown)]:text-xs peer-[:not(:placeholder-shown)]:bg-white peer-[:not(:placeholder-shown)]:px-1">{t("auth.signup.email")}</label>
         {errors.email ? <p className="mt-1 text-xs text-red-600">{errors.email}</p> : null}
       </div>
 
       <div className="relative">
         <Input id="signup-password" type={showPassword ? "text" : "password"} placeholder=" " value={password} onChange={(e) => setPassword(e.target.value)} className="peer h-12 rounded-2xl bg-white/80 pr-11" />
-        <label htmlFor="signup-password" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm transition-all peer-placeholder-shown:top-1/2 peer-focus:top-0 peer-focus:text-xs peer-focus:bg-white peer-focus:px-1 peer-focus:text-[rgb(30,190,118)] peer-[:not(:placeholder-shown)]:top-0 peer-[:not(:placeholder-shown)]:text-xs peer-[:not(:placeholder-shown)]:bg-white peer-[:not(:placeholder-shown)]:px-1">Password</label>
+        <label htmlFor="signup-password" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm transition-all peer-placeholder-shown:top-1/2 peer-focus:top-0 peer-focus:text-xs peer-focus:bg-white peer-focus:px-1 peer-focus:text-[rgb(30,190,118)] peer-[:not(:placeholder-shown)]:top-0 peer-[:not(:placeholder-shown)]:text-xs peer-[:not(:placeholder-shown)]:bg-white peer-[:not(:placeholder-shown)]:px-1">{t("auth.signup.password")}</label>
         <button type="button" onClick={() => setShowPassword((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">
           {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </button>
@@ -101,7 +103,7 @@ export default function SignupForm({ isLoading, onSubmit }: SignupFormProps) {
 
       <div className="relative">
         <Input id="signup-confirm-password" type={showConfirmPassword ? "text" : "password"} placeholder=" " value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="peer h-12 rounded-2xl bg-white/80 pr-11" />
-        <label htmlFor="signup-confirm-password" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm transition-all peer-placeholder-shown:top-1/2 peer-focus:top-0 peer-focus:text-xs peer-focus:bg-white peer-focus:px-1 peer-focus:text-[rgb(30,190,118)] peer-[:not(:placeholder-shown)]:top-0 peer-[:not(:placeholder-shown)]:text-xs peer-[:not(:placeholder-shown)]:bg-white peer-[:not(:placeholder-shown)]:px-1">Confirm Password</label>
+        <label htmlFor="signup-confirm-password" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm transition-all peer-placeholder-shown:top-1/2 peer-focus:top-0 peer-focus:text-xs peer-focus:bg-white peer-focus:px-1 peer-focus:text-[rgb(30,190,118)] peer-[:not(:placeholder-shown)]:top-0 peer-[:not(:placeholder-shown)]:text-xs peer-[:not(:placeholder-shown)]:bg-white peer-[:not(:placeholder-shown)]:px-1">{t("auth.signup.confirmPassword")}</label>
         <button type="button" onClick={() => setShowConfirmPassword((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">
           {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </button>
@@ -111,12 +113,12 @@ export default function SignupForm({ isLoading, onSubmit }: SignupFormProps) {
       <div className="sticky bottom-0 bg-white/70 backdrop-blur-sm py-2 md:static md:bg-transparent md:py-0">
         <Button type="submit" disabled={isLoading} className="h-12 w-full rounded-2xl bg-[rgb(255,136,0)] hover:bg-[rgb(235,121,0)] text-white">
           {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-          {isLoading ? "Creating account..." : "Create Account"}
+          {isLoading ? t("auth.signup.creating") : t("auth.signup.titleForm")}
         </Button>
       </div>
 
       <p className="text-sm text-center text-slate-600">
-        Already have an account? <Link to="/login" className="font-semibold text-[rgb(30,190,118)] hover:underline">Login</Link>
+        {t("auth.signup.alreadyHave")} <Link to="/login" className="font-semibold text-[rgb(30,190,118)] hover:underline">{t("auth.signup.login")}</Link>
       </p>
     </form>
   );

@@ -519,10 +519,10 @@ export default function RegisterShopDialog({ children }: { children: React.React
       };
 
       if (payload.phone.length !== 10) {
-        throw new Error("Phone number 10 digits hona chahiye");
+        throw new Error("Phone number must be 10 digits");
       }
       if (payload.password.length < 6) {
-        throw new Error("Password kam se kam 6 characters ka hona chahiye");
+        throw new Error("Password must be at least 6 characters");
       }
 
       const resp = await fetch(`${API_BASE_URL}/auth/register`, {
@@ -538,7 +538,7 @@ export default function RegisterShopDialog({ children }: { children: React.React
       const result = json.data as RegisterResponse;
       if ("accessToken" in result) {
         setSession(result);
-        toast({ title: "Registered", description: "Account create ho gaya" });
+        toast({ title: "Registered", description: "Your account has been created." });
         setStep(1);
         return;
       }
@@ -546,7 +546,7 @@ export default function RegisterShopDialog({ children }: { children: React.React
       setVerificationRequired(true);
       toast({
         title: "OTP sent",
-        description: "Email pe OTP aaya hoga. Verify karke account activate karein.",
+        description: "An OTP has been sent to your email. Verify it to activate your account.",
       });
     } finally {
       setIsRegistering(false);
@@ -574,7 +574,7 @@ export default function RegisterShopDialog({ children }: { children: React.React
 
       setSession(auth);
       setVerificationRequired(false);
-      toast({ title: "Verified", description: "Account activate ho gaya" });
+      toast({ title: "Verified", description: "Your account is now active." });
       setStep(1);
     } finally {
       setIsVerifyingOtp(false);
@@ -594,7 +594,7 @@ export default function RegisterShopDialog({ children }: { children: React.React
       if (!resp.ok || !json?.success) {
         throw new Error(json?.message || "Failed to resend OTP");
       }
-      toast({ title: "OTP resent", description: "Email check karein" });
+      toast({ title: "OTP resent", description: "Please check your email." });
     } finally {
       setIsResendingOtp(false);
     }
@@ -646,7 +646,7 @@ export default function RegisterShopDialog({ children }: { children: React.React
       const business = (json?.data || null) as Business | null;
       setCreatedBusiness(business);
 
-      toast({ title: "Shop created", description: "Ab plan select karke finish karein." });
+      toast({ title: "Shop created", description: "Now select a plan to finish setup." });
       setStep(4);
     } finally {
       setIsCreatingBusiness(false);
@@ -692,7 +692,18 @@ export default function RegisterShopDialog({ children }: { children: React.React
       return;
     }
 
+    const backendCode = String(json?.code || "");
     const msg = json?.message || "Failed to apply referral";
+
+    if (backendCode === "REFERRED_LOCATION_MISSING" || backendCode === "REFERRED_CITY_MISSING") {
+      throw new Error("Referral apply karne se pehle Live location set karo aur City fill karo.");
+    }
+    if (backendCode === "CITY_MISMATCH") {
+      throw new Error("Referral code sirf same city ke liye valid hai.");
+    }
+    if (backendCode === "DISTANCE_EXCEEDED") {
+      throw new Error("Referral code 25km ke andar hi valid hai. Apni shop location verify karo.");
+    }
     if (String(msg).toLowerCase().includes("already exists")) {
       setReferralApplied(true);
       setAppliedReferralKey(key);
@@ -994,7 +1005,7 @@ export default function RegisterShopDialog({ children }: { children: React.React
       <DialogContent className="w-[calc(100vw-1.5rem)] max-w-lg p-0">
         <DialogHeader>
           <div className="px-4 pt-4">
-            <DialogTitle className="text-xl">Apni Dukaan Banaye</DialogTitle>
+            <DialogTitle className="text-xl">Create Your Shop</DialogTitle>
           </div>
         </DialogHeader>
 
@@ -1093,7 +1104,7 @@ export default function RegisterShopDialog({ children }: { children: React.React
                   ) : (
                     <>
                       <div className="text-sm text-muted-foreground">
-                        OTP email par bhej diya gaya hai: <span className="font-medium text-foreground">{data.email}</span>
+                        We sent an OTP to: <span className="font-medium text-foreground">{data.email}</span>
                       </div>
                       <div>
                         <Label htmlFor="ob-otp">OTP (6 digits) *</Label>
@@ -1117,7 +1128,7 @@ export default function RegisterShopDialog({ children }: { children: React.React
                           {isResendingOtp ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                           Resend OTP
                         </Button>
-                        <div className="text-xs text-muted-foreground">Email inbox/spam check karein</div>
+                        <div className="text-xs text-muted-foreground">Check your inbox and spam folder</div>
                       </div>
                     </>
                   )}
@@ -1129,7 +1140,7 @@ export default function RegisterShopDialog({ children }: { children: React.React
                 <div className="space-y-4">
                   <div>
                     <Label htmlFor="ob-shop">Shop / Business Name *</Label>
-                    <Input id="ob-shop" value={data.shop_name} onChange={(e) => update("shop_name", e.target.value)} placeholder="Dukaan ka naam" />
+                    <Input id="ob-shop" value={data.shop_name} onChange={(e) => update("shop_name", e.target.value)} placeholder="Shop name" />
                   </div>
                   <div>
                     <Label>Business Type *</Label>
@@ -1238,7 +1249,7 @@ export default function RegisterShopDialog({ children }: { children: React.React
                       </SelectContent>
                     </Select>
                     <div className="text-xs text-muted-foreground mt-2">
-                      Aap baad me dashboard me listings add kar sakte hain.
+                      You can add listings later from the dashboard.
                     </div>
                   </div>
                 </div>
@@ -1276,7 +1287,7 @@ export default function RegisterShopDialog({ children }: { children: React.React
                               <div className="min-w-0">
                                 <p className="text-sm font-medium text-foreground">{plan.name}</p>
                                 <p className="text-xs text-muted-foreground mt-1">
-                                  ₹{price} / {plan.durationInDays || 0} days
+                                  ₹{price} / {plan.billingCycle || `${plan.durationInDays || 0} days`}
                                 </p>
                                 {plan.description ? <p className="text-xs text-muted-foreground mt-1">{plan.description}</p> : null}
                               </div>

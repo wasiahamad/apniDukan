@@ -3,19 +3,24 @@ import { Link, useLocation, Outlet, useNavigate, useNavigationType } from "react
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, User, Palette, Package, MessageCircle, MapPin,
-  BarChart3, CreditCard, Receipt, HelpCircle, Settings, Menu, X,
-  ShoppingBag, ExternalLink, Sun, Moon, ChevronLeft, ChevronRight,
-  ShoppingCart, Gift, CalendarClock
+  BarChart3, CreditCard, Settings, Menu, X,
+  ExternalLink, Sun, Moon, ChevronLeft, ChevronRight,
+  ShoppingCart, Gift, CalendarClock, Star, Film, Languages
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import i18n from "@/i18n";
+import { setPreferredLanguage, type AppLanguage } from "@/lib/language";
 import { useAuth } from "@/contexts/AuthContext";
 import { Business, businessApi } from "@/lib/api/index";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EntitlementsContext, type BusinessEntitlements, type EntitlementFeatures } from "@/contexts/EntitlementsContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 const THEME_STORAGE_KEY = "dukaansetu:theme";
 const DASH_LAST_PATH_KEY = "dukaansetu:dashboard:lastPath";
+const PLATFORM_LOGO_SRC = "/logo-removebg-preview.png";
 
 const getInitialDark = () => {
   if (typeof window === "undefined" || typeof document === "undefined") return false;
@@ -32,24 +37,32 @@ const getInitialDark = () => {
   return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ?? false;
 };
 
-const nav: Array<{ to: string; icon: any; label: string; feature?: keyof EntitlementFeatures }> = [
-  { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/dashboard/business-profile", icon: User, label: "Business Profile" },
-  { to: "/dashboard/branding", icon: Palette, label: "Branding", feature: "brandingEnabled" },
-  { to: "/dashboard/listings", icon: Package, label: "Listings" },
-  { to: "/dashboard/bookings", icon: CalendarClock, label: "Bookings", feature: "bookingEnabled" },
-  { to: "/dashboard/orders", icon: ShoppingCart, label: "Orders", feature: "ordersEnabled" },
-  { to: "/dashboard/whatsapp", icon: MessageCircle, label: "WhatsApp", feature: "whatsappSettingsEnabled" },
-  { to: "/dashboard/location", icon: MapPin, label: "Location" },
-  { to: "/dashboard/analytics", icon: BarChart3, label: "Analytics", feature: "analyticsEnabled" },
-  { to: "/dashboard/subscription", icon: CreditCard, label: "Subscription" },
-  { to: "/dashboard/invoices", icon: Receipt, label: "Invoices", feature: "invoicesEnabled" },
-  { to: "/dashboard/referrals", icon: Gift, label: "Referrals", feature: "referralsEnabled" },
-  { to: "/dashboard/support", icon: HelpCircle, label: "Support" },
-  { to: "/dashboard/settings", icon: Settings, label: "Settings" },
+const nav: Array<{
+  to: string;
+  icon: any;
+  labelKey: string;
+  feature?: keyof EntitlementFeatures;
+  isEnabled?: (features: EntitlementFeatures | undefined) => boolean;
+}> = [
+  { to: "/dashboard", icon: LayoutDashboard, labelKey: "nav.dashboard" },
+  { to: "/dashboard/business-profile", icon: User, labelKey: "nav.businessProfile" },
+  { to: "/dashboard/branding", icon: Palette, labelKey: "nav.branding", feature: "brandingEnabled" },
+  { to: "/dashboard/listings", icon: Package, labelKey: "nav.listings", isEnabled: (f) => (f?.maxListings ?? 0) !== 0 },
+  { to: "/dashboard/offers", icon: Gift, labelKey: "nav.offers", feature: "offersEnabled" },
+  { to: "/dashboard/bookings", icon: CalendarClock, labelKey: "nav.bookings", feature: "bookingEnabled" },
+  { to: "/dashboard/stories", icon: Film, labelKey: "nav.stories", feature: "storiesEnabled" },
+  { to: "/dashboard/ratings", icon: Star, labelKey: "nav.ratings", feature: "ratingsEnabled" },
+  { to: "/dashboard/orders", icon: ShoppingCart, labelKey: "nav.orders", feature: "ordersEnabled" },
+  { to: "/dashboard/whatsapp", icon: MessageCircle, labelKey: "nav.whatsapp", feature: "whatsappSettingsEnabled" },
+  { to: "/dashboard/location", icon: MapPin, labelKey: "nav.location", feature: "locationEnabled" },
+  { to: "/dashboard/analytics", icon: BarChart3, labelKey: "nav.analytics", feature: "analyticsEnabled" },
+  { to: "/dashboard/subscription", icon: CreditCard, labelKey: "nav.subscription" },
+  { to: "/dashboard/referrals", icon: Gift, labelKey: "nav.referrals", feature: "referralsEnabled" },
+  { to: "/dashboard/settings", icon: Settings, labelKey: "nav.settings" },
 ];
 
 const DashboardLayout = () => {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
@@ -69,14 +82,18 @@ const DashboardLayout = () => {
 
   const effectiveNav = useMemo(() => {
     if (suspended || verificationPending) {
-      return nav.filter((n) => n.to === "/dashboard" || n.to === "/dashboard/support");
+      return nav.filter((n) => n.to === "/dashboard" || n.to === "/dashboard/settings");
     }
     if (subscriptionExpired) {
-      return nav.filter((n) => n.to === "/dashboard" || n.to === "/dashboard/subscription" || n.to === "/dashboard/support");
+      return nav.filter((n) => n.to === "/dashboard" || n.to === "/dashboard/subscription" || n.to === "/dashboard/settings");
     }
     if (entitlementsLoading) return nav;
     const f = entitlements?.features;
-    return nav.filter((n) => !n.feature || f?.[n.feature] === true);
+    return nav.filter((n) => {
+      if (n.feature && f?.[n.feature] !== true) return false;
+      if (n.isEnabled && !n.isEnabled(f)) return false;
+      return true;
+    });
   }, [entitlements?.features, entitlementsLoading, suspended, verificationPending, subscriptionExpired]);
 
   const refreshEntitlements = async () => {
@@ -258,6 +275,11 @@ const DashboardLayout = () => {
     }
   }, [dark]);
 
+  const setLanguage = (lang: AppLanguage) => {
+    setPreferredLanguage(lang);
+    i18n.changeLanguage(lang);
+  };
+
   const sidebarWidth = collapsed ? "w-[68px]" : "w-60";
 
   // Always provide a stable context value shape
@@ -273,7 +295,11 @@ const DashboardLayout = () => {
   const showSuspendedNotice = suspended && location.pathname === "/dashboard";
   const showVerificationNotice = verificationPending && location.pathname === "/dashboard";
   const showSubscriptionExpiredNotice = subscriptionExpired && location.pathname === "/dashboard";
-  const supportOnlyBlockedRoute = supportOnlyMode && !["/dashboard", "/dashboard/support", "/dashboard/subscription"].includes(location.pathname);
+  const supportOnlyBlockedRoute = supportOnlyMode && !["/dashboard", "/dashboard/subscription", "/dashboard/settings"].includes(location.pathname);
+
+  const subscriptionDaysSuffix = typeof subscriptionDaysRemaining === "number"
+    ? t('notices.subscriptionExpiredDaysSuffix', { count: subscriptionDaysRemaining })
+    : "";
 
   if (authLoading || checkingAccess) {
     return (
@@ -319,10 +345,10 @@ const DashboardLayout = () => {
       <aside className={`hidden lg:flex flex-col ${sidebarWidth} bg-card border-r fixed inset-y-0 z-30 transition-all duration-300`}>
         <div className="p-4 border-b flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 overflow-hidden">
-            <div className="w-9 h-9 bg-primary rounded-lg flex items-center justify-center shrink-0">
-              <ShoppingBag className="w-5 h-5 text-primary-foreground" />
+            <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
+              <img src={PLATFORM_LOGO_SRC} alt={t('app.name')} className="w-7 h-7 object-contain" />
             </div>
-            {!collapsed && <span className="font-bold text-foreground whitespace-nowrap">DukaanSetu</span>}
+            {!collapsed && <span className="font-bold text-foreground whitespace-nowrap">{t('app.name')}</span>}
           </Link>
           <button onClick={() => setCollapsed(!collapsed)} className="p-1.5 rounded-lg hover:bg-muted transition-colors shrink-0">
             {collapsed ? <ChevronRight className="w-4 h-4 text-muted-foreground" /> : <ChevronLeft className="w-4 h-4 text-muted-foreground" />}
@@ -331,11 +357,11 @@ const DashboardLayout = () => {
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
           {effectiveNav.map(n => (
             <Link key={n.to} to={n.to}
-              title={collapsed ? n.label : undefined}
+              title={collapsed ? t(n.labelKey) : undefined}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${location.pathname === n.to ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"
                 } ${collapsed ? "justify-center px-0" : ""}`}>
               <n.icon className="w-[18px] h-[18px] shrink-0" />
-              {!collapsed && <span className="truncate">{n.label}</span>}
+              {!collapsed && <span className="truncate">{t(n.labelKey)}</span>}
             </Link>
           ))}
         </nav>
@@ -343,21 +369,38 @@ const DashboardLayout = () => {
           <button onClick={() => setDark(!dark)}
             className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-muted-foreground hover:bg-muted transition-colors ${collapsed ? "justify-center px-0" : ""}`}>
             {dark ? <Sun className="w-4 h-4 shrink-0" /> : <Moon className="w-4 h-4 shrink-0" />}
-            {!collapsed && (dark ? "Light Mode" : "Dark Mode")}
+            {!collapsed && (dark ? t('common.lightMode') : t('common.darkMode'))}
           </button>
-                  {business?.slug && entitlements?.features?.publicShopEnabled === true && !supportOnlyMode ? (
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-muted-foreground hover:bg-muted transition-colors ${collapsed ? "justify-center px-0" : ""}`}
+              >
+                <Languages className="w-4 h-4 shrink-0" />
+                {!collapsed && t('common.language')}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-40">
+              <DropdownMenuItem onClick={() => setLanguage('en')}>{t('common.english')}</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setLanguage('hi')}>{t('common.hindi')}</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {business?.slug && entitlements?.features?.publicShopEnabled === true && !supportOnlyMode ? (
             <Link
               to={`/shop/${business.slug}`}
               target="_blank"
               className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-muted-foreground hover:bg-muted ${collapsed ? "justify-center px-0" : ""}`}
             >
               <ExternalLink className="w-4 h-4 shrink-0" />
-              {!collapsed && "View Shop"}
+              {!collapsed && t('common.viewShop')}
             </Link>
           ) : (
             <div className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-muted-foreground opacity-50 ${collapsed ? "justify-center px-0" : ""}`}>
               <ExternalLink className="w-4 h-4 shrink-0" />
-              {!collapsed && "View Shop"}
+              {!collapsed && t('common.viewShop')}
             </div>
           )}
         </div>
@@ -366,7 +409,7 @@ const DashboardLayout = () => {
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 h-14 bg-card border-b z-40 flex items-center justify-between px-4">
         <button onClick={() => setOpen(true)}><Menu className="w-6 h-6" /></button>
-        <span className="font-bold text-foreground">DukaanSetu</span>
+        <span className="font-bold text-foreground">{t('app.name')}</span>
         <div className="flex items-center gap-2">
           <button onClick={() => setDark(!dark)} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
             {dark ? <Sun className="w-5 h-5 text-muted-foreground" /> : <Moon className="w-5 h-5 text-muted-foreground" />}
@@ -398,7 +441,7 @@ const DashboardLayout = () => {
               transition={{ type: "spring", damping: 25 }}
               className="fixed inset-y-0 left-0 w-72 bg-card z-50 lg:hidden flex flex-col">
               <div className="p-4 border-b flex items-center justify-between">
-                <span className="font-bold">DukaanSetu</span>
+                <span className="font-bold">{t('app.name')}</span>
                 <button onClick={() => setOpen(false)}><X className="w-5 h-5" /></button>
               </div>
               <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
@@ -407,7 +450,7 @@ const DashboardLayout = () => {
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${location.pathname === n.to ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"
                       }`}>
                     <n.icon className="w-[18px] h-[18px]" />
-                    {n.label}
+                    {t(n.labelKey)}
                   </Link>
                 ))}
               </nav>
@@ -415,8 +458,21 @@ const DashboardLayout = () => {
                 <button onClick={() => setDark(!dark)}
                   className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-muted-foreground hover:bg-muted">
                   {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-                  {dark ? "Light Mode" : "Dark Mode"}
+                  {dark ? t('common.lightMode') : t('common.darkMode')}
                 </button>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-muted-foreground hover:bg-muted">
+                      <Languages className="w-4 h-4" />
+                      {t('common.language')}
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-40">
+                    <DropdownMenuItem onClick={() => setLanguage('en')}>{t('common.english')}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setLanguage('hi')}>{t('common.hindi')}</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </motion.aside>
           </>
@@ -429,14 +485,14 @@ const DashboardLayout = () => {
           {entitlementsError ? (
             <Card className="border mb-4">
               <CardHeader>
-                <CardTitle>Plan access unavailable</CardTitle>
+                <CardTitle>{t('errors.planAccessUnavailable')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-sm text-muted-foreground">{entitlementsError}</p>
                 <div className="flex gap-2">
-                  <Button onClick={refreshEntitlements} disabled={entitlementsLoading}>Retry</Button>
+                  <Button onClick={refreshEntitlements} disabled={entitlementsLoading}>{t('common.retry')}</Button>
                   <Button variant="outline" asChild>
-                    <Link to="/dashboard/subscription">View plans</Link>
+                    <Link to="/dashboard/subscription">{t('common.viewPlans')}</Link>
                   </Button>
                 </div>
               </CardContent>
@@ -447,33 +503,33 @@ const DashboardLayout = () => {
               <CardHeader>
                 <CardTitle>
                   {suspended
-                    ? "Account Suspended"
+                    ? t('notices.accountSuspended')
                     : verificationPending
-                      ? "Verification Pending"
-                      : "Subscription Expired"}
+                      ? t('notices.verificationPending')
+                      : t('notices.subscriptionExpired')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-sm text-muted-foreground">
                   {suspended
-                    ? "Aapka account currently suspended hai. Support team se contact karne ke liye niche diye gaye button ka use karein."
+                    ? t('notices.accountSuspendedDesc')
                     : verificationPending
-                      ? "Admin verification pending hai. Verification hone tak aap sirf support team ko message kar sakte hain."
-                      : `Aapki subscription expire ho chuki hai${typeof subscriptionDaysRemaining === "number" ? ` (${subscriptionDaysRemaining} days remaining)` : ""}. Renewal tak sirf Dashboard, Subscription aur Support pages available rahenge; public shop bhi hidden rahegi.`}
+                      ? t('notices.verificationPendingDesc')
+                      : `${t('notices.subscriptionExpiredDesc')}${subscriptionDaysSuffix}`}
                 </p>
                 <div className="flex gap-2">
                   {subscriptionExpired ? (
                     <>
                       <Button asChild>
-                        <Link to="/dashboard/subscription">Renew Subscription</Link>
+                        <Link to="/dashboard/subscription">{t('common.renewSubscription')}</Link>
                       </Button>
                       <Button variant="outline" asChild>
-                        <Link to="/dashboard/support">Contact Support</Link>
+                        <Link to="/dashboard/settings">{t('common.openSettings')}</Link>
                       </Button>
                     </>
                   ) : (
                     <Button asChild>
-                      <Link to="/dashboard/support">Go To Support</Link>
+                      <Link to="/dashboard/settings">{t('common.goToSettings')}</Link>
                     </Button>
                   )}
                   {/* <Button variant="outline" asChild>
@@ -490,33 +546,33 @@ const DashboardLayout = () => {
               <CardHeader>
                 <CardTitle>
                   {suspended
-                    ? "Account Suspended"
+                    ? t('notices.accountSuspended')
                     : verificationPending
-                      ? "Verification Pending"
-                      : "Subscription Expired"}
+                      ? t('notices.verificationPending')
+                      : t('notices.subscriptionExpired')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-sm text-muted-foreground">
                   {suspended
-                    ? "Aapka account currently suspended hai. Support team se contact karne ke liye niche diye gaye button ka use karein."
+                    ? t('notices.accountSuspendedDesc')
                     : verificationPending
-                      ? "Admin verification pending hai. Verification hone tak aap sirf support team ko message kar sakte hain."
-                      : "Subscription expire hone ki wajah se ye page temporary locked hai. Renewal ke liye Subscription page par jaiye."}
+                      ? t('notices.verificationPendingDesc')
+                      : t('notices.blockedBySupportOnly')}
                 </p>
                 <div className="flex gap-2">
                   {subscriptionExpired ? (
                     <>
                       <Button asChild>
-                        <Link to="/dashboard/subscription">Go To Subscription</Link>
+                        <Link to="/dashboard/subscription">{t('common.goToSubscription')}</Link>
                       </Button>
                       <Button variant="outline" asChild>
-                        <Link to="/dashboard/support">Contact Support</Link>
+                        <Link to="/dashboard/settings">{t('common.openSettings')}</Link>
                       </Button>
                     </>
                   ) : (
                     <Button asChild>
-                      <Link to="/dashboard/support">Go To Support</Link>
+                      <Link to="/dashboard/settings">{t('common.openSettings')}</Link>
                     </Button>
                   )}
                 </div>

@@ -1,19 +1,12 @@
+import { FacebookIcon, GoogleIcon } from "@/components/auth/BrandIcons";
 import { Button } from "@/components/ui/button";
-import { Facebook, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 type SocialAuthButtonsProps = {
   loadingProvider: "google" | "facebook" | null;
   onGoogle: () => void;
   onFacebook: () => void;
 };
-
-function GoogleIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-      <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.2-1.4 3.6-5.5 3.6-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3.2 14.6 2.3 12 2.3 6.9 2.3 2.8 6.4 2.8 11.5S6.9 20.7 12 20.7c6.9 0 9.1-4.8 9.1-7.3 0-.5 0-.9-.1-1.2H12Z"/>
-    </svg>
-  );
-}
 
 export default function SocialAuthButtons({ loadingProvider, onGoogle, onFacebook }: SocialAuthButtonsProps) {
   const loading = Boolean(loadingProvider);
@@ -32,7 +25,7 @@ export default function SocialAuthButtons({ loadingProvider, onGoogle, onFaceboo
         onClick={onGoogle}
         className="h-12 w-full rounded-full bg-white border-slate-200 text-slate-700 hover:bg-slate-50 justify-start px-4"
       >
-        {loadingProvider === "google" ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}
+        {loadingProvider === "google" ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon className="h-4 w-4" />}
         <span className="ml-3">Continue with Google</span>
       </Button>
 
@@ -40,9 +33,14 @@ export default function SocialAuthButtons({ loadingProvider, onGoogle, onFaceboo
         type="button"
         disabled={loading}
         onClick={onFacebook}
-        className="h-12 w-full rounded-full bg-[#1877F2] hover:bg-[#1665cf] text-white justify-start px-4"
+        variant="outline"
+        className="h-12 w-full rounded-full bg-white border-[#1877F2]/30 text-slate-700 hover:bg-[#1877F2]/5 justify-start px-4"
       >
-        {loadingProvider === "facebook" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Facebook className="h-4 w-4" />}
+        {loadingProvider === "facebook" ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <FacebookIcon className="h-4 w-4 text-[#1877F2]" />
+        )}
         <span className="ml-3">Continue with Facebook</span>
       </Button>
     </div>

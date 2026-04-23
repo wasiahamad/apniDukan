@@ -18,6 +18,7 @@ export interface BusinessType {
     duration?: number;
   };
   ownerCanEditBookingTimings?: boolean;
+  defaultBookingEnabled?: boolean;
   isActive?: boolean;
   displayOrder?: number;
   createdAt?: string;
@@ -31,10 +32,13 @@ export interface BusinessOwner {
   phone: string;
   role: string;
   isActive: boolean;
+  profileImage?: string;
   referralCode?: string;
   lastLogin?: string;
   createdAt?: string;
   updatedAt?: string;
+  // Admin endpoint may return additional fields; keep index signature for forward compatibility.
+  [key: string]: any;
 }
 
 export interface Business {
@@ -196,5 +200,13 @@ export const businessAdminApi = {
 
   async updateBookingTimingsOverride(id: string, enabled: boolean): Promise<ApiResponse<Business>> {
     return apiClient.patch<Business>(`/business/admin/${id}/booking-timings`, { bookingTimingsOverrideEnabled: enabled }, true);
+  },
+
+  async patchBusiness(id: string, input: Partial<Business>): Promise<ApiResponse<Business>> {
+    return apiClient.patch<Business>(`/business/admin/${id}`, input as any, true);
+  },
+
+  async patchOwner(id: string, input: Partial<BusinessOwner>): Promise<ApiResponse<BusinessOwner>> {
+    return apiClient.patch<BusinessOwner>(`/business/admin/${id}/owner`, input as any, true);
   },
 };

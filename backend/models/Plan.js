@@ -30,6 +30,10 @@ const planSchema = new mongoose.Schema(
       required: [true, 'Duration is required'],
       min: [1, 'Duration must be at least 1 day'],
     },
+    billingCycle: {
+      type: String,
+      enum: ['monthly', 'quarterly', 'yearly'],
+    },
     isPublic: {
       type: Boolean,
       default: true,
@@ -86,6 +90,28 @@ const planSchema = new mongoose.Schema(
         default: false,
       },
 
+      // Social/engagement modules
+      storiesEnabled: {
+        type: Boolean,
+        default: false,
+      },
+
+      // Allow posting existing listings as Story/Reel (auto link)
+      listingStoriesEnabled: {
+        type: Boolean,
+        default: false,
+      },
+
+      ratingsEnabled: {
+        type: Boolean,
+        default: true,
+      },
+
+      locationEnabled: {
+        type: Boolean,
+        default: true,
+      },
+
       // Dukandar module access (admin-controlled)
       supportTicketsEnabled: {
         type: Boolean,
@@ -115,6 +141,25 @@ const planSchema = new mongoose.Schema(
       inquiriesEnabled: {
         type: Boolean,
         default: true,
+      },
+
+      // Offers/discount banners shown on public shop
+      offersEnabled: {
+        type: Boolean,
+        default: false,
+      },
+
+      // AI modules (plan controlled)
+      // Public/customer facing AI chat on public shop pages
+      aiCustomerChatEnabled: {
+        type: Boolean,
+        default: true,
+      },
+
+      // Dukandar-facing AI agent (dashboard tools like generate/insights)
+      aiDukandarAgentEnabled: {
+        type: Boolean,
+        default: false,
       },
     },
     description: {

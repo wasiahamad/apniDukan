@@ -5,9 +5,13 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import mongoSanitize from 'express-mongo-sanitize';
 import rateLimit from 'express-rate-limit';
+import mongoose from 'mongoose';
 
 // Import database connection
 import connectDB from './config/database.js';
+
+// Background jobs
+import { startPlanExpiryReminderLoop } from './services/notificationEmailService.js';
 
 // Import routes
 import mountRoutes from './routes/index.js';
@@ -139,6 +143,16 @@ const PORT = process.env.PORT || 5000;
 const startServer = async () => {
   await connectDB();
 
+  // Start background reminder loop (best-effort)
+  try {
+    const job = startPlanExpiryReminderLoop();
+    if (job?.started) {
+      console.log(`📬 Plan expiry reminder job running (every ~${job.intervalMinutes} min)`);
+    }
+  } catch (e) {
+    console.warn('Plan expiry reminder job failed to start:', e?.message || e);
+  }
+
   server = app.listen(PORT, () => {
     console.log('');
     console.log('╔════════════════════════════════════════════════════════════╗');
@@ -168,6 +182,41 @@ const startServer = async () => {
 startServer().catch((err) => {
   console.error('❌ Failed to start server:', err);
   process.exit(1);
+});
+
+const gracefulShutdown = async (signal) => {
+  try {
+    if (server) {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    if (mongoose.connection?.readyState) {
+      await mongoose.connection.close();
+    }
+  } catch {
+    // ignore
+  }
+
+  if (signal === 'SIGUSR2') {
+    // Let nodemon trigger a restart after we've released resources.
+    process.kill(process.pid, 'SIGUSR2');
+  } else {
+    process.exit(0);
+  }
+};
+
+// Support nodemon restarts without leaving the port bound.
+process.once('SIGUSR2', () => {
+  gracefulShutdown('SIGUSR2');
+});
+
+// Support container/process-manager shutdown.
+process.on('SIGTERM', () => {
+  gracefulShutdown('SIGTERM');
 });
 
 // Handle unhandled promise rejections

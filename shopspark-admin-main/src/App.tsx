@@ -10,6 +10,7 @@ import Shops from "@/pages/Shops";
 import CreateShop from "@/pages/CreateShop";
 import ShopProfile from "@/pages/ShopProfile";
 import Orders from "@/pages/Orders";
+import OrdersShopDetails from "@/pages/OrdersShopDetails";
 import Delivery from "@/pages/Delivery";
 import Subscriptions from "@/pages/Subscriptions";
 import Analytics from "@/pages/Analytics";
@@ -22,6 +23,11 @@ import WeeklyReports from "@/pages/WeeklyReports";
 import Referrals from "@/pages/Referrals";
 import BusinessTypes from "@/pages/BusinessTypes";
 import Customers from "@/pages/Customers";
+import CustomerDetails from "@/pages/CustomerDetails";
+import PlatformFeedback from "@/pages/PlatformFeedback";
+import Contact from "@/pages/Contact";
+import AboutPageEditor from "@/pages/AboutPageEditor";
+import Stories from "@/pages/Stories";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -44,8 +50,13 @@ function AppRoutes() {
         <Route path="/shops/new" element={<CreateShop />} />
         <Route path="/shops/:id" element={<ShopProfile />} />
         <Route path="/customers" element={<Customers />} />
+        <Route path="/customers/:id" element={<CustomerDetails />} />
+        <Route path="/platform-feedback" element={<PlatformFeedback />} />
+        <Route path="/contact" element={<Contact />} />
+        <Route path="/about-page" element={<AboutPageEditor />} />
         <Route path="/business-types" element={<BusinessTypes />} />
         <Route path="/orders" element={<Orders />} />
+        <Route path="/orders/shop/:businessId" element={<OrdersShopDetails />} />
         <Route path="/delivery" element={<Delivery />} />
         <Route path="/subscriptions" element={<Subscriptions />} />
         <Route path="/subdomains" element={<Subdomains />} />
@@ -55,6 +66,7 @@ function AppRoutes() {
         <Route path="/support" element={<Support />} />
         <Route path="/audit-logs" element={<AuditLogs />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/stories" element={<Stories />} />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>

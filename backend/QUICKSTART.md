@@ -47,6 +47,16 @@ MONGO_URI=mongodb://localhost:27017/apnidukan
 JWT_SECRET=your_super_secret_jwt_key_minimum_32_chars
 JWT_REFRESH_SECRET=your_refresh_secret_minimum_32_chars
 CLIENT_URL=http://localhost:5173
+
+# AI (Cloudflare Workers AI)
+# Used by /api/ai/* endpoints
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_API_TOKEN=
+
+# Daily AI limits
+AI_LIMIT_PUBLIC=5
+AI_LIMIT_OWNER_FREE=5
+AI_LIMIT_OWNER_PREMIUM=50
 ```
 
 💡 **Generate secure secrets:**
@@ -107,6 +117,32 @@ curl http://localhost:5000/api/health
 
 # Expected response:
 # { "success": true, "message": "Server is running" }
+```
+
+---
+
+## 🤖 AI Agent Endpoints (Backend)
+
+After setting the AI env vars, these routes are available:
+
+- `POST /api/ai/chat` (public; IP/session daily limit)
+- `POST /api/ai/generate` (business_owner/admin; plan-based daily limit)
+- `POST /api/ai/insights` (business_owner/admin; saves daily summary)
+
+---
+
+## ⏰ Daily Insights Cron (11 PM IST)
+
+Run manually:
+
+```bash
+node scripts/runAiInsightsCron.js
+```
+
+Or test a small batch:
+
+```bash
+node scripts/runAiInsightsCron.js --limit=10
 ```
 
 ---

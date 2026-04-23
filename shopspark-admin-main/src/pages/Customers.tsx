@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, MapPin } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 
 import { customersAdminApi, type AdminCustomer } from "@/lib/api/customers";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +16,7 @@ const PAGE_SIZE = 20;
 const formatCoord = (value: number) => (Number.isFinite(value) ? value.toFixed(5) : "N/A");
 
 export default function Customers() {
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -139,10 +141,29 @@ export default function Customers() {
                   </TableRow>
                 ) : (
                   customers.map((c) => (
-                    <TableRow key={c._id}>
+                    <TableRow
+                      key={c._id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      role="link"
+                      tabIndex={0}
+                      onClick={() => navigate(`/customers/${c._id}`)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          navigate(`/customers/${c._id}`);
+                        }
+                      }}
+                    >
                       <TableCell>
                         <div className="space-y-1">
-                          <p className="font-medium">{c.name || "-"}</p>
+                          <Link
+                            className="font-medium hover:underline"
+                            to={`/customers/${c._id}`}
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          >
+                            {c.name || "-"}
+                          </Link>
                           <p className="text-xs text-muted-foreground font-mono">{c._id}</p>
                         </div>
                       </TableCell>

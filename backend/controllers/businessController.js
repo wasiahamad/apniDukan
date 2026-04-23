@@ -1,12 +1,310 @@
 import { Business, User, Plan, Category } from '../models/index.js';
 import slugify from 'slugify';
 import { getEffectiveEntitlementsForBusiness } from '../services/entitlementsService.js';
+import { calculatePlanExpiryDate } from '../services/subscriptionService.js';
+import { getSmartCategoryIcon } from '../services/categoryIconAiService.js';
+import { CATEGORY_FALLBACK_ICON, inferCategoryIcon } from '../utils/categoryIcon.js';
 
 const DEMO_SHOP_SLUG = 'wasi-kirana-store';
 
 const BUSINESS_TIME_ZONE = process.env.BUSINESS_TIME_ZONE || process.env.TZ || 'Asia/Kolkata';
 const DEFAULT_WORKING_OPEN = process.env.DEFAULT_WORKING_OPEN || '09:00';
 const DEFAULT_WORKING_CLOSE = process.env.DEFAULT_WORKING_CLOSE || '20:00';
+const DEFAULT_PLATFORM_LOGO = process.env.DEFAULT_PLATFORM_LOGO || '/logo-removebg-preview.png';
+const VIEW_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const VIEW_SESSION_MAX_KEYS = 50000;
+const viewSessionCache = new Map();
+
+const getRequestedLang = (req) => {
+  const q = String(req.query?.lang || '').toLowerCase();
+  if (q.startsWith('hi')) return 'hi';
+  if (q.startsWith('en')) return 'en';
+
+  const header = String(req.headers?.['accept-language'] || '').toLowerCase();
+  if (header.startsWith('hi')) return 'hi';
+  return 'en';
+};
+
+const escapeRegExp = (input) => String(input ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const hasDevanagari = (value) => /[\u0900-\u097F]/.test(String(value || ''));
+
+// Best-effort: helps Hindi/English search behave similarly even when Hindi DB fields aren't populated yet.
+const DEVANAGARI_SEARCH_MAP = {
+  // common terms
+  'किराना': 'kirana',
+  'स्टोर': 'store',
+  'दुकान': 'shop',
+  'जनरल': 'general',
+  'मेडिकल': 'medical',
+  'सैलून': 'salon',
+  'रेस्टोरेंट': 'restaurant',
+  'बेकरी': 'bakery',
+  'कैफ़े': 'cafe',
+  'कैफे': 'cafe',
+  'जिम': 'gym',
+  'कोचिंग': 'coaching',
+  'सर्विस': 'service',
+  'क्लिनिक': 'clinic',
+  'अस्पताल': 'hospital',
+
+  // common names
+  'गुप्ता': 'gupta',
+  'शर्मा': 'sharma',
+  'वर्मा': 'verma',
+  'सिंह': 'singh',
+  'कुमार': 'kumar',
+
+  // cities
+  'जयपुर': 'jaipur',
+  'दिल्ली': 'delhi',
+  'मुंबई': 'mumbai',
+  'पुणे': 'pune',
+  'बेंगलुरु': 'bengaluru',
+};
+
+const LATIN_SEARCH_MAP = {
+  // common terms
+  kirana: 'किराना',
+  store: 'स्टोर',
+  shop: 'दुकान',
+  general: 'जनरल',
+  medical: 'मेडिकल',
+  salon: 'सैलून',
+  restaurant: 'रेस्टोरेंट',
+  bakery: 'बेकरी',
+  cafe: 'कैफ़े',
+  gym: 'जिम',
+  coaching: 'कोचिंग',
+  service: 'सर्विस',
+  clinic: 'क्लिनिक',
+  hospital: 'अस्पताल',
+
+  // common names
+  gupta: 'गुप्ता',
+  sharma: 'शर्मा',
+  verma: 'वर्मा',
+  singh: 'सिंह',
+  kumar: 'कुमार',
+
+  // cities
+  jaipur: 'जयपुर',
+  delhi: 'दिल्ली',
+  mumbai: 'मुंबई',
+  pune: 'पुणे',
+  bengaluru: 'बेंगलुरु',
+  bangalore: 'बेंगलुरु',
+};
+
+const applyLooseDictionary = (input, dict) => {
+  let out = String(input || '');
+  if (!out) return out;
+  for (const [from, to] of Object.entries(dict)) {
+    if (!from) continue;
+    out = out.split(from).join(to);
+  }
+  return out;
+};
+
+const devanagariToLatinSimple = (value) => {
+  const s = String(value || '');
+  if (!s) return s;
+
+  // Minimal transliteration for search only (best-effort).
+  // Goal: make partial Hindi queries like "किरा" match English DB strings like "kirana".
+  const cons = {
+    'क': 'k',
+    'ख': 'kh',
+    'ग': 'g',
+    'घ': 'gh',
+    'च': 'ch',
+    'छ': 'chh',
+    'ज': 'j',
+    'झ': 'jh',
+    'ट': 't',
+    'ठ': 'th',
+    'ड': 'd',
+    'ढ': 'dh',
+    'त': 't',
+    'थ': 'th',
+    'द': 'd',
+    'ध': 'dh',
+    'न': 'n',
+    'प': 'p',
+    'फ': 'ph',
+    'ब': 'b',
+    'भ': 'bh',
+    'म': 'm',
+    'य': 'y',
+    'र': 'r',
+    'ल': 'l',
+    'व': 'v',
+    'श': 'sh',
+    'ष': 'sh',
+    'स': 's',
+    'ह': 'h',
+    'ळ': 'l',
+    'ग़': 'g',
+    'ज़': 'z',
+    'फ़': 'f',
+    'ड़': 'd',
+    'ढ़': 'dh',
+  };
+
+  const indepVowel = {
+    'अ': 'a',
+    'आ': 'a',
+    'इ': 'i',
+    'ई': 'i',
+    'उ': 'u',
+    'ऊ': 'u',
+    'ए': 'e',
+    'ऐ': 'ai',
+    'ओ': 'o',
+    'औ': 'au',
+    'ऋ': 'ri',
+  };
+
+  const matra = {
+    'ा': 'a',
+    'ि': 'i',
+    'ी': 'i',
+    'ु': 'u',
+    'ू': 'u',
+    'े': 'e',
+    'ै': 'ai',
+    'ो': 'o',
+    'ौ': 'au',
+    'ृ': 'ri',
+  };
+
+  const marks = {
+    'ं': 'n',
+    'ँ': 'n',
+    'ः': 'h',
+    '्': '',
+  };
+
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+
+    // handle common conjunct "क्ष" as one token
+    if (ch === 'क' && s[i + 1] === '्' && s[i + 2] === 'ष') {
+      out += 'ksh';
+      i += 2;
+      continue;
+    }
+
+    if (matra[ch] !== undefined) {
+      out += matra[ch];
+      continue;
+    }
+    if (marks[ch] !== undefined) {
+      out += marks[ch];
+      continue;
+    }
+    if (indepVowel[ch] !== undefined) {
+      out += indepVowel[ch];
+      continue;
+    }
+    if (cons[ch] !== undefined) {
+      out += cons[ch];
+      continue;
+    }
+
+    out += ch;
+  }
+
+  return out;
+};
+
+const buildSearchRegexes = (raw) => {
+  const text = String(raw || '').trim();
+  if (!text) return [];
+
+  const variants = new Set([text]);
+
+  if (hasDevanagari(text)) {
+    const mapped = applyLooseDictionary(text, DEVANAGARI_SEARCH_MAP);
+    if (mapped && mapped !== text) variants.add(mapped);
+
+    const roman = devanagariToLatinSimple(text);
+    if (roman && roman !== text) variants.add(roman);
+  } else {
+    const lower = text.toLowerCase();
+    variants.add(lower);
+    const mapped = applyLooseDictionary(lower, LATIN_SEARCH_MAP);
+    if (mapped && mapped !== lower) variants.add(mapped);
+  }
+
+  const out = [];
+  for (const v of variants) {
+    const safe = escapeRegExp(v).slice(0, 200);
+    if (!safe) continue;
+    out.push(new RegExp(safe, 'i'));
+    if (out.length >= 4) break;
+  }
+  return out;
+};
+
+const sanitizeSessionId = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.length < 8 || raw.length > 120) return '';
+  if (!/^[a-zA-Z0-9_-]+$/.test(raw)) return '';
+  return raw;
+};
+
+const cleanupExpiredViewSessions = (now) => {
+  for (const [key, expiresAt] of viewSessionCache.entries()) {
+    if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+      viewSessionCache.delete(key);
+    }
+  }
+};
+
+const shouldCountSessionView = ({ sessionId, slug }) => {
+  if (!sessionId || !slug) return true;
+  const now = Date.now();
+  const key = `${String(slug).toLowerCase()}::${sessionId}`;
+  const expiresAt = viewSessionCache.get(key);
+
+  if (Number.isFinite(expiresAt) && expiresAt > now) {
+    return false;
+  }
+
+  viewSessionCache.set(key, now + VIEW_SESSION_TTL_MS);
+
+  if (viewSessionCache.size > VIEW_SESSION_MAX_KEYS) {
+    cleanupExpiredViewSessions(now);
+    if (viewSessionCache.size > VIEW_SESSION_MAX_KEYS) {
+      const overflow = viewSessionCache.size - VIEW_SESSION_MAX_KEYS;
+      let removed = 0;
+      for (const staleKey of viewSessionCache.keys()) {
+        viewSessionCache.delete(staleKey);
+        removed += 1;
+        if (removed >= overflow) break;
+      }
+    }
+  }
+
+  return true;
+};
+
+const resolveBusinessDescription = ({ description, businessTypeDoc }) => {
+  if (typeof description === 'string' && description.trim()) {
+    return description.trim();
+  }
+  const businessTypeDescription = String(businessTypeDoc?.description || '').trim();
+  return businessTypeDescription || undefined;
+};
+
+const resolveBusinessLogo = (logo) => {
+  if (typeof logo === 'string' && logo.trim()) {
+    return logo.trim();
+  }
+  return DEFAULT_PLATFORM_LOGO;
+};
 
 const getNowInTimeZone = (timeZone) => {
   const now = new Date();
@@ -133,7 +431,7 @@ const normalizeWhyChooseUsTemplates = (raw) => {
   return result;
 };
 
-const ensureDefaultCategoriesForBusiness = async ({ businessId, businessTypeDoc }) => {
+const ensureDefaultCategoriesForBusiness = async ({ businessId, businessTypeDoc, ownerUser = null }) => {
   if (!businessId) return;
 
   const exampleCategories = normalizeExampleCategories(businessTypeDoc?.exampleCategories).slice(0, 50);
@@ -149,11 +447,40 @@ const ensureDefaultCategoriesForBusiness = async ({ businessId, businessTypeDoc 
   );
 
   const creations = [];
+  let aiEnabled = false;
+  try {
+    const businessDoc = await Business.findById(businessId).select('plan planExpiresAt featureOverrides businessType').lean();
+    const entitlements = businessDoc ? await getEffectiveEntitlementsForBusiness(businessDoc) : null;
+    aiEnabled = entitlements?.features?.aiDukandarAgentEnabled === true;
+  } catch {
+    aiEnabled = false;
+  }
+
+  // Avoid burning quota during bulk creation.
+  const MAX_AI_ICON_CALLS = 8;
+  let aiIconCalls = 0;
+
   for (let i = 0; i < exampleCategories.length; i++) {
     const name = exampleCategories[i];
     const key = name.trim().toLowerCase();
     if (!key || existingNameSet.has(key)) continue;
-    creations.push(Category.create({ business: businessId, name, order: i }));
+
+    let icon = inferCategoryIcon(name);
+    if (
+      aiEnabled &&
+      ownerUser &&
+      icon === CATEGORY_FALLBACK_ICON &&
+      aiIconCalls < MAX_AI_ICON_CALLS
+    ) {
+      aiIconCalls += 1;
+      try {
+        icon = await getSmartCategoryIcon({ name, user: ownerUser, aiEnabled: true });
+      } catch {
+        // ignore
+      }
+    }
+
+    creations.push(Category.create({ business: businessId, name, order: i, icon }));
   }
 
   if (creations.length === 0) return;
@@ -333,6 +660,7 @@ export const createBusiness = async (req, res) => {
       email,
       address,
       description,
+      logo,
       workingHours,
     } = req.body;
 
@@ -378,13 +706,14 @@ export const createBusiness = async (req, res) => {
       whatsapp: whatsapp || phone,
       email,
       address: safeAddress,
-      description,
+      description: resolveBusinessDescription({ description, businessTypeDoc }),
+      logo: resolveBusinessLogo(logo),
       workingHours,
     });
 
     // Auto-create default categories based on business type (best-effort)
     try {
-      await ensureDefaultCategoriesForBusiness({ businessId: business._id, businessTypeDoc });
+      await ensureDefaultCategoriesForBusiness({ businessId: business._id, businessTypeDoc, ownerUser: req.user });
     } catch (e) {
       console.warn('Default category creation error:', e?.message || e);
     }
@@ -462,6 +791,7 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
       email: businessEmail,
       address,
       description,
+      logo,
       workingHours,
       isActive,
       isVerified,
@@ -504,15 +834,32 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
       whatsapp: whatsapp || businessPhone,
       email: businessEmail,
       address: normalizeBusinessAddressGeo(address),
-      description,
+      description: resolveBusinessDescription({ description, businessTypeDoc }),
+      logo: resolveBusinessLogo(logo),
       workingHours,
       ...(typeof isActive === 'boolean' ? { isActive } : {}),
       ...(typeof isVerified === 'boolean' ? { isVerified } : {}),
     });
 
+    // If admin provided a plan, apply it BEFORE seeding defaults so entitlements are accurate.
+    if (planId) {
+      const plan = await Plan.findById(planId);
+      if (!plan || !plan.isActive) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid or inactive plan selected',
+        });
+      }
+
+      const expiryDate = calculatePlanExpiryDate({ plan, baseDate: new Date() });
+      createdBusiness.plan = plan._id;
+      createdBusiness.planExpiresAt = expiryDate;
+      await createdBusiness.save();
+    }
+
     // Auto-create default categories based on business type (best-effort)
     try {
-      await ensureDefaultCategoriesForBusiness({ businessId: createdBusiness._id, businessTypeDoc });
+      await ensureDefaultCategoriesForBusiness({ businessId: createdBusiness._id, businessTypeDoc, ownerUser: user });
     } catch (e) {
       console.warn('Default category creation error (admin create):', e?.message || e);
     }
@@ -526,22 +873,6 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
       });
     } catch (e) {
       console.warn('Default media creation error (admin create):', e?.message || e);
-    }
-
-    if (planId) {
-      const plan = await Plan.findById(planId);
-      if (!plan || !plan.isActive) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid or inactive plan selected',
-        });
-      }
-
-      const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + plan.durationInDays);
-      createdBusiness.plan = plan._id;
-      createdBusiness.planExpiresAt = expiryDate;
-      await createdBusiness.save();
     }
 
     await createdBusiness.populate('owner', 'name email phone role isActive');
@@ -581,6 +912,7 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
 export const getBusinessBySlug = async (req, res) => {
   try {
     const { slug } = req.params;
+    const sessionId = sanitizeSessionId(req.query?.sid || req.headers['x-session-id']);
     const normalizedSlug = String(slug || '').toLowerCase();
 
     const businessQuery = {
@@ -591,7 +923,7 @@ export const getBusinessBySlug = async (req, res) => {
 
     const business = await Business.findOne(businessQuery)
       .populate('owner', 'name email phone')
-      .populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages')
+      .populate('businessType', 'name nameHi slug description descriptionHi suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages')
       .populate('plan');
 
     if (!business) {
@@ -626,11 +958,23 @@ export const getBusinessBySlug = async (req, res) => {
       }
     }
 
-    // Increment view count (optional - track analytics)
-    await business.incrementStat('totalViews');
+    // Session-based view counting: same session should count only once per shop.
+    if (shouldCountSessionView({ sessionId, slug: business.slug })) {
+      await business.incrementStat('totalViews');
+    }
 
     const payload = business.toObject ? business.toObject() : business;
     payload.isOpen = resolveBusinessIsOpen(business);
+
+    const lang = getRequestedLang(req);
+    if (lang === 'hi') {
+      if (payload?.nameHi) payload.name = payload.nameHi;
+      if (payload?.descriptionHi) payload.description = payload.descriptionHi;
+      if (payload?.businessType) {
+        if (payload.businessType?.nameHi) payload.businessType.name = payload.businessType.nameHi;
+        if (payload.businessType?.descriptionHi) payload.businessType.description = payload.businessType.descriptionHi;
+      }
+    }
 
     res.status(200).json({
       success: true,
@@ -651,7 +995,9 @@ export const getBusinessBySlug = async (req, res) => {
 export const getBusinessDirectoryBySlug = async (req, res) => {
   try {
     const { slug } = req.params;
+    const sessionId = sanitizeSessionId(req.query?.sid || req.headers['x-session-id']);
     const normalizedSlug = String(slug || '').toLowerCase();
+    const lang = getRequestedLang(req);
 
     const businessQuery = {
       slug,
@@ -661,7 +1007,7 @@ export const getBusinessDirectoryBySlug = async (req, res) => {
 
     const business = await Business.findOne(businessQuery)
       .populate('owner', 'name email phone')
-      .populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages')
+      .populate('businessType', 'name nameHi slug description descriptionHi suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages')
       .populate('plan');
 
     if (!business) {
@@ -671,9 +1017,11 @@ export const getBusinessDirectoryBySlug = async (req, res) => {
       });
     }
 
-    // Increment view count (best-effort; never block response)
+    // Increment view count once per session (best-effort; never block response)
     try {
-      await business.incrementStat('totalViews');
+      if (shouldCountSessionView({ sessionId, slug: business.slug })) {
+        await business.incrementStat('totalViews');
+      }
     } catch {
       // ignore analytics failures
     }
@@ -701,6 +1049,15 @@ export const getBusinessDirectoryBySlug = async (req, res) => {
       payload.publicShopEnabled = publicShopEnabled;
       payload.subdomainActive = subdomainActive;
 
+      if (lang === 'hi') {
+        if (payload?.nameHi) payload.name = payload.nameHi;
+        if (payload?.descriptionHi) payload.description = payload.descriptionHi;
+        if (payload?.businessType) {
+          if (payload.businessType?.nameHi) payload.businessType.name = payload.businessType.nameHi;
+          if (payload.businessType?.descriptionHi) payload.businessType.description = payload.businessType.descriptionHi;
+        }
+      }
+
       return res.status(200).json({
         success: true,
         data: payload,
@@ -711,6 +1068,15 @@ export const getBusinessDirectoryBySlug = async (req, res) => {
     payload.isOpen = resolveBusinessIsOpen(business);
     payload.publicShopEnabled = true;
     payload.subdomainActive = true;
+
+    if (lang === 'hi') {
+      if (payload?.nameHi) payload.name = payload.nameHi;
+      if (payload?.descriptionHi) payload.description = payload.descriptionHi;
+      if (payload?.businessType) {
+        if (payload.businessType?.nameHi) payload.businessType.name = payload.businessType.nameHi;
+        if (payload.businessType?.descriptionHi) payload.businessType.description = payload.businessType.descriptionHi;
+      }
+    }
 
     return res.status(200).json({
       success: true,
@@ -731,24 +1097,44 @@ export const getBusinessDirectoryBySlug = async (req, res) => {
 export const getPublicShops = async (req, res) => {
   try {
     const { city, category, search, page = 1, limit = 40, lat, lng } = req.query;
+    const lang = getRequestedLang(req);
 
     const safePage = Math.max(parseInt(page, 10) || 1, 1);
     const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 40, 1), 100);
 
     const normalizedCategory = category ? String(category).toLowerCase() : null;
     const normalizedCity = city ? String(city) : null;
-    const term = search ? new RegExp(String(search), 'i') : null;
+
+    const cityRegexes = normalizedCity ? buildSearchRegexes(normalizedCity) : [];
+    const termRegexes = search ? buildSearchRegexes(search) : [];
+
+    const andClauses = [];
+    if (cityRegexes.length > 0) {
+      andClauses.push({
+        $or: cityRegexes.flatMap((r) => [{ 'address.city': r }, { 'address.cityHi': r }]),
+      });
+    }
+    if (termRegexes.length > 0) {
+      andClauses.push({
+        $or: termRegexes.flatMap((r) => [
+          { name: r },
+          { nameHi: r },
+          { description: r },
+          { descriptionHi: r },
+          { slug: r },
+          { 'address.city': r },
+          { 'address.cityHi': r },
+          { 'address.state': r },
+          { 'address.stateHi': r },
+        ]),
+      });
+    }
 
     const baseQuery = {
       isActive: true,
       isVerified: true,
       slug: { $exists: true, $ne: null },
-      ...(normalizedCity ? { 'address.city': new RegExp(normalizedCity, 'i') } : {}),
-      ...(term
-        ? {
-            $or: [{ name: term }, { description: term }, { 'address.city': term }, { 'address.state': term }],
-          }
-        : {}),
+      ...(andClauses.length > 0 ? { $and: andClauses } : {}),
     };
 
     const now = new Date();
@@ -857,20 +1243,6 @@ export const getPublicShops = async (req, res) => {
     if (hasGeo) {
       pipeline.push({
         $addFields: {
-          _hasCoords: {
-            $and: [
-              { $isArray: '$address.location.coordinates' },
-              { $eq: [{ $size: '$address.location.coordinates' }, 2] },
-            ],
-          },
-          _shopLng: { $arrayElemAt: ['$address.location.coordinates', 0] },
-          _shopLat: { $arrayElemAt: ['$address.location.coordinates', 1] },
-        },
-      });
-
-      // Haversine distance in meters (best-effort)
-      pipeline.push({
-        $addFields: {
           distanceMeters: {
             $cond: [
               '$_hasCoords',
@@ -968,8 +1340,10 @@ export const getPublicShops = async (req, res) => {
             $project: {
               _id: 1,
               name: 1,
+              nameHi: { $ifNull: ['$nameHi', ''] },
               slug: 1,
               description: { $ifNull: ['$description', ''] },
+              descriptionHi: { $ifNull: ['$descriptionHi', ''] },
               phone: { $ifNull: ['$phone', ''] },
               whatsapp: { $ifNull: ['$whatsapp', '$phone'] },
               isVerified: { $toBool: '$isVerified' },
@@ -978,14 +1352,23 @@ export const getPublicShops = async (req, res) => {
               businessType: {
                 $cond: [
                   { $ifNull: ['$businessTypeDoc', false] },
-                  { name: '$businessTypeDoc.name', slug: '$businessTypeDoc.slug' },
+                  {
+                    name: '$businessTypeDoc.name',
+                    nameHi: { $ifNull: ['$businessTypeDoc.nameHi', ''] },
+                    description: { $ifNull: ['$businessTypeDoc.description', ''] },
+                    descriptionHi: { $ifNull: ['$businessTypeDoc.descriptionHi', ''] },
+                    slug: '$businessTypeDoc.slug',
+                  },
                   null,
                 ],
               },
               address: {
                 street: { $ifNull: ['$address.street', ''] },
+                streetHi: { $ifNull: ['$address.streetHi', ''] },
                 city: { $ifNull: ['$address.city', ''] },
+                cityHi: { $ifNull: ['$address.cityHi', ''] },
                 state: { $ifNull: ['$address.state', ''] },
+                stateHi: { $ifNull: ['$address.stateHi', ''] },
                 pincode: { $ifNull: ['$address.pincode', ''] },
                 latitude: {
                   $cond: [
@@ -1028,10 +1411,24 @@ export const getPublicShops = async (req, res) => {
     const out = await Business.aggregate(pipeline);
     const data = out?.[0]?.data || [];
     const total = Number(out?.[0]?.total?.[0]?.count || 0);
-    const shops = data.map((b) => ({
-      ...b,
-      isOpen: resolveBusinessIsOpen(b),
-    }));
+
+    const shops = data.map((b) => {
+      const payload = {
+        ...b,
+        isOpen: resolveBusinessIsOpen(b),
+      };
+
+      if (lang === 'hi') {
+        if (payload?.nameHi) payload.name = payload.nameHi;
+        if (payload?.descriptionHi) payload.description = payload.descriptionHi;
+        if (payload?.businessType) {
+          if (payload.businessType?.nameHi) payload.businessType.name = payload.businessType.nameHi;
+          if (payload.businessType?.descriptionHi) payload.businessType.description = payload.businessType.descriptionHi;
+        }
+      }
+
+      return payload;
+    });
 
     return res.status(200).json({
       success: true,
@@ -1105,6 +1502,7 @@ export const saveMyBusinessLocation = async (req, res) => {
 // @access  Public
 export const getNearbyBusinesses = async (req, res) => {
   try {
+    const lang = getRequestedLang(req);
     let lat = Number(req.query.lat);
     let lng = Number(req.query.lng);
 
@@ -1261,8 +1659,10 @@ export const getNearbyBusinesses = async (req, res) => {
         $project: {
           _id: 1,
           name: 1,
+          nameHi: { $ifNull: ['$nameHi', ''] },
           slug: 1,
           description: { $ifNull: ['$description', ''] },
+          descriptionHi: { $ifNull: ['$descriptionHi', ''] },
           phone: { $ifNull: ['$phone', ''] },
           whatsapp: { $ifNull: ['$whatsapp', '$phone'] },
           isVerified: { $toBool: '$isVerified' },
@@ -1271,14 +1671,21 @@ export const getNearbyBusinesses = async (req, res) => {
           businessType: {
             $cond: [
               { $ifNull: ['$businessTypeDoc', false] },
-              { name: '$businessTypeDoc.name', slug: '$businessTypeDoc.slug' },
+              {
+                name: '$businessTypeDoc.name',
+                nameHi: { $ifNull: ['$businessTypeDoc.nameHi', ''] },
+                slug: '$businessTypeDoc.slug',
+              },
               null,
             ],
           },
           address: {
             street: { $ifNull: ['$address.street', ''] },
+            streetHi: { $ifNull: ['$address.streetHi', ''] },
             city: { $ifNull: ['$address.city', ''] },
+            cityHi: { $ifNull: ['$address.cityHi', ''] },
             state: { $ifNull: ['$address.state', ''] },
+            stateHi: { $ifNull: ['$address.stateHi', ''] },
             pincode: { $ifNull: ['$address.pincode', ''] },
             latitude: {
               $cond: [
@@ -1317,10 +1724,23 @@ export const getNearbyBusinesses = async (req, res) => {
     );
 
     const rows = await Business.aggregate(pipeline);
-    const shops = (rows || []).map((b) => ({
-      ...b,
-      isOpen: resolveBusinessIsOpen(b),
-    }));
+    const shops = (rows || []).map((b) => {
+      const payload = {
+        ...b,
+        isOpen: resolveBusinessIsOpen(b),
+      };
+
+      if (lang === 'hi') {
+        if (payload?.nameHi) payload.name = payload.nameHi;
+        if (payload?.descriptionHi) payload.description = payload.descriptionHi;
+        if (payload?.businessType?.nameHi) payload.businessType.name = payload.businessType.nameHi;
+        if (payload?.address?.streetHi) payload.address.street = payload.address.streetHi;
+        if (payload?.address?.cityHi) payload.address.city = payload.address.cityHi;
+        if (payload?.address?.stateHi) payload.address.state = payload.address.stateHi;
+      }
+
+      return payload;
+    });
 
     return res.status(200).json({
       success: true,
@@ -1442,7 +1862,8 @@ export const adminGetBusinessById = async (req, res) => {
     const { id } = req.params;
 
     const business = await Business.findById(id)
-      .populate('owner', 'name email phone role isActive referralCode lastLogin createdAt updatedAt')
+      // Owner: populate without projection so admin can see everything that's stored (password is excluded by schema).
+      .populate('owner')
       .populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages defaultBookingTimings ownerCanEditBookingTimings')
       .populate('plan');
 
@@ -1513,6 +1934,147 @@ export const adminGetBusinessById = async (req, res) => {
       success: false,
       message: error.message || 'Error fetching business',
     });
+  }
+};
+
+const ADMIN_EDITABLE_BUSINESS_FIELDS = new Set([
+  'name',
+  'slug',
+  'logo',
+  'coverImage',
+  'coverImages',
+  'branding',
+  'socialMedia',
+  'socialMediaCustom',
+  'phone',
+  'whatsapp',
+  'whatsappOrderMessageTemplate',
+  'whatsappAutoGreetingEnabled',
+  'whatsappAutoGreetingMessage',
+  'email',
+  'address',
+  'description',
+  'whyChooseUs',
+  'workingHours',
+  'bookingTimingsOverrideEnabled',
+  'openStatusMode',
+  'featureOverrides',
+  'businessType',
+]);
+
+const pickAdminBusinessPatch = (body) => {
+  const src = body && typeof body === 'object' ? body : {};
+  const patch = {};
+  for (const [k, v] of Object.entries(src)) {
+    if (ADMIN_EDITABLE_BUSINESS_FIELDS.has(k)) patch[k] = v;
+  }
+  return patch;
+};
+
+// @desc    Admin: Patch business fields (broad edit access)
+// @route   PATCH /api/business/admin/:id
+// @access  Private (admin only)
+export const adminPatchBusiness = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const patch = pickAdminBusinessPatch(req.body);
+
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Business id is required' });
+    }
+    if (!patch || Object.keys(patch).length === 0) {
+      return res.status(400).json({ success: false, message: 'No editable fields provided' });
+    }
+
+    const business = await Business.findById(id);
+    if (!business) {
+      return res.status(404).json({ success: false, message: 'Business not found' });
+    }
+
+    for (const [k, v] of Object.entries(patch)) {
+      business.set(k, v);
+    }
+
+    await business.save();
+
+    const updated = await Business.findById(id)
+      .populate('owner')
+      .populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages defaultBookingTimings ownerCanEditBookingTimings')
+      .populate('plan')
+      .lean();
+
+    return res.status(200).json({ success: true, data: updated });
+  } catch (error) {
+    const msg = error?.code === 11000
+      ? 'Duplicate value (likely slug/email/phone)'
+      : (error.message || 'Error updating business');
+    console.error('Admin patch business error:', error);
+    return res.status(500).json({ success: false, message: msg });
+  }
+};
+
+const ADMIN_EDITABLE_OWNER_FIELDS = new Set([
+  'name',
+  'email',
+  'phone',
+  'profileImage',
+  'isActive',
+  'role',
+]);
+
+const pickAdminOwnerPatch = (body) => {
+  const src = body && typeof body === 'object' ? body : {};
+  const patch = {};
+  for (const [k, v] of Object.entries(src)) {
+    if (ADMIN_EDITABLE_OWNER_FIELDS.has(k)) patch[k] = v;
+  }
+  return patch;
+};
+
+// @desc    Admin: Patch owner account for a business
+// @route   PATCH /api/business/admin/:id/owner
+// @access  Private (admin only)
+export const adminPatchBusinessOwner = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const patch = pickAdminOwnerPatch(req.body);
+
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Business id is required' });
+    }
+    if (!patch || Object.keys(patch).length === 0) {
+      return res.status(400).json({ success: false, message: 'No editable owner fields provided' });
+    }
+
+    const business = await Business.findById(id).select('owner').lean();
+    if (!business?.owner) {
+      return res.status(404).json({ success: false, message: 'Business/owner not found' });
+    }
+
+    // Prevent accidentally switching owner to non-dukandar roles unless explicitly set
+    if (patch.role && !['admin', 'business_owner', 'staff', 'customer'].includes(String(patch.role))) {
+      return res.status(400).json({ success: false, message: 'Invalid role' });
+    }
+
+    const owner = await User.findById(business.owner);
+    if (!owner) {
+      return res.status(404).json({ success: false, message: 'Owner user not found' });
+    }
+
+    for (const [k, v] of Object.entries(patch)) {
+      owner.set(k, v);
+    }
+
+    await owner.save();
+
+    const updatedOwner = await User.findById(owner._id).lean();
+    return res.status(200).json({ success: true, data: updatedOwner });
+  } catch (error) {
+    const msg = error?.code === 11000
+      ? 'Duplicate value (likely email/phone)'
+      : (error.message || 'Error updating owner');
+    console.error('Admin patch business owner error:', error);
+    return res.status(500).json({ success: false, message: msg });
   }
 };
 
@@ -1963,6 +2525,7 @@ export const updateBusiness = async (req, res) => {
     // Update fields (exclude sensitive fields)
     const allowedFields = [
       'name',
+      'nameHi',
       'businessType',
       'logo',
       'coverImage',
@@ -1975,6 +2538,7 @@ export const updateBusiness = async (req, res) => {
       'email',
       'address',
       'description',
+      'descriptionHi',
       'workingHours',
       'openStatusMode',
       'socialMediaCustom',
@@ -2013,6 +2577,8 @@ export const updateBusiness = async (req, res) => {
       }
     }
 
+    let nextBusinessTypeDoc = null;
+
     // If businessType is being updated, validate it exists
     if (updates.businessType !== undefined) {
       const { BusinessType } = await import('../models/index.js');
@@ -2023,6 +2589,12 @@ export const updateBusiness = async (req, res) => {
           message: 'Invalid business type. Please select a valid business type.',
         });
       }
+      nextBusinessTypeDoc = businessTypeDoc;
+    }
+
+    // Keep platform logo as safe default when logo is cleared.
+    if (updates.logo !== undefined && String(updates.logo || '').trim() === '') {
+      updates.logo = DEFAULT_PLATFORM_LOGO;
     }
 
     // If name is changing, regenerate slug (same logic as model pre-save)
@@ -2052,6 +2624,21 @@ export const updateBusiness = async (req, res) => {
         success: false,
         message: 'Business not found',
       });
+    }
+
+    // If business type changes and description is blank/missing, apply type default only when
+    // the business does not already have a custom description.
+    const incomingDescription = typeof updates.description === 'string' ? updates.description.trim() : null;
+    const existingDescription = String(existingBusiness.description || '').trim();
+    if (
+      updates.businessType !== undefined &&
+      (!incomingDescription || incomingDescription.length === 0) &&
+      existingDescription.length === 0
+    ) {
+      const fallbackDescription = String(nextBusinessTypeDoc?.description || '').trim();
+      if (fallbackDescription) {
+        updates.description = fallbackDescription;
+      }
     }
 
     // Why Choose Us: editable for all plans except Free (for business owners).
@@ -2208,7 +2795,9 @@ export const getBusinessEntitlements = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const business = await Business.findById(id).populate('plan');
+    const business = await Business.findById(id)
+      .populate('plan')
+      .populate('businessType', 'defaultBookingEnabled');
     if (!business) {
       return res.status(404).json({ success: false, message: 'Business not found' });
     }

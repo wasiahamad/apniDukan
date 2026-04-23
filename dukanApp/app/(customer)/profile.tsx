@@ -125,6 +125,8 @@ export default function ProfileScreen() {
           <View style={styles.divider} />
           <MenuItem icon="bell" label="Notifications" onPress={() => {}} color="#7C3AED" />
           <View style={styles.divider} />
+          <MenuItem icon="lock" label="Change Password" onPress={() => router.push("/(customer)/change-password")} color={Colors.primary} />
+          <View style={styles.divider} />
           <MenuItem icon="help-circle" label="Help & Support" onPress={() => {}} color="#0284C7" />
         </View>
       </View>

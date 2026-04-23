@@ -71,9 +71,27 @@
 VITE_API_URL=http://localhost:5000/api
 ```
 
+### 5. AI Worker Configuration (Optional)
+
+AI endpoints are served by the Cloudflare Worker in `ai-worker/`.
+
+Add a separate base URL for AI (recommended):
+
+```env
+VITE_AI_API_URL=https://ai.apnidukan.com
+```
+
+If you don't set `VITE_AI_API_URL`, you can also proxy AI calls through your main API later (e.g., `/api/ai/...`).
+
 **Usage in Code:**
 ```typescript
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+```
+
+Example AI base URL usage:
+
+```typescript
+const AI_BASE_URL = import.meta.env.VITE_AI_API_URL || API_BASE_URL;
 ```
 
 ---

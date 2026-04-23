@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ShieldCheck, ArrowLeft, Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { authApi } from "@/lib/api/index";
 import { useToast } from "@/hooks/use-toast";
 
 const OTPVerification = () => {
+  const { t } = useTranslation();
   const [otp, setOtp] = useState("");
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
@@ -34,20 +36,20 @@ const OTPVerification = () => {
     setError("");
 
     if (!email || otp.length !== 6) {
-      setError("Please enter valid 6-digit OTP");
+      setError(t('otpVerification.invalidOtp'));
       return;
     }
 
     setIsVerifying(true);
     try {
       const response = await authApi.verifyEmailOtp({ email, otp });
-      if (!response.success) throw new Error(response.message || "OTP verification failed");
+      if (!response.success) throw new Error(response.message || t('otpVerification.otpVerificationFailed'));
 
       sessionStorage.removeItem("pendingVerificationEmail");
 
       toast({
-        title: "Verified",
-        description: "Your account is activated successfully.",
+        title: t('otpVerification.verified'),
+        description: t('otpVerification.verifiedDesc'),
       });
 
       if (flow === "onboarding") {
@@ -57,11 +59,11 @@ const OTPVerification = () => {
         navigate("/dashboard");
       }
     } catch (err: any) {
-      const message = err.message || "Failed to verify OTP";
+      const message = err.message || t('otpVerification.failedToVerify');
       setError(message);
       toast({
         variant: "destructive",
-        title: "Verification failed",
+        title: t('otpVerification.verificationFailed'),
         description: message,
       });
     } finally {
@@ -76,18 +78,18 @@ const OTPVerification = () => {
     setError("");
     try {
       const response = await authApi.resendEmailOtp(email);
-      if (!response.success) throw new Error(response.message || "Failed to resend OTP");
+      if (!response.success) throw new Error(response.message || t('otpVerification.failedToResend'));
 
       toast({
-        title: "OTP sent",
-        description: "A new OTP has been sent to your email.",
+        title: t('otpVerification.otpSent'),
+        description: t('otpVerification.otpSentDesc'),
       });
     } catch (err: any) {
-      const message = err.message || "Failed to resend OTP";
+      const message = err.message || t('otpVerification.failedToResend');
       setError(message);
       toast({
         variant: "destructive",
-        title: "Resend failed",
+        title: t('otpVerification.resendFailed'),
         description: message,
       });
     } finally {
@@ -106,8 +108,8 @@ const OTPVerification = () => {
           <ShieldCheck className="w-7 h-7 text-primary" />
         </div>
 
-        <h2 className="text-lg font-bold mb-1">Verify Email OTP</h2>
-        <p className="text-sm text-muted-foreground mb-6 break-all">Sent to {email}</p>
+        <h2 className="text-lg font-bold mb-1">{t('otpVerification.title')}</h2>
+        <p className="text-sm text-muted-foreground mb-6 break-all">{t('otpVerification.sentTo', { email })}</p>
 
         <form onSubmit={handleVerify} className="space-y-3">
           <input
@@ -116,7 +118,7 @@ const OTPVerification = () => {
             maxLength={6}
             value={otp}
             onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
-            placeholder="Enter 6-digit OTP"
+            placeholder={t('otpVerification.otpPlaceholder')}
             className="w-full h-12 bg-muted border-2 rounded-xl text-center text-xl font-bold tracking-[0.3em] focus:outline-none focus:border-primary transition-colors"
           />
 
@@ -129,23 +131,23 @@ const OTPVerification = () => {
           >
             {isVerifying ? (
               <span className="inline-flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" /> Verifying...
+                <Loader2 className="w-4 h-4 animate-spin" /> {t('otpVerification.verifying')}
               </span>
             ) : (
-              "Verify OTP"
+              t('otpVerification.verifyOtp')
             )}
           </button>
         </form>
 
         <p className="text-xs text-muted-foreground mt-4">
-          Didn't receive OTP?{" "}
+          {t('otpVerification.didntReceive')}{" "}
           <button
             type="button"
             onClick={handleResend}
             disabled={isResending}
             className="text-primary font-semibold disabled:opacity-50"
           >
-            {isResending ? "Resending..." : "Resend OTP"}
+            {isResending ? t('otpVerification.resending') : t('otpVerification.resendOtp')}
           </button>
         </p>
 
@@ -153,7 +155,7 @@ const OTPVerification = () => {
           onClick={() => navigate(-1)}
           className="flex items-center gap-1 text-sm text-muted-foreground mx-auto mt-4"
         >
-          <ArrowLeft className="w-4 h-4" /> Back
+          <ArrowLeft className="w-4 h-4" /> {t('otpVerification.back')}
         </button>
       </motion.div>
     </div>

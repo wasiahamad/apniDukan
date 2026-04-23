@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 
+import { useTranslation } from "react-i18next";
+import i18n from "@/i18n";
 import { authApi } from "@/lib/api/index";
 
 export default function AdminLogin() {
+  const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -12,7 +15,7 @@ export default function AdminLogin() {
       const refreshToken = params.get("refreshToken");
 
       if (!token) {
-        setError("Missing token");
+        setError(i18n.t('adminLogin.missingToken'));
         return;
       }
 
@@ -22,13 +25,13 @@ export default function AdminLogin() {
       try {
         const me = await authApi.me();
         if (!me.success || !me.data) {
-          throw new Error(me.message || "Failed to load user");
+          throw new Error(me.message || i18n.t('adminLogin.failedToLoadUser'));
         }
 
         // Force reload so AuthProvider re-initializes from localStorage
         window.location.replace("/dashboard");
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Failed to login";
+        const msg = e instanceof Error ? e.message : i18n.t('adminLogin.failedToLogin');
         setError(msg);
       }
     };
@@ -40,7 +43,7 @@ export default function AdminLogin() {
     <div className="min-h-screen flex items-center justify-center p-8">
       <div className="text-center">
         <p className="text-sm text-muted-foreground">
-          {error ? error : "Logging you in…"}
+          {error ? error : t('adminLogin.loggingIn')}
         </p>
       </div>
     </div>

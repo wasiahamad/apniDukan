@@ -1,9 +1,11 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { BookingSlot, Business, User } from '../models/index.js';
+import { BookingSlot, Business, Inquiry, Order, User } from '../models/index.js';
 import { sendOtpEmail } from '../services/emailService.js';
 import { createReferralForSignup, ensureReferralCodeForUser } from '../services/referralService.js';
+import { createCustomerReferralForSignup } from '../services/customerReferralEarningsService.js';
 import { verifyFacebookAccessToken, verifyGoogleAccessToken, verifyGoogleIdToken } from '../services/socialAuthService.js';
+import { sendCustomerNearbyShopEmails } from '../services/notificationEmailService.js';
 
 /**
  * AUTH CONTROLLER - Unified authentication
@@ -138,8 +140,49 @@ const loginResponse = (user) => {
 };
 
 const shouldRequireVerification = (role) => {
-  if (role !== 'business_owner') return false;
-  return String(process.env.DUKANDAR_EMAIL_VERIFICATION || 'true').toLowerCase() !== 'false';
+  if (role === 'business_owner') {
+    return String(process.env.DUKANDAR_EMAIL_VERIFICATION || 'true').toLowerCase() !== 'false';
+  }
+  if (role === 'customer') {
+    return String(process.env.CUSTOMER_EMAIL_VERIFICATION || 'true').toLowerCase() !== 'false';
+  }
+  return false;
+};
+
+const parseLocationFromRequestBody = (body) => {
+  const b = body && typeof body === 'object' ? body : {};
+
+  // Preferred: GeoJSON like { currentLocation: { type:'Point', coordinates:[lng,lat], accuracy } }
+  const geo = b.currentLocation;
+  if (geo && typeof geo === 'object') {
+    const coords = geo.coordinates;
+    const lng = Number(coords?.[0]);
+    const lat = Number(coords?.[1]);
+    const acc = Number(geo.accuracy);
+    if (Number.isFinite(lat) && lat >= -90 && lat <= 90 && Number.isFinite(lng) && lng >= -180 && lng <= 180) {
+      return {
+        type: 'Point',
+        coordinates: [lng, lat],
+        ...(Number.isFinite(acc) && acc >= 0 ? { accuracy: acc } : {}),
+        capturedAt: new Date(),
+      };
+    }
+  }
+
+  // Fallback: { latitude, longitude, accuracy }
+  const lat = Number(b.latitude);
+  const lng = Number(b.longitude);
+  const acc = Number(b.accuracy);
+  if (Number.isFinite(lat) && lat >= -90 && lat <= 90 && Number.isFinite(lng) && lng >= -180 && lng <= 180) {
+    return {
+      type: 'Point',
+      coordinates: [lng, lat],
+      ...(Number.isFinite(acc) && acc >= 0 ? { accuracy: acc } : {}),
+      capturedAt: new Date(),
+    };
+  }
+
+  return null;
 };
 
 // 
@@ -188,6 +231,8 @@ export const register = async (req, res) => {
     const normalizedEmail = normalizeEmail(email);
     const targetRole = normalizeRequestedRole(role);
 
+    const maybeLocation = targetRole === 'customer' ? parseLocationFromRequestBody(req.body) : null;
+
     if ((targetRole === 'business_owner' || targetRole === 'customer') && !phone) {
       return res.status(400).json({
         success: false,
@@ -223,6 +268,7 @@ export const register = async (req, res) => {
         offerId,
         ipAddress: req.ip,
         userAgent: req.get('user-agent'),
+        ...(maybeLocation ? { currentLocation: maybeLocation } : {}),
         otpHash: hashOtp(otp),
         expiresAt: new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000),
         attempts: existingPending?.attempts || 0,
@@ -269,9 +315,43 @@ export const register = async (req, res) => {
       authProvider: 'local',
       isEmailVerified: true,
       isActive: true,
+      ...(maybeLocation ? { currentLocation: maybeLocation } : {}),
     });
 
     await ensureReferralCodeForUser(user);
+
+    if (referralCode && user.role === 'business_owner') {
+      let handled = false;
+      try {
+        const customerReferral = await createCustomerReferralForSignup({
+          referredUser: user,
+          referralCode,
+        });
+        if (customerReferral) handled = true;
+      } catch (e) {
+        console.warn('Customer referral creation on signup failed:', e?.message || e);
+      }
+
+      if (!handled) {
+        try {
+          await createReferralForSignup({
+            referredUser: user,
+            referralCode,
+            offerId,
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent'),
+          });
+        } catch (e) {
+          console.warn('Referral creation on signup failed:', e?.message || e);
+        }
+      }
+    }
+
+    // Best-effort: if this is a customer and they already have a location (some clients may send it later),
+    // they will also get nearby shop email on the first /auth/location update.
+    if (user.role === 'customer') {
+      sendCustomerNearbyShopEmails({ userId: user._id, trigger: 'signup' }).catch(() => null);
+    }
 
     return res.status(201).json({
       success: true,
@@ -383,25 +463,46 @@ export const verifyEmailOtp = async (req, res) => {
       isEmailVerified: true,
       isActive: true,
       lastLogin: new Date(),
+      ...(pending.currentLocation ? { currentLocation: pending.currentLocation } : {}),
     });
 
     await ensureReferralCodeForUser(user);
 
     if (pending.referralCode && user.role === 'business_owner') {
+      let handled = false;
+
+      // 1) Customer referral (earns commission) takes priority if code belongs to a customer
       try {
-        await createReferralForSignup({
+        const customerReferral = await createCustomerReferralForSignup({
           referredUser: user,
           referralCode: pending.referralCode,
-          offerId: pending.offerId,
-          ipAddress: pending.ipAddress,
-          userAgent: pending.userAgent,
         });
+        if (customerReferral) handled = true;
       } catch (e) {
-        console.warn('Referral creation on signup failed:', e?.message || e);
+        console.warn('Customer referral creation on signup failed:', e?.message || e);
+      }
+
+      // 2) Fallback to existing dukandar referral system
+      if (!handled) {
+        try {
+          await createReferralForSignup({
+            referredUser: user,
+            referralCode: pending.referralCode,
+            offerId: pending.offerId,
+            ipAddress: pending.ipAddress,
+            userAgent: pending.userAgent,
+          });
+        } catch (e) {
+          console.warn('Referral creation on signup failed:', e?.message || e);
+        }
       }
     }
 
     clearPendingRegistration(normalizedEmail);
+
+    if (user.role === 'customer') {
+      sendCustomerNearbyShopEmails({ userId: user._id, trigger: 'otp_verified' }).catch(() => null);
+    }
 
     return res.status(200).json({
       success: true,
@@ -561,6 +662,14 @@ export const loginCustomer = async (req, res) => {
       return res.status(403).json({
         success: false,
         message: 'Only customer accounts are allowed here',
+      });
+    }
+
+    if (shouldRequireVerification('customer') && !user.isEmailVerified) {
+      return res.status(403).json({
+        success: false,
+        message: 'Email not verified. Please verify OTP first.',
+        code: 'EMAIL_NOT_VERIFIED',
       });
     }
 
@@ -933,6 +1042,11 @@ export const updateMyLocation = async (req, res) => {
     };
     await user.save();
 
+    if (user.role === 'customer') {
+      // This is where Public Website syncs location after login; trigger nearby shop emails here.
+      sendCustomerNearbyShopEmails({ userId: user._id, trigger: 'location_update' }).catch(() => null);
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Live location updated',
@@ -1047,6 +1161,238 @@ export const adminListCustomers = async (req, res) => {
       success: false,
       message: error.message || 'Error fetching customers',
     });
+  }
+};
+
+const normalizePhone10 = (phone) => {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.length >= 10) return digits.slice(-10);
+  return digits;
+};
+
+// @desc    Admin: Get a single customer details (profile + activity + orders + bookings)
+// @route   GET /api/auth/admin/customers/:customerId
+// @access  Private (admin)
+export const adminGetCustomerDetails = async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 20, 5), 100);
+
+    const customer = await User.findOne({ _id: customerId, role: 'customer' }).lean();
+    if (!customer) {
+      return res.status(404).json({ success: false, message: 'Customer not found' });
+    }
+
+    const phone10 = normalizePhone10(customer.phone);
+    const normalizedEmail = normalizeEmail(customer.email);
+
+    const bookingStatsAgg = await BookingSlot.aggregate([
+      { $match: { bookedBy: customer._id } },
+      {
+        $group: {
+          _id: '$bookedBy',
+          totalBookings: { $sum: 1 },
+          activeBookings: {
+            $sum: {
+              $cond: [{ $in: ['$status', ['booked']] }, 1, 0],
+            },
+          },
+          completedBookings: {
+            $sum: {
+              $cond: [{ $eq: ['$status', 'completed'] }, 1, 0],
+            },
+          },
+        },
+      },
+    ]);
+
+    const bookingStats = bookingStatsAgg?.[0]
+      ? {
+          totalBookings: Number(bookingStatsAgg[0].totalBookings || 0),
+          activeBookings: Number(bookingStatsAgg[0].activeBookings || 0),
+          completedBookings: Number(bookingStatsAgg[0].completedBookings || 0),
+        }
+      : { totalBookings: 0, activeBookings: 0, completedBookings: 0 };
+
+    const [recentBookings, recentOrders, recentInquiries, ordersByBusinessAgg] = await Promise.all([
+      BookingSlot.find({ bookedBy: customer._id })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .populate('business', 'name slug')
+        .populate('listing', 'title')
+        .lean(),
+      phone10
+        ? Order.find({
+            $or: [
+              { 'customer.phone': phone10 },
+              { 'customer.phone': { $regex: new RegExp(`${phone10}$`) } },
+            ],
+          })
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .populate('business', 'name slug')
+            .lean()
+        : [],
+      phone10 || normalizedEmail
+        ? Inquiry.find({
+            $or: [
+              ...(phone10
+                ? [
+                    { customerPhone: phone10 },
+                    { customerPhone: { $regex: new RegExp(`${phone10}$`) } },
+                  ]
+                : []),
+              ...(normalizedEmail ? [{ customerEmail: normalizedEmail }] : []),
+            ],
+          })
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .populate('business', 'name slug')
+            .lean()
+        : [],
+      phone10
+        ? Order.aggregate([
+            {
+              $match: {
+                $or: [
+                  { 'customer.phone': phone10 },
+                  { 'customer.phone': { $regex: new RegExp(`${phone10}$`) } },
+                ],
+              },
+            },
+            {
+              $group: {
+                _id: '$business',
+                orderCount: { $sum: 1 },
+                totalSpent: { $sum: '$total' },
+                lastOrderAt: { $max: '$createdAt' },
+              },
+            },
+            { $sort: { orderCount: -1, lastOrderAt: -1 } },
+            { $limit: 25 },
+            {
+              $lookup: {
+                from: 'businesses',
+                localField: '_id',
+                foreignField: '_id',
+                as: 'business',
+              },
+            },
+            { $unwind: { path: '$business', preserveNullAndEmptyArrays: true } },
+            {
+              $project: {
+                _id: 0,
+                business: {
+                  _id: '$business._id',
+                  name: '$business.name',
+                  slug: '$business.slug',
+                },
+                orderCount: 1,
+                totalSpent: 1,
+                lastOrderAt: 1,
+              },
+            },
+          ])
+        : [],
+    ]);
+
+    const ordersByBusiness = Array.isArray(ordersByBusinessAgg)
+      ? ordersByBusinessAgg.map((row) => ({
+          business: row.business && row.business._id ? row.business : { _id: null, name: 'Unknown', slug: null },
+          orderCount: Number(row.orderCount || 0),
+          totalSpent: Number(row.totalSpent || 0),
+          lastOrderAt: row.lastOrderAt || null,
+        }))
+      : [];
+
+    const totalOrders = ordersByBusiness.reduce((acc, r) => acc + (r.orderCount || 0), 0);
+    const totalSpent = ordersByBusiness.reduce((acc, r) => acc + (r.totalSpent || 0), 0);
+
+    const activity = [];
+    for (const b of recentBookings || []) {
+      activity.push({
+        type: 'booking',
+        at: b.createdAt,
+        title: 'Booking',
+        status: b.status,
+        business: b.business || null,
+        meta: {
+          date: b.date,
+          startTime: b.startTime,
+          endTime: b.endTime,
+          listingTitle: b.listing?.title || null,
+        },
+        refId: b._id,
+      });
+    }
+
+    for (const o of recentOrders || []) {
+      activity.push({
+        type: 'order',
+        at: o.createdAt,
+        title: o.orderNumber ? `Order #${o.orderNumber}` : 'Order',
+        status: o.status,
+        business: o.business || null,
+        meta: {
+          total: o.total,
+          source: o.source,
+        },
+        refId: o._id,
+      });
+    }
+
+    for (const i of recentInquiries || []) {
+      activity.push({
+        type: 'inquiry',
+        at: i.createdAt,
+        title: i.type ? `${String(i.type).toUpperCase()} Inquiry` : 'Inquiry',
+        status: i.status,
+        business: i.business || null,
+        meta: {
+          message: i.message,
+          source: i.source,
+        },
+        refId: i._id,
+      });
+    }
+
+    activity.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        customer: {
+          _id: customer._id,
+          name: customer.name,
+          email: customer.email,
+          phone: customer.phone || null,
+          role: customer.role,
+          isActive: customer.isActive,
+          isEmailVerified: customer.isEmailVerified,
+          lastLogin: customer.lastLogin || null,
+          currentLocation: customer.currentLocation || null,
+          createdAt: customer.createdAt,
+          updatedAt: customer.updatedAt,
+          bookingStats,
+        },
+        bookingStats,
+        ordersSummary: {
+          totalOrders,
+          totalSpent,
+          byBusiness: ordersByBusiness,
+        },
+        recent: {
+          bookings: recentBookings || [],
+          orders: recentOrders || [],
+          inquiries: recentInquiries || [],
+        },
+        activity: activity.slice(0, limit),
+      },
+    });
+  } catch (error) {
+    console.error('Admin get customer details error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Error fetching customer details' });
   }
 };
 

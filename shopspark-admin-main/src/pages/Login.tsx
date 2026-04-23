@@ -5,7 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Store, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
+
+const PLATFORM_LOGO_SRC = "/logo-removebg-preview.png";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -34,10 +36,10 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
-          <div className="mx-auto h-14 w-14 rounded-xl bg-primary flex items-center justify-center">
-            <Store className="h-7 w-7 text-primary-foreground" />
+          <div className="mx-auto h-14 w-14 rounded-xl bg-primary/10 flex items-center justify-center overflow-hidden">
+            <img src={PLATFORM_LOGO_SRC} alt="PublicDukan" className="h-10 w-10 object-contain" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground">LocalBooster</h1>
+          <h1 className="text-2xl font-bold text-foreground">PublicDukan</h1>
           <p className="text-sm text-muted-foreground">Super Admin Panel</p>
         </div>
 
@@ -50,7 +52,7 @@ export default function Login() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" placeholder="admin@localbooster.in" value={email} onChange={e => setEmail(e.target.value)} required />
+                <Input id="email" type="email" placeholder="admin@publicdukan.in" value={email} onChange={e => setEmail(e.target.value)} required />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>

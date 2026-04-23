@@ -16,4 +16,10 @@ export * as orderController from './orderController.js';
 export * as supportController from './supportController.js';
 export * as invoiceController from './invoiceController.js';
 export * as reviewController from './reviewController.js';
+export * as cityController from './cityController.js';
+export * as storyController from './storyController.js';
+export * as customerReferralEarningsController from './customerReferralEarningsController.js';
+export * as walletController from './walletController.js';
+export * as offerController from './offerController.js';
+export * as aiController from './aiController.js';
 

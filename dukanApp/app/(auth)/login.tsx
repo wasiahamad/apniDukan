@@ -21,6 +21,7 @@ import Animated, {
 import { Feather } from "@expo/vector-icons";
 import Colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
+import { ApiError } from "@/utils/apiClient";
 
 const DEMO_ACCOUNTS = [
   { label: "👤 Customer Demo", email: "customer@demo.com", password: "demo1234", role: "customer" },
@@ -75,6 +76,13 @@ export default function LoginScreen() {
         router.replace("/(customer)");
       }
     } catch (err: any) {
+      if (err instanceof ApiError) {
+        const code = (err.details as any)?.code;
+        if (code === "EMAIL_NOT_VERIFIED") {
+          router.push({ pathname: "/(auth)/verify-email", params: { email: email.trim().toLowerCase() } });
+          return;
+        }
+      }
       Alert.alert("Login Failed", err.message || "Invalid credentials");
     } finally {
       setLoading(false);
@@ -156,6 +164,10 @@ export default function LoginScreen() {
         </View>
 
         <AnimBtn onPress={handleLogin} label="Sign In" loading={loading} />
+
+        <Pressable onPress={() => router.push("/(auth)/forgot-password")} style={styles.forgotLink}>
+          <Text style={styles.forgotText}>Forgot password?</Text>
+        </Pressable>
 
         <Pressable onPress={() => router.push("/(auth)/register")} style={styles.switchLink}>
           <Text style={styles.switchText}>Don't have an account? </Text>
@@ -241,4 +253,6 @@ const styles = StyleSheet.create({
   btnText: { fontFamily: "Manrope_700Bold", fontSize: 17, color: "#fff" },
   switchLink: { flexDirection: "row", justifyContent: "center", paddingVertical: 8 },
   switchText: { fontFamily: "Manrope_500Medium", fontSize: 15, color: Colors.light.textSecondary },
+  forgotLink: { alignItems: "center", paddingVertical: 6, marginTop: -2 },
+  forgotText: { fontFamily: "Manrope_700Bold", fontSize: 14, color: Colors.light.textSecondary },
 });

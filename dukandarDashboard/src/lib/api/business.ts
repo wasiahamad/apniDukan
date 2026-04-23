@@ -4,10 +4,32 @@
 
 import { apiClient, type ApiResponse } from '../api';
 
+const VIEW_SESSION_KEY = 'publicdukan_view_session_id';
+
+const getViewSessionId = () => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const existing = sessionStorage.getItem(VIEW_SESSION_KEY);
+    if (existing) return existing;
+    const generated =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    sessionStorage.setItem(VIEW_SESSION_KEY, generated);
+    return generated;
+  } catch {
+    return null;
+  }
+};
+
 export type EntitlementFeatures = {
   maxListings: number;
   publicShopEnabled: boolean;
   bookingEnabled: boolean;
+  storiesEnabled: boolean;
+  listingStoriesEnabled: boolean;
+  ratingsEnabled: boolean;
+  locationEnabled: boolean;
   featuredEnabled: boolean;
   maxFeaturedListings: number;
   customDomain: boolean;
@@ -26,6 +48,10 @@ export type EntitlementFeatures = {
 
   ordersEnabled: boolean;
   inquiriesEnabled: boolean;
+
+  // AI modules (plan controlled)
+  aiCustomerChatEnabled?: boolean;
+  aiDukandarAgentEnabled?: boolean;
 };
 
 export type BusinessEntitlements = {
@@ -59,6 +85,7 @@ export interface Plan {
   slug: string;
   price: number;
   durationInDays: number;
+  billingCycle?: 'monthly' | 'quarterly' | 'yearly';
   features: {
     maxListings: number;
     publicShopEnabled?: boolean;
@@ -270,10 +297,28 @@ export const businessApi = {
   },
 
   /**
+   * Save my business location (GeoJSON)
+   */
+  async saveMyBusinessLocation(latitude: number, longitude: number): Promise<ApiResponse<{ businessId: string; location: { type: 'Point'; coordinates: [number, number] } }>> {
+    const response = await apiClient.put<{ businessId: string; location: { type: 'Point'; coordinates: [number, number] } }>(
+      '/business/location',
+      { latitude, longitude }
+    );
+    if (response.success) {
+      myBusinessesCache = null;
+    }
+    return response;
+  },
+
+  /**
    * Get business by slug (public)
    */
   async getBusinessBySlug(slug: string): Promise<ApiResponse<Business>> {
-    return apiClient.get<Business>(`/business/slug/${slug}`, false);
+    const sid = getViewSessionId();
+    const endpoint = sid
+      ? `/business/slug/${slug}?sid=${encodeURIComponent(sid)}`
+      : `/business/slug/${slug}`;
+    return apiClient.get<Business>(endpoint);
   },
 
   /**

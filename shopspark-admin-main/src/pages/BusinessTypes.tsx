@@ -30,6 +30,7 @@ type FormState = {
   defaultBookingEndTime: string;
   defaultBookingDuration: number;
   ownerCanEditBookingTimings: boolean;
+  defaultBookingEnabled: boolean;
   displayOrder: number;
   isActive: boolean;
 };
@@ -48,6 +49,7 @@ const emptyForm: FormState = {
   defaultBookingEndTime: "18:00",
   defaultBookingDuration: 30,
   ownerCanEditBookingTimings: false,
+  defaultBookingEnabled: true,
   displayOrder: 0,
   isActive: true,
 };
@@ -146,6 +148,7 @@ export default function BusinessTypes() {
           duration: Number(form.defaultBookingDuration) || 30,
         },
         ownerCanEditBookingTimings: form.ownerCanEditBookingTimings,
+        defaultBookingEnabled: form.defaultBookingEnabled,
         displayOrder: Number.isFinite(form.displayOrder) ? form.displayOrder : 0,
         isActive: form.isActive,
       });
@@ -182,6 +185,7 @@ export default function BusinessTypes() {
           duration: Number(form.defaultBookingDuration) || 30,
         },
         ownerCanEditBookingTimings: form.ownerCanEditBookingTimings,
+        defaultBookingEnabled: form.defaultBookingEnabled,
         displayOrder: Number.isFinite(form.displayOrder) ? form.displayOrder : 0,
         isActive: form.isActive,
       });
@@ -299,6 +303,7 @@ export default function BusinessTypes() {
       defaultBookingEndTime: String(defaults.endTime || "18:00"),
       defaultBookingDuration: Number(defaults.duration ?? 30) || 30,
       ownerCanEditBookingTimings: bt.ownerCanEditBookingTimings === true,
+      defaultBookingEnabled: bt.defaultBookingEnabled !== false,
       displayOrder: bt.displayOrder ?? 0,
       isActive: bt.isActive ?? true,
     });
@@ -457,6 +462,17 @@ export default function BusinessTypes() {
                 <Switch
                   checked={form.ownerCanEditBookingTimings}
                   onCheckedChange={(v) => setForm((f) => ({ ...f, ownerCanEditBookingTimings: v }))}
+                />
+              </div>
+
+              <div className="flex items-center justify-between rounded-md border p-3 mt-3">
+                <div>
+                  <p className="text-sm font-medium">Booking system enabled by default</p>
+                  <p className="text-xs text-muted-foreground">New shops of this business type will get booking module by default.</p>
+                </div>
+                <Switch
+                  checked={form.defaultBookingEnabled}
+                  onCheckedChange={(v) => setForm((f) => ({ ...f, defaultBookingEnabled: v }))}
                 />
               </div>
             </div>

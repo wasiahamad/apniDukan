@@ -17,13 +17,16 @@ export interface Product {
   id: string;
   name: string;
   price: number;
+  oldPrice?: number;
+  discountPercent?: number;
   image: string;
   images?: string[];
-  pricingOptions?: Array<{ label: string; price: number }>;
+  pricingOptions?: Array<{ label: string; price: number; oldPrice?: number; discountPercent?: number }>;
   description?: string;
   duration?: string;
   type?: "product" | "service" | "food" | "course" | "rental";
   attributes?: Array<{ name: string; value: string | number }>;
+  isFeatured?: boolean;
 }
 
 export interface TimeSlot {
@@ -36,6 +39,9 @@ export interface Shop {
   id: string;
   name: string;
   slug: string;
+  ownerName?: string;
+  ownerPhone?: string;
+  ownerEmail?: string;
   category: string;
   categorySlug: string;
   city: string;

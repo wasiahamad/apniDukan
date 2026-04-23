@@ -30,7 +30,14 @@ export default function BookingScreen() {
 
   const [name, setName] = useState(user?.name || "");
   const [phone, setPhone] = useState(user?.phone || "");
-  const [date, setDate] = useState("");
+  const [email, setEmail] = useState(user?.email || "");
+  const [date, setDate] = useState(() => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  });
   const [startTime, setStartTime] = useState("");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
@@ -50,9 +57,21 @@ export default function BookingScreen() {
   const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
   async function handleBook() {
+    const trimmedName = name.trim();
     const phone10 = tryParsePhone10(phone);
-    if (!name.trim() || !phone10 || !date.trim()) {
-      Alert.alert("Error", "Please fill in name, valid phone, and date");
+    const trimmedEmail = String(email || "").trim();
+    const trimmedDate = String(date || "").trim();
+
+    if (!trimmedName) {
+      Alert.alert("Error", "Your name is required");
+      return;
+    }
+    if (!phone10 && !trimmedEmail) {
+      Alert.alert("Error", "Phone or email is required");
+      return;
+    }
+    if (!trimmedDate) {
+      Alert.alert("Error", "Date is required");
       return;
     }
 
@@ -74,11 +93,11 @@ export default function BookingScreen() {
           ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         },
         body: JSON.stringify({
-          date: date.trim(),
+          date: trimmedDate,
           startTime,
-          customerName: name.trim(),
-          customerPhone: phone10,
-          customerEmail: user?.email,
+          customerName: trimmedName,
+          customerPhone: phone10 || undefined,
+          customerEmail: trimmedEmail || undefined,
           customerNotes: notes.trim() || undefined,
         }),
       });
@@ -120,6 +139,22 @@ export default function BookingScreen() {
           <View style={styles.inputWrap}>
             <Feather name="phone" size={16} color={Colors.light.textSecondary} />
             <TextInput style={styles.input} value={phone} onChangeText={setPhone} placeholder="+91 98765 43210" placeholderTextColor={Colors.light.textTertiary} keyboardType="phone-pad" />
+          </View>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Email (optional)</Text>
+          <View style={styles.inputWrap}>
+            <Feather name="mail" size={16} color={Colors.light.textSecondary} />
+            <TextInput
+              style={styles.input}
+              value={email}
+              onChangeText={setEmail}
+              placeholder="you@example.com"
+              placeholderTextColor={Colors.light.textTertiary}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
           </View>
         </View>
 

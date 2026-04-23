@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,6 +13,7 @@ type Props = {
 };
 
 export default function RequireFeature({ feature, title, children }: Props) {
+  const { t } = useTranslation();
   const { entitlements, loading, suspended } = useEntitlements();
 
   if (loading) {
@@ -32,14 +34,14 @@ export default function RequireFeature({ feature, title, children }: Props) {
     return (
       <Card className="border">
         <CardHeader>
-          <CardTitle>{title || "Upgrade required"}</CardTitle>
+          <CardTitle>{title || t('requireFeature.upgradeRequired')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            This feature is not enabled in your current plan.
+            {t('requireFeature.notEnabledInPlan')}
           </p>
           <Button asChild>
-            <Link to="/dashboard/subscription">View plans</Link>
+            <Link to="/dashboard/subscription">{t('common.viewPlans')}</Link>
           </Button>
         </CardContent>
       </Card>

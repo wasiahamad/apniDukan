@@ -34,7 +34,7 @@ export default function Settings() {
             </div>
             <div className="space-y-2">
               <Label>Email</Label>
-              <Input defaultValue={user?.email || "admin@localbooster.in"} />
+              <Input defaultValue={user?.email || "admin@publicdukan.in"} />
             </div>
           </div>
           <div className="space-y-2">
@@ -81,16 +81,16 @@ export default function Settings() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Platform Name</Label>
-              <Input defaultValue="LocalBooster" />
+              <Input defaultValue="PublicDukan" />
             </div>
             <div className="space-y-2">
               <Label>Support Email</Label>
-              <Input defaultValue="support@localbooster.in" />
+              <Input defaultValue="support@publicdukan.in" />
             </div>
           </div>
           <div className="space-y-2">
             <Label>Default Subdomain</Label>
-            <Input defaultValue=".localbooster.in" disabled />
+            <Input defaultValue=".publicdukan.in" disabled />
           </div>
         </CardContent>
       </Card>

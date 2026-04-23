@@ -4,20 +4,29 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/context/AuthContext";
-import type { Shop } from "@/data/mockData";
 import { useToast } from "@/hooks/use-toast";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { loadGoogleMaps } from "@/lib/googleMaps";
-import { API_BASE_URL, fetchNearbyPublicShops } from "@/lib/publicShopsApi";
+import {
+    API_BASE_URL,
+    fetchMyCustomerReferralSummary,
+    fetchMyWalletTransactions,
+    fetchMyWithdrawals,
+    requestWalletWithdrawal,
+    submitPlatformFeedback,
+} from "@/lib/publicShopsApi";
+import { FacebookIcon, GoogleIcon } from "@/components/auth/BrandIcons";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import {
     ArrowRight,
     CalendarClock,
     Eye,
     Facebook,
+    Gift,
     Home,
     LocateFixed,
     Lock,
@@ -26,15 +35,31 @@ import {
     MapPin,
     Navigation,
     Settings,
-    Store,
+    Star,
     Upload,
-    UserCircle2
+    UserCircle2,
+    Wallet
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 type Role = "customer" | "business_owner" | "admin" | "staff";
-type DashboardTab = "overview" | "location" | "bookings" | "shops" | "settings";
+type DashboardTab = "overview" | "location" | "bookings" | "referrals" | "wallet" | "feedback" | "settings";
+
+type ParsedAddress = {
+    area: string;
+    city: string;
+    state: string;
+    fullAddress: string;
+};
+
+type LocationSearchResult = {
+    id: string;
+    label: string;
+    lat: number;
+    lng: number;
+    parsed: ParsedAddress;
+};
 
 type AuthUser = {
     _id: string;
@@ -66,6 +91,18 @@ type BookingRow = {
     listing?: { title?: string };
 };
 
+type OrderRow = {
+    _id: string;
+    orderId?: string;
+    status?: string;
+    source?: string;
+    origin?: string;
+    total?: number;
+    createdAt?: string;
+    business?: { name?: string; slug?: string; whatsapp?: string; phone?: string } | null;
+    items?: Array<{ title?: string; quantity?: number }>;
+};
+
 type MyBookingsResponse = {
     success: boolean;
     message?: string;
@@ -74,8 +111,16 @@ type MyBookingsResponse = {
     };
 };
 
+type MyOrdersResponse = {
+    success: boolean;
+    message?: string;
+    data?: {
+        orders: OrderRow[];
+    };
+};
+
 const getToken = () => localStorage.getItem("accessToken");
-const AVATAR_CACHE_PREFIX = "dukaandirect-avatar-cache:";
+const AVATAR_CACHE_PREFIX = "publicdukan-avatar-cache:";
 
 const getAvatarCacheKey = (user?: Partial<AuthUser> | null) => {
     if (!user) return "";
@@ -143,23 +188,75 @@ const safeCoord = (value: string | number) => {
     return Number.isFinite(n) ? n : NaN;
 };
 
-const formatCoord = (value: number) => (Number.isFinite(value) ? value.toFixed(6) : "N/A");
-
-const formatTime = (value?: string) => {
-    if (!value) return "Unknown";
-    try {
-        return new Date(value).toLocaleString();
-    } catch {
-        return "Unknown";
-    }
-};
-
 const statusTone = (status?: string) => {
     const s = String(status || "booked").toLowerCase();
-    if (s.includes("cancel")) return "bg-red-100 text-red-700 border-red-200";
-    if (s.includes("complete") || s.includes("done")) return "bg-emerald-100 text-emerald-700 border-emerald-200";
-    if (s.includes("pending")) return "bg-amber-100 text-amber-700 border-amber-200";
-    return "bg-blue-100 text-blue-700 border-blue-200";
+    if (s.includes("cancel")) return "bg-destructive/10 text-destructive border-destructive/20";
+    if (s.includes("complete") || s.includes("done")) return "bg-primary/10 text-primary border-primary/20";
+    if (s.includes("pending")) return "bg-secondary/10 text-secondary border-secondary/20";
+    return "bg-accent/10 text-accent border-accent/20";
+};
+
+const getParsedAddress = (address: Record<string, any> | undefined | null): ParsedAddress => {
+    const area = String(
+        address?.suburb ||
+        address?.neighbourhood ||
+        address?.city_district ||
+        address?.village ||
+        address?.hamlet ||
+        ""
+    ).trim();
+    const city = String(address?.city || address?.town || address?.county || "").trim();
+    const state = String(address?.state || "").trim();
+    const fullAddress = [area, city, state].filter(Boolean).join(", ");
+    return {
+        area: area || "N/A",
+        city: city || "N/A",
+        state: state || "N/A",
+        fullAddress: fullAddress || "N/A",
+    };
+};
+
+const searchLocationByText = async (query: string): Promise<LocationSearchResult[]> => {
+    const q = String(query || "").trim();
+    if (!q) return [];
+
+    const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=in&q=${encodeURIComponent(q)}`
+    );
+
+    if (!response.ok) {
+        throw new Error("Location search unavailable right now");
+    }
+
+    const rows = (await response.json()) as Array<any>;
+    return (rows || [])
+        .map((row) => {
+            const lat = Number(row?.lat);
+            const lng = Number(row?.lon);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+            const parsed = getParsedAddress(row?.address);
+            return {
+                id: String(row?.place_id || `${lat},${lng}`),
+                label: String(row?.display_name || parsed.fullAddress || "Selected location"),
+                lat,
+                lng,
+                parsed,
+            } as LocationSearchResult;
+        })
+        .filter((x): x is LocationSearchResult => !!x);
+};
+
+const reverseGeocode = async (lat: number, lng: number): Promise<ParsedAddress> => {
+    const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lng))}&addressdetails=1`
+    );
+
+    if (!response.ok) {
+        throw new Error("Unable to resolve address");
+    }
+
+    const json = await response.json();
+    return getParsedAddress(json?.address);
 };
 
 function ProfileCard({
@@ -173,77 +270,91 @@ function ProfileCard({
     totalBookings: number;
     locationStatus: string;
 }) {
+    const { t } = useTranslation();
     const joined = user.createdAt ? new Date(user.createdAt).toLocaleDateString() : "-";
-    const lastLogin = user.updatedAt ? new Date(user.updatedAt).toLocaleString() : "Just now";
+    const lastLogin = user.updatedAt ? new Date(user.updatedAt).toLocaleString() : t("account.overview.justNow");
 
     return (
-        <Card className="rounded-2xl border-0 bg-gradient-to-br from-emerald-50 via-white to-orange-50 shadow-[0_10px_40px_rgba(16,185,129,0.12)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_44px_rgba(249,115,22,0.16)]">
+        <Card className="rounded-2xl border border-border/60 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.14),transparent_40%),radial-gradient(circle_at_top_right,hsl(var(--secondary)/0.14),transparent_38%),linear-gradient(180deg,hsl(var(--card)),hsl(var(--background)))] shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
             <CardContent className="p-6 space-y-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-4">
-                        <Avatar className="h-16 w-16 border-2 border-emerald-200">
-                            <AvatarImage src={user.avatarUrl} alt={user.name || "Customer"} />
-                            <AvatarFallback className="bg-emerald-100 text-emerald-700 font-semibold text-lg">
+                        <Avatar className="h-16 w-16 border-2 border-primary/25">
+                            <AvatarImage src={user.avatarUrl} alt={user.name || t("account.roles.customer")} />
+                            <AvatarFallback className="bg-primary/10 text-primary font-semibold text-lg">
                                 {getInitials(user.name)}
                             </AvatarFallback>
                         </Avatar>
                         <div>
-                            <h2 className="text-xl font-bold text-slate-900">{user.name || "Customer"}</h2>
-                            <p className="text-sm text-slate-600">{user.email || "-"}</p>
-                            <p className="text-sm text-slate-600">{user.phone || "Phone not added"}</p>
+                            <h2 className="text-xl font-bold text-foreground">{user.name || t("account.roles.customer")}</h2>
+                            <p className="text-sm text-muted-foreground">{user.email || "-"}</p>
+                            <p className="text-sm text-muted-foreground">{user.phone || t("account.overview.phoneNotAdded")}</p>
                         </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                        <Badge className="bg-emerald-100 text-emerald-700 border border-emerald-200">{roleLabel}</Badge>
-                        <Badge className={user.isActive === false ? "bg-rose-100 text-rose-700 border border-rose-200" : "bg-emerald-100 text-emerald-700 border border-emerald-200"}>
-                            {user.isActive === false ? "Inactive" : "Active"}
+                        <Badge className="bg-primary/10 text-primary border border-primary/20">{roleLabel}</Badge>
+                        <Badge
+                            className={
+                                user.isActive === false
+                                    ? "bg-destructive/10 text-destructive border border-destructive/20"
+                                    : "bg-primary/10 text-primary border border-primary/20"
+                            }
+                        >
+                            {user.isActive === false ? t("account.overview.inactive") : t("account.overview.active")}
                         </Badge>
-                        <Badge className={user.isEmailVerified ? "bg-emerald-100 text-emerald-700 border border-emerald-200" : "bg-orange-100 text-orange-700 border border-orange-200"}>
-                            {user.isEmailVerified ? "Verified" : "Unverified"}
+                        <Badge
+                            className={
+                                user.isEmailVerified
+                                    ? "bg-primary/10 text-primary border border-primary/20"
+                                    : "bg-secondary/10 text-secondary border border-secondary/20"
+                            }
+                        >
+                            {user.isEmailVerified ? t("account.overview.verified") : t("account.overview.unverified")}
                         </Badge>
                     </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                    <Card className="rounded-xl border border-emerald-100 shadow-none bg-white/70">
+                    <Card className="rounded-xl border border-border/60 shadow-none bg-card/70">
                         <CardContent className="p-4">
-                            <p className="text-xs uppercase tracking-wide text-slate-500">Total bookings</p>
-                            <p className="text-2xl font-bold text-slate-900">{totalBookings}</p>
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">{t("account.overview.totalBookings")}</p>
+                            <p className="text-2xl font-bold text-foreground">{totalBookings}</p>
                         </CardContent>
                     </Card>
-                    <Card className="rounded-xl border border-orange-100 shadow-none bg-white/70">
+                    <Card className="rounded-xl border border-border/60 shadow-none bg-card/70">
                         <CardContent className="p-4">
-                            <p className="text-xs uppercase tracking-wide text-slate-500">Last login</p>
-                            <p className="text-sm font-medium text-slate-900">{lastLogin}</p>
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">{t("account.overview.lastLogin")}</p>
+                            <p className="text-sm font-medium text-foreground">{lastLogin}</p>
                         </CardContent>
                     </Card>
-                    <Card className="rounded-xl border border-slate-200 shadow-none bg-white/70">
+                    <Card className="rounded-xl border border-border/60 shadow-none bg-card/70">
                         <CardContent className="p-4">
-                            <p className="text-xs uppercase tracking-wide text-slate-500">Location status</p>
-                            <p className="text-sm font-medium text-slate-900">{locationStatus}</p>
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">{t("account.overview.locationStatus")}</p>
+                            <p className="text-sm font-medium text-foreground">{locationStatus}</p>
                         </CardContent>
                     </Card>
                 </div>
 
-                <p className="text-xs text-slate-500">Joined on {joined}</p>
+                <p className="text-xs text-muted-foreground">{t("account.overview.joinedOn", { date: joined })}</p>
             </CardContent>
         </Card>
     );
 }
 
 function BookingCard({ booking }: { booking: BookingRow }) {
+    const { t } = useTranslation();
     return (
-        <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
+        <Card className="rounded-2xl border border-border bg-card shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
             <CardContent className="p-5 space-y-2">
                 <div className="flex items-start justify-between gap-3">
                     <div>
-                        <p className="font-semibold text-slate-900">{booking.business?.name || "Shop"}</p>
-                        <p className="text-sm text-slate-600">{booking.listing?.title || "Service booking"}</p>
+                        <p className="font-semibold text-foreground">{booking.business?.name || t("account.bookings.fallbackShop")}</p>
+                        <p className="text-sm text-muted-foreground">{booking.listing?.title || t("account.bookings.fallbackServiceBooking")}</p>
                     </div>
                     <Badge className={`border ${statusTone(booking.status)}`}>{booking.status || "booked"}</Badge>
                 </div>
-                <p className="text-sm text-slate-500">
-                    {booking.date ? new Date(booking.date).toLocaleDateString() : "Date N/A"}
+                <p className="text-sm text-muted-foreground">
+                    {booking.date ? new Date(booking.date).toLocaleDateString() : t("account.bookings.dateNA")}
                     {booking.startTime ? ` • ${booking.startTime}${booking.endTime ? ` - ${booking.endTime}` : ""}` : ""}
                 </p>
             </CardContent>
@@ -251,21 +362,43 @@ function BookingCard({ booking }: { booking: BookingRow }) {
     );
 }
 
-function ShopCard({ shop }: { shop: Shop & { distanceKm?: number } }) {
+function OrderCard({ order }: { order: OrderRow }) {
+    const { t } = useTranslation();
+
+    const shopName = order.business?.name || t("account.orders.fallbackShop");
+    const created = order.createdAt ? new Date(order.createdAt).toLocaleString() : "";
+    const total = Math.round(Number(order.total || 0) * 100) / 100;
+    const itemSummary = (order.items || [])
+        .slice(0, 2)
+        .map((it) => {
+            const title = String(it?.title || '').trim();
+            const qty = Number(it?.quantity || 0);
+            if (!title) return null;
+            return qty > 1 ? `${title} × ${qty}` : title;
+        })
+        .filter(Boolean)
+        .join(", ");
+
     return (
-        <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
-            <CardContent className="p-5 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                    <p className="font-semibold text-slate-900 line-clamp-1">{shop.name}</p>
-                    <Badge className="bg-emerald-100 text-emerald-700 border border-emerald-200">
-                        {Number.isFinite(shop.distanceKm) ? `${Number(shop.distanceKm).toFixed(1)} km` : "Nearby"}
-                    </Badge>
+        <Card className="rounded-2xl border border-border bg-card shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
+            <CardContent className="p-5 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                    <div>
+                        <p className="font-semibold text-foreground">{shopName}</p>
+                        <p className="text-sm text-muted-foreground">
+                            {order.orderId ? `${t("account.orders.orderIdLabel")}: ${order.orderId}` : t("account.orders.orderLabel")}
+                            {created ? ` • ${created}` : ""}
+                        </p>
+                    </div>
+                    <Badge className={`border ${statusTone(order.status)}`}>{order.status || "pending"}</Badge>
                 </div>
-                <p className="text-sm text-slate-600">{shop.category}</p>
-                <p className="text-xs text-slate-500 line-clamp-2">{shop.address}</p>
-                <Button asChild size="sm" className="w-full bg-orange-500 hover:bg-orange-600 text-white">
-                    <Link to={`/shop/${shop.slug}`}>View Shop</Link>
-                </Button>
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                    <span>
+                        {t("account.orders.totalLabel")}: <span className="font-medium text-foreground">₹{total}</span>
+                    </span>
+                    {itemSummary ? <span>{itemSummary}</span> : null}
+                </div>
             </CardContent>
         </Card>
     );
@@ -275,105 +408,124 @@ function LocationCard({
     locationLoading,
     userLocation,
     permissionDenied,
-    profileLat,
-    profileLng,
-    manualLat,
-    manualLng,
-    manualAccuracy,
-    onManualLat,
-    onManualLng,
-    onManualAccuracy,
+    area,
+    city,
+    state,
+    locationSearch,
+    onLocationSearch,
+    onSearchLocation,
+    locationSearchLoading,
+    searchResults,
+    onPickSearchResult,
     onRefresh,
     onUseDevice,
     onSave,
     locationSaveLoading,
     locationCapturedAt,
+    mapLat,
+    mapLng,
     mapRef,
     hasMapsKey,
 }: {
     locationLoading: boolean;
     userLocation: { latitude: number; longitude: number; accuracy?: number } | null;
     permissionDenied: boolean;
-    profileLat: number;
-    profileLng: number;
-    manualLat: string;
-    manualLng: string;
-    manualAccuracy: string;
-    onManualLat: (v: string) => void;
-    onManualLng: (v: string) => void;
-    onManualAccuracy: (v: string) => void;
+    area: string;
+    city: string;
+    state: string;
+    locationSearch: string;
+    onLocationSearch: (v: string) => void;
+    onSearchLocation: () => void;
+    locationSearchLoading: boolean;
+    searchResults: LocationSearchResult[];
+    onPickSearchResult: (r: LocationSearchResult) => void;
     onRefresh: () => void;
     onUseDevice: () => void;
     onSave: () => void;
     locationSaveLoading: boolean;
     locationCapturedAt: string;
+    mapLat: number;
+    mapLng: number;
     mapRef: React.RefObject<HTMLDivElement>;
     hasMapsKey: boolean;
 }) {
-    const accuracy = safeCoord(manualAccuracy || userLocation?.accuracy || "");
-    const accuracyScore = Number.isFinite(accuracy) ? Math.max(5, Math.min(100, Math.round(100 - Math.min(accuracy, 100)))) : 0;
-    const mapLat = Number.isFinite(safeCoord(manualLat)) ? safeCoord(manualLat) : profileLat;
-    const mapLng = Number.isFinite(safeCoord(manualLng)) ? safeCoord(manualLng) : profileLng;
-
+    const { t } = useTranslation();
     return (
-        <Card className="rounded-2xl border-0 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.08)]">
+        <Card className="rounded-2xl border border-border bg-card shadow-sm">
             <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-slate-900">
-                    <LocateFixed className="h-5 w-5 text-emerald-600" />
-                    Live Location
+                <CardTitle className="flex items-center gap-2 text-foreground">
+                    <LocateFixed className="h-5 w-5 text-primary" />
+                    {t("account.location.title")}
                 </CardTitle>
-                <CardDescription>Manage and sync your precise location for better discovery.</CardDescription>
+                <CardDescription>{t("account.location.desc")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-                <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 text-emerald-700 font-medium">
-                        <span className="relative flex h-3 w-3">
-                            <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
-                            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
-                        </span>
-                        Tracking your location
+                <div className="space-y-2">
+                    <Label htmlFor="locationSearch">{t("account.location.searchLabel")}</Label>
+                    <div className="flex gap-2">
+                        <Input
+                            id="locationSearch"
+                            value={locationSearch}
+                            onChange={(e) => onLocationSearch(e.target.value)}
+                            placeholder={t("account.location.searchPlaceholder")}
+                        />
+                        <Button onClick={onSearchLocation} disabled={locationSearchLoading || !locationSearch.trim()} className="bg-primary hover:bg-primary/90">
+                            {locationSearchLoading ? t("account.location.searching") : t("account.location.search")}
+                        </Button>
                     </div>
-                    <Badge className="bg-white border border-emerald-200 text-emerald-700">
-                        {locationLoading ? "Detecting" : userLocation ? "Live" : permissionDenied ? "Permission denied" : "Idle"}
+
+                    {searchResults.length > 0 ? (
+                        <div className="rounded-xl border border-border bg-muted/40 p-2 space-y-2 max-h-52 overflow-auto">
+                            {searchResults.map((item) => (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    className="w-full text-left rounded-lg border border-border bg-card px-3 py-2 hover:bg-primary/10"
+                                    onClick={() => onPickSearchResult(item)}
+                                >
+                                    <p className="text-sm font-medium text-foreground">{item.parsed.fullAddress}</p>
+                                    <p className="text-xs text-muted-foreground line-clamp-1">{item.label}</p>
+                                </button>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
+
+                <div className="rounded-xl border border-primary/20 bg-primary/10 p-4 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-primary font-medium">
+                        <span className="relative flex h-3 w-3">
+                            <span className="absolute inline-flex h-full w-full rounded-full bg-primary/60 opacity-75 animate-ping" />
+                            <span className="relative inline-flex rounded-full h-3 w-3 bg-primary" />
+                        </span>
+                        {t("account.location.tracking")}
+                    </div>
+                    <Badge className="bg-card border border-primary/20 text-primary">
+                        {locationLoading
+                            ? t("account.location.detecting")
+                            : userLocation
+                                ? t("account.location.live")
+                                : permissionDenied
+                                    ? t("account.location.permissionDenied")
+                                    : t("account.location.idle")}
                     </Badge>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="rounded-xl border border-slate-200 p-3 bg-slate-50">
-                        <p className="text-xs uppercase text-slate-500">Profile Latitude</p>
-                        <p className="text-sm font-semibold text-slate-900">{formatCoord(profileLat)}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="rounded-xl border border-border p-3 bg-muted/40">
+                        <p className="text-xs uppercase text-muted-foreground">{t("account.location.area")}</p>
+                        <p className="text-sm font-semibold text-foreground">{area || "N/A"}</p>
                     </div>
-                    <div className="rounded-xl border border-slate-200 p-3 bg-slate-50">
-                        <p className="text-xs uppercase text-slate-500">Profile Longitude</p>
-                        <p className="text-sm font-semibold text-slate-900">{formatCoord(profileLng)}</p>
+                    <div className="rounded-xl border border-border p-3 bg-muted/40">
+                        <p className="text-xs uppercase text-muted-foreground">{t("account.location.city")}</p>
+                        <p className="text-sm font-semibold text-foreground">{city || "N/A"}</p>
                     </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                        <Label htmlFor="manualLat">Latitude</Label>
-                        <Input id="manualLat" value={manualLat} onChange={(e) => onManualLat(e.target.value)} placeholder="28.6139" inputMode="decimal" />
-                    </div>
-                    <div className="space-y-1.5">
-                        <Label htmlFor="manualLng">Longitude</Label>
-                        <Input id="manualLng" value={manualLng} onChange={(e) => onManualLng(e.target.value)} placeholder="77.2090" inputMode="decimal" />
+                    <div className="rounded-xl border border-border p-3 bg-muted/40">
+                        <p className="text-xs uppercase text-muted-foreground">{t("account.location.state")}</p>
+                        <p className="text-sm font-semibold text-foreground">{state || "N/A"}</p>
                     </div>
                 </div>
 
-                <div className="space-y-1.5">
-                    <Label htmlFor="manualAccuracy">Accuracy (meters)</Label>
-                    <Input id="manualAccuracy" value={manualAccuracy} onChange={(e) => onManualAccuracy(e.target.value)} placeholder="25" inputMode="decimal" />
-                </div>
-
-                <div className="space-y-2">
-                    <div className="flex items-center justify-between text-xs text-slate-600">
-                        <span>Location accuracy quality</span>
-                        <span>{Number.isFinite(accuracy) ? `${Math.round(accuracy)} m` : "N/A"}</span>
-                    </div>
-                    <Progress value={accuracyScore} className="h-2 bg-orange-100 [&>div]:bg-emerald-500" />
-                </div>
-
-                <div className="rounded-xl border border-slate-200 overflow-hidden">
+                <div className="rounded-xl border border-border overflow-hidden">
                     {Number.isFinite(mapLat) && Number.isFinite(mapLng) && !hasMapsKey ? (
                         <iframe
                             title="Google Map Preview"
@@ -383,31 +535,33 @@ function LocationCard({
                             referrerPolicy="no-referrer-when-downgrade"
                         />
                     ) : (
-                        <div ref={mapRef} className="h-52 w-full bg-slate-100" />
+                        <div ref={mapRef} className="h-52 w-full bg-muted" />
                     )}
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                    <Button onClick={onRefresh} variant="outline" className="border-emerald-200 hover:bg-emerald-50">
-                        Refresh Location
+                    <Button onClick={onRefresh} variant="outline" className="border-primary/25 text-primary hover:bg-primary/10">
+                        {t("account.location.refresh")}
                     </Button>
-                    <Button onClick={onUseDevice} variant="secondary" disabled={!userLocation}>
-                        Use Device Location
+                    <Button onClick={onUseDevice} variant="secondary">
+                        {t("account.location.useDevice")}
                     </Button>
-                    <Button onClick={onSave} disabled={locationSaveLoading} className="bg-orange-500 hover:bg-orange-600 text-white">
-                        {locationSaveLoading ? "Saving..." : "Save Location"}
+                    <Button onClick={onSave} disabled={locationSaveLoading} className="bg-secondary hover:bg-secondary/90 text-secondary-foreground">
+                        {locationSaveLoading ? t("account.location.saving") : t("account.location.save")}
                     </Button>
                 </div>
 
-                <p className="text-xs text-slate-500">Last synced: {locationCapturedAt}</p>
+                <p className="text-xs text-muted-foreground">{t("account.location.lastSynced", { time: locationCapturedAt })}</p>
             </CardContent>
         </Card>
     );
 }
 
 export default function AccountPage() {
+    const { t } = useTranslation();
     const location = useLocation();
-    const { user: authUser, logout: authLogout, updateUser } = useAuth();
+    const navigate = useNavigate();
+    const { user: authUser, logout: authLogout, updateUser, socialLogin } = useAuth();
     const [mode, setMode] = useState<"login" | "register">("login");
     const [loading, setLoading] = useState(false);
     const [socialLoading, setSocialLoading] = useState(false);
@@ -430,11 +584,41 @@ export default function AccountPage() {
     const [locationSaveMessage, setLocationSaveMessage] = useState("");
     const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
 
+    const [currentPassword, setCurrentPassword] = useState("");
+    const [newPassword, setNewPassword] = useState("");
+    const [confirmNewPassword, setConfirmNewPassword] = useState("");
+    const [changePasswordLoading, setChangePasswordLoading] = useState(false);
+    const [changePasswordError, setChangePasswordError] = useState("");
+    const [changePasswordMessage, setChangePasswordMessage] = useState("");
+
+    const [withdrawAmount, setWithdrawAmount] = useState("");
+    const [withdrawAccountHolderName, setWithdrawAccountHolderName] = useState("");
+    const [withdrawBankName, setWithdrawBankName] = useState("");
+    const [withdrawAccountNumber, setWithdrawAccountNumber] = useState("");
+    const [withdrawIfsc, setWithdrawIfsc] = useState("");
+    const [withdrawLoading, setWithdrawLoading] = useState(false);
+    const [withdrawError, setWithdrawError] = useState("");
+    const [withdrawMessage, setWithdrawMessage] = useState("");
+
+    const [platformRating, setPlatformRating] = useState("5");
+    const [platformFeedbackText, setPlatformFeedbackText] = useState("");
+    const [platformSubmitLoading, setPlatformSubmitLoading] = useState(false);
+    const [platformSubmitError, setPlatformSubmitError] = useState("");
+    const [platformSubmitMessage, setPlatformSubmitMessage] = useState("");
+
     const [name, setName] = useState("");
     const [phone, setPhone] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
-    const [nearbyCoords, setNearbyCoords] = useState<{ lat: number; lng: number } | null>(null);
+    const [locationSearch, setLocationSearch] = useState("");
+    const [locationSearchLoading, setLocationSearchLoading] = useState(false);
+    const [locationSearchResults, setLocationSearchResults] = useState<LocationSearchResult[]>([]);
+    const [resolvedAddress, setResolvedAddress] = useState<ParsedAddress>({
+        area: "N/A",
+        city: "N/A",
+        state: "N/A",
+        fullAddress: "N/A",
+    });
 
     const { userLocation, requestLocation, permissionDenied, loading: locationLoading } = useUserLocation();
     const { toast } = useToast();
@@ -447,6 +631,56 @@ export default function AccountPage() {
     const googleClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim();
     const facebookAppId = (import.meta.env.VITE_FACEBOOK_APP_ID as string | undefined)?.trim();
     const mapsKey = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined)?.trim();
+
+    const submitChangePassword = async () => {
+        setChangePasswordError("");
+        setChangePasswordMessage("");
+
+        if (!getToken()) {
+            setChangePasswordError(t("account.settings.changePassword.errors.loginFirst"));
+            return;
+        }
+
+        if (!currentPassword || !newPassword || !confirmNewPassword) {
+            setChangePasswordError(t("account.settings.changePassword.errors.allRequired"));
+            return;
+        }
+        if (newPassword.length < 6) {
+            setChangePasswordError(t("account.settings.changePassword.errors.min6"));
+            return;
+        }
+        if (newPassword !== confirmNewPassword) {
+            setChangePasswordError(t("account.settings.changePassword.errors.mismatch"));
+            return;
+        }
+
+        setChangePasswordLoading(true);
+        try {
+            const response = await fetch(`${API_BASE_URL}/auth/change-password`, {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${getToken()}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ currentPassword, newPassword }),
+            });
+
+            const json = await response.json();
+            if (!response.ok || !json?.success) {
+                throw new Error(json?.message || "Failed to change password");
+            }
+
+            setCurrentPassword("");
+            setNewPassword("");
+            setConfirmNewPassword("");
+            setChangePasswordMessage(t("account.settings.changePassword.successMessage"));
+            toast({ title: t("account.toasts.passwordChangedTitle"), description: t("account.toasts.passwordChangedDesc") });
+        } catch (e: any) {
+            setChangePasswordError(e?.message || t("account.settings.changePassword.errors.failed"));
+        } finally {
+            setChangePasswordLoading(false);
+        }
+    };
 
     const loadGoogleScript = async () => {
         if ((window as any).google?.accounts?.oauth2?.initTokenClient) return;
@@ -501,7 +735,7 @@ export default function AccountPage() {
         localStorage.setItem("user", JSON.stringify(normalizedUser));
         setCurrentUser(normalizedUser);
         setPassword("");
-        toast({ title: "Welcome", description: "Customer session active." });
+        toast({ title: t("account.toasts.welcomeTitle"), description: t("account.toasts.welcomeDesc") });
     };
 
     useEffect(() => {
@@ -533,14 +767,53 @@ export default function AccountPage() {
             setActiveTab("bookings");
         } else if (tab === "location") {
             setActiveTab("location");
-        } else if (tab === "shops") {
-            setActiveTab("shops");
+        } else if (tab === "referrals") {
+            setActiveTab("referrals");
+        } else if (tab === "wallet") {
+            setActiveTab("wallet");
+        } else if (tab === "feedback") {
+            setActiveTab("feedback");
         } else if (tab === "settings") {
             setActiveTab("settings");
         } else if (tab === "overview") {
             setActiveTab("overview");
         }
     }, [location.search]);
+
+    const submitPlatformFeedbackForm = async () => {
+        setPlatformSubmitError("");
+        setPlatformSubmitMessage("");
+
+        if (!getToken()) {
+            setPlatformSubmitError(t("account.feedback.errors.loginFirst"));
+            return;
+        }
+
+        const rating = Number.parseInt(platformRating, 10);
+        if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+            setPlatformSubmitError(t("account.feedback.errors.ratingRequired"));
+            return;
+        }
+
+        setPlatformSubmitLoading(true);
+        try {
+            await submitPlatformFeedback({
+                rating,
+                feedback: platformFeedbackText,
+                source: 'publicWebsite',
+            });
+            setPlatformFeedbackText("");
+            setPlatformSubmitMessage(t("account.feedback.inline.submitted"));
+            toast({
+                title: t("account.feedback.toast.submittedTitle"),
+                description: t("account.feedback.toast.submittedDesc"),
+            });
+        } catch (e: any) {
+            setPlatformSubmitError(e?.message || t("account.feedback.inline.submitFailed"));
+        } finally {
+            setPlatformSubmitLoading(false);
+        }
+    };
 
     useEffect(() => {
         if (!currentUser) return;
@@ -561,12 +834,12 @@ export default function AccountPage() {
                 localStorage.removeItem("refreshToken");
                 localStorage.removeItem("user");
                 setCurrentUser(null);
-                setCustomerOnlyNotice("Ye panel sirf customer accounts ke liye hai. Owner account yahan login nahi hoga.");
+                setCustomerOnlyNotice(t("account.auth.customerOnlyNotice"));
             }
         } catch {
             // ignore
         }
-    }, []);
+    }, [t]);
 
     const bookingsQuery = useQuery({
         queryKey: ["customer-bookings", currentUser?._id || null],
@@ -580,6 +853,21 @@ export default function AccountPage() {
                 throw new Error(json.message || "Failed to load bookings");
             }
             return json.data?.bookings || [];
+        },
+    });
+
+    const ordersQuery = useQuery({
+        queryKey: ["customer-orders", currentUser?._id || null],
+        enabled: !!currentUser && !!getToken(),
+        queryFn: async () => {
+            const response = await fetch(`${API_BASE_URL}/orders/me?limit=50`, {
+                headers: { Authorization: `Bearer ${getToken()}` },
+            });
+            const json = (await response.json()) as MyOrdersResponse;
+            if (!response.ok || !json.success) {
+                throw new Error(json.message || "Failed to load orders");
+            }
+            return json.data?.orders || [];
         },
     });
 
@@ -602,14 +890,10 @@ export default function AccountPage() {
         },
     });
 
-    const nearbyShopsQuery = useQuery({
-        queryKey: ["customer-nearby-shops", nearbyCoords?.lat ?? null, nearbyCoords?.lng ?? null],
-        enabled: false,
-        queryFn: async () => {
-            if (!nearbyCoords) return [] as Shop[];
-            return fetchNearbyPublicShops({ lat: nearbyCoords.lat, lng: nearbyCoords.lng, radiusKm: 25, limit: 8 });
-        },
-    });
+    const orderRows = useMemo(() => {
+        const raw = ordersQuery.data;
+        return Array.isArray(raw) ? raw : [];
+    }, [ordersQuery.data]);
 
     const submit = async () => {
         setError("");
@@ -622,7 +906,7 @@ export default function AccountPage() {
                     : { email: email.trim(), password };
 
             if (mode === "register" && String(phone).trim().length !== 10) {
-                throw new Error("Mobile number 10 digits ka hona chahiye");
+                throw new Error(t("account.auth.errors.phoneDigits10"));
             }
 
             const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -634,18 +918,18 @@ export default function AccountPage() {
 
             const authData = json?.data;
             if (!response.ok || !json?.success || !authData?.accessToken || !authData?.user) {
-                throw new Error(json?.message || "Authentication failed");
+                throw new Error(json?.message || t("account.toasts.authFailedTitle"));
             }
 
             if (authData.user.role !== "customer") {
-                throw new Error("Sirf customer account se login allowed hai");
+                throw new Error(t("account.auth.errors.customerOnly"));
             }
 
             persistSession(authData);
         } catch (e: any) {
             const msg = e?.message || "Auth failed";
             setError(msg);
-            toast({ title: "Authentication failed", description: msg, variant: "destructive" });
+            toast({ title: t("account.toasts.authFailedTitle"), description: msg, variant: "destructive" });
         } finally {
             setLoading(false);
         }
@@ -657,7 +941,7 @@ export default function AccountPage() {
         setForgotMessage("");
 
         if (!emailToUse) {
-            setForgotError("Email required");
+            setForgotError(t("account.auth.errors.emailRequired"));
             return;
         }
 
@@ -671,17 +955,17 @@ export default function AccountPage() {
             const json = await response.json();
 
             if (!response.ok || !json?.success) {
-                throw new Error(json?.message || "Failed to send reset OTP");
+                throw new Error(json?.message || t("account.auth.forgot.toast.sendFailedTitle"));
             }
 
             setForgotEmail(emailToUse);
             setForgotStep("verify");
-            setForgotMessage("OTP sent. Inbox check karo.");
-            toast({ title: "OTP sent", description: "Password reset OTP has been sent." });
+            setForgotMessage(t("account.auth.forgot.inline.otpSent"));
+            toast({ title: t("account.auth.forgot.toast.otpSentTitle"), description: t("account.auth.forgot.toast.otpSentDesc") });
         } catch (e: any) {
             const msg = e?.message || "Failed to send OTP";
             setForgotError(msg);
-            toast({ title: "Failed", description: msg, variant: "destructive" });
+            toast({ title: t("account.toasts.failedTitle"), description: msg, variant: "destructive" });
         } finally {
             setForgotLoading(false);
         }
@@ -692,7 +976,7 @@ export default function AccountPage() {
         setForgotMessage("");
 
         if (!forgotEmail.trim()) {
-            setForgotError("Email required");
+            setForgotError(t("account.auth.errors.emailRequired"));
             return;
         }
 
@@ -705,15 +989,15 @@ export default function AccountPage() {
             });
             const json = await response.json();
             if (!response.ok || !json?.success) {
-                throw new Error(json?.message || "Failed to resend OTP");
+                throw new Error(json?.message || t("account.auth.forgot.toast.resendFailedTitle"));
             }
 
-            setForgotMessage("OTP resend ho gaya.");
-            toast({ title: "OTP resent", description: "Please check your inbox." });
+            setForgotMessage(t("account.auth.forgot.inline.otpResent"));
+            toast({ title: t("account.auth.forgot.toast.otpResentTitle"), description: t("account.auth.forgot.toast.otpResentDesc") });
         } catch (e: any) {
             const msg = e?.message || "Failed to resend OTP";
             setForgotError(msg);
-            toast({ title: "Failed", description: msg, variant: "destructive" });
+            toast({ title: t("account.toasts.failedTitle"), description: msg, variant: "destructive" });
         } finally {
             setForgotLoading(false);
         }
@@ -724,7 +1008,7 @@ export default function AccountPage() {
         setForgotMessage("");
 
         if (!forgotEmail.trim() || !forgotOtp.trim() || forgotNewPassword.length < 6) {
-            setForgotError("Email, OTP aur 6+ char new password required");
+            setForgotError(t("account.auth.forgot.inline.verifyMissing"));
             return;
         }
 
@@ -743,7 +1027,7 @@ export default function AccountPage() {
             const authData = json?.data;
 
             if (!response.ok || !json?.success) {
-                throw new Error(json?.message || "Failed to reset password");
+                throw new Error(json?.message || t("account.auth.forgot.toast.resetFailedTitle"));
             }
 
             if (authData?.accessToken && authData?.user?.role === "customer") {
@@ -753,18 +1037,18 @@ export default function AccountPage() {
                 setForgotOtp("");
                 setForgotNewPassword("");
                 setForgotMessage("");
-                toast({ title: "Password reset", description: "Signed in successfully." });
+                toast({ title: t("account.auth.forgot.toast.resetTitle"), description: t("account.auth.forgot.toast.resetSignedInDesc") });
                 return;
             }
 
-            setForgotMessage("Password reset successful. Ab login karo.");
+            setForgotMessage(t("account.auth.forgot.inline.resetSuccessLogin"));
             setForgotOpen(false);
             setForgotStep("request");
-            toast({ title: "Password reset", description: "Now login with your new password." });
+            toast({ title: t("account.auth.forgot.toast.resetTitle"), description: t("account.auth.forgot.toast.resetNowLoginDesc") });
         } catch (e: any) {
             const msg = e?.message || "Failed to reset password";
             setForgotError(msg);
-            toast({ title: "Reset failed", description: msg, variant: "destructive" });
+            toast({ title: t("account.auth.forgot.toast.resetFailedTitle"), description: msg, variant: "destructive" });
         } finally {
             setForgotLoading(false);
         }
@@ -772,67 +1056,15 @@ export default function AccountPage() {
 
     const handleGoogleCustomerAuth = async () => {
         setError("");
-
-        if (!googleClientId) {
-            const msg = "Google login abhi configure nahi hai (VITE_GOOGLE_CLIENT_ID missing).";
-            setError(msg);
-            toast({ title: "Google unavailable", description: msg, variant: "destructive" });
-            return;
-        }
-
         setSocialLoading(true);
         try {
-            await loadGoogleScript();
-            const google = (window as any).google;
-            if (!google?.accounts?.oauth2?.initTokenClient) {
-                throw new Error("Google SDK unavailable");
-            }
-
-            const accessToken = await new Promise<string>((resolve, reject) => {
-                let settled = false;
-                const tokenClient = google.accounts.oauth2.initTokenClient({
-                    client_id: googleClientId,
-                    scope: "openid email profile",
-                    callback: (response: any) => {
-                        settled = true;
-                        if (response?.error) {
-                            reject(new Error(response.error_description || response.error || "Google auth failed"));
-                            return;
-                        }
-                        if (!response?.access_token) {
-                            reject(new Error("Google access token not received"));
-                            return;
-                        }
-                        resolve(response.access_token);
-                    },
-                });
-
-                tokenClient.requestAccessToken({ prompt: "consent" });
-                window.setTimeout(() => {
-                    if (!settled) reject(new Error("Google auth timed out or cancelled"));
-                }, 20000);
-            });
-
-            const response = await fetch(`${API_BASE_URL}/auth/social/google/customer`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ accessToken }),
-            });
-            const json = await response.json();
-            const authData = json?.data;
-
-            if (!response.ok || !json?.success || !authData?.accessToken || !authData?.user) {
-                throw new Error(json?.message || "Google authentication failed");
-            }
-            if (authData.user.role !== "customer") {
-                throw new Error("Sirf customer account se login allowed hai");
-            }
-
-            persistSession(authData);
+            await socialLogin("google");
+            setCurrentUser(getStoredUser());
+            toast({ title: t("account.toasts.successTitle"), description: t("account.auth.social.signedInWith", { provider: "Google" }) });
         } catch (e: any) {
             const msg = e?.message || "Google login failed";
             setError(msg);
-            toast({ title: "Google login failed", description: msg, variant: "destructive" });
+            toast({ title: t("account.auth.social.failedGoogleTitle"), description: msg, variant: "destructive" });
         } finally {
             setSocialLoading(false);
         }
@@ -840,63 +1072,15 @@ export default function AccountPage() {
 
     const handleFacebookCustomerAuth = async () => {
         setError("");
-
-        if (!facebookAppId) {
-            const msg = "Facebook login abhi configure nahi hai (VITE_FACEBOOK_APP_ID missing).";
-            setError(msg);
-            toast({ title: "Facebook unavailable", description: msg, variant: "destructive" });
-            return;
-        }
-
         setSocialLoading(true);
         try {
-            await loadFacebookScript();
-            const FB = (window as any).FB;
-            if (!FB?.init || !FB?.login) {
-                throw new Error("Facebook SDK unavailable");
-            }
-
-            FB.init({
-                appId: facebookAppId,
-                cookie: true,
-                xfbml: false,
-                version: "v19.0",
-            });
-
-            const accessToken = await new Promise<string>((resolve, reject) => {
-                FB.login(
-                    (response: any) => {
-                        const token = response?.authResponse?.accessToken;
-                        if (!token) {
-                            reject(new Error("Facebook login cancelled or token not received"));
-                            return;
-                        }
-                        resolve(token);
-                    },
-                    { scope: "email,public_profile" }
-                );
-            });
-
-            const response = await fetch(`${API_BASE_URL}/auth/social/facebook/customer`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ accessToken }),
-            });
-            const json = await response.json();
-            const authData = json?.data;
-
-            if (!response.ok || !json?.success || !authData?.accessToken || !authData?.user) {
-                throw new Error(json?.message || "Facebook authentication failed");
-            }
-            if (authData.user.role !== "customer") {
-                throw new Error("Sirf customer account se login allowed hai");
-            }
-
-            persistSession(authData);
+            await socialLogin("facebook");
+            setCurrentUser(getStoredUser());
+            toast({ title: t("account.toasts.successTitle"), description: t("account.auth.social.signedInWith", { provider: "Facebook" }) });
         } catch (e: any) {
             const msg = e?.message || "Facebook login failed";
             setError(msg);
-            toast({ title: "Facebook login failed", description: msg, variant: "destructive" });
+            toast({ title: t("account.auth.social.failedFacebookTitle"), description: msg, variant: "destructive" });
         } finally {
             setSocialLoading(false);
         }
@@ -905,19 +1089,24 @@ export default function AccountPage() {
     const logout = () => {
         authLogout();
         setCurrentUser(null);
-        toast({ title: "Signed out", description: "You have been logged out." });
+        toast({ title: t("common.header.signedOutTitle"), description: t("common.header.signedOutDesc") });
+    };
+
+    const handleLogoutClick = () => {
+        logout();
+        navigate("/login");
     };
 
     const handleAvatarUpload = async (file?: File | null) => {
         if (!file) return;
 
         if (!file.type.startsWith("image/")) {
-            toast({ title: "Invalid file", description: "Please choose an image file.", variant: "destructive" });
+            toast({ title: t("account.profilePhoto.errors.invalidFileTitle"), description: t("account.profilePhoto.errors.invalidFileDesc"), variant: "destructive" });
             return;
         }
 
         if (file.size > 2 * 1024 * 1024) {
-            toast({ title: "File too large", description: "Please upload image under 2MB.", variant: "destructive" });
+            toast({ title: t("account.profilePhoto.errors.tooLargeTitle"), description: t("account.profilePhoto.errors.tooLargeDesc"), variant: "destructive" });
             return;
         }
 
@@ -948,10 +1137,10 @@ export default function AccountPage() {
             writeCachedAvatar(currentUser || (authUser as AuthUser | null), avatarUrl);
             updateUser({ avatarUrl, profileImage: avatarUrl });
             setCurrentUser((prev) => (prev ? { ...prev, ...updatedUser } : updatedUser));
-            toast({ title: "Profile photo updated", description: "Your new avatar is now visible." });
+            toast({ title: t("account.profilePhoto.toast.updatedTitle"), description: t("account.profilePhoto.toast.updatedDesc") });
 
         } catch (e: any) {
-            toast({ title: "Upload failed", description: e?.message || "Could not upload photo.", variant: "destructive" });
+            toast({ title: t("account.profilePhoto.toast.uploadFailedTitle"), description: e?.message || t("account.profilePhoto.toast.uploadFailedDesc"), variant: "destructive" });
         }
     };
 
@@ -975,9 +1164,9 @@ export default function AccountPage() {
             writeCachedAvatar(currentUser || (authUser as AuthUser | null), "");
             updateUser({ avatarUrl: "", profileImage: "" });
             setCurrentUser((prev) => (prev ? { ...prev, ...updatedUser, avatarUrl: "", profileImage: "" } : prev));
-            toast({ title: "Photo removed", description: "Initials avatar restored." });
+            toast({ title: t("account.profilePhoto.toast.removedTitle"), description: t("account.profilePhoto.toast.removedDesc") });
         } catch (e: any) {
-            toast({ title: "Remove failed", description: e?.message || "Could not remove photo.", variant: "destructive" });
+            toast({ title: t("account.profilePhoto.toast.removeFailedTitle"), description: e?.message || t("account.profilePhoto.toast.removeFailedDesc"), variant: "destructive" });
         }
     };
 
@@ -1014,7 +1203,7 @@ export default function AccountPage() {
 
     const locationCapturedAt = displayedUser?.currentLocation?.capturedAt
         ? new Date(displayedUser.currentLocation.capturedAt).toLocaleString()
-        : "Not synced yet";
+        : t("account.location.notSyncedYet");
 
     useEffect(() => {
         if (!Number.isFinite(backendLat) || !Number.isFinite(backendLng)) return;
@@ -1034,13 +1223,13 @@ export default function AccountPage() {
         const accuracy = Number.parseFloat(manualAccuracy);
 
         if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
-            setLocationSaveError("Latitude valid hona chahiye (-90 to 90)");
-            toast({ title: "Invalid latitude", description: "Use a valid value between -90 and 90", variant: "destructive" });
+            setLocationSaveError(t("account.location.errors.invalidLatitude"));
+            toast({ title: t("account.location.errors.invalidLatitudeTitle"), description: t("account.location.errors.invalidLatitudeDesc"), variant: "destructive" });
             return;
         }
         if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
-            setLocationSaveError("Longitude valid hona chahiye (-180 to 180)");
-            toast({ title: "Invalid longitude", description: "Use a valid value between -180 and 180", variant: "destructive" });
+            setLocationSaveError(t("account.location.errors.invalidLongitude"));
+            toast({ title: t("account.location.errors.invalidLongitudeTitle"), description: t("account.location.errors.invalidLongitudeDesc"), variant: "destructive" });
             return;
         }
 
@@ -1064,13 +1253,13 @@ export default function AccountPage() {
                 throw new Error(json?.message || "Location save failed");
             }
 
-            setLocationSaveMessage("Location profile me save ho gayi.");
-            toast({ title: "Location updated", description: "Your profile location was synced." });
+            setLocationSaveMessage(t("account.location.inline.saved"));
+            toast({ title: t("account.location.toast.updatedTitle"), description: t("account.location.toast.updatedDesc") });
             await meQuery.refetch();
         } catch (e: any) {
             const msg = e?.message || "Location save failed";
             setLocationSaveError(msg);
-            toast({ title: "Location save failed", description: msg, variant: "destructive" });
+            toast({ title: t("account.location.toast.saveFailedTitle"), description: msg, variant: "destructive" });
         } finally {
             setLocationSaveLoading(false);
         }
@@ -1078,31 +1267,49 @@ export default function AccountPage() {
 
     const refreshLiveLocation = () => {
         requestLocation();
-        toast({ title: "Refreshing", description: "Requesting latest device location..." });
+        toast({ title: t("account.location.toast.refreshingTitle"), description: t("account.location.toast.refreshingDesc") });
     };
 
     const useDeviceLocation = () => {
-        if (!userLocation) return;
+        if (!userLocation) {
+            toast({ title: t("account.location.toast.unavailableTitle"), description: t("account.location.toast.unavailableDesc"), variant: "destructive" });
+            return;
+        }
         setManualLat(String(userLocation.latitude));
         setManualLng(String(userLocation.longitude));
         setManualAccuracy(Number.isFinite(userLocation.accuracy as number) ? String(userLocation.accuracy) : "");
-        toast({ title: "Device location applied", description: "Coordinates filled from your device." });
+        toast({ title: t("account.location.toast.deviceAppliedTitle"), description: t("account.location.toast.deviceAppliedDesc") });
     };
 
-    const fetchNearby = async (lat: number, lng: number) => {
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-            toast({ title: "Location missing", description: "Please save a valid location first.", variant: "destructive" });
+    const searchLocation = async () => {
+        const query = locationSearch.trim();
+        if (!query) {
+            setLocationSearchResults([]);
             return;
         }
-        setNearbyCoords({ lat, lng });
-        await nearbyShopsQuery.refetch();
+
+        setLocationSearchLoading(true);
+        try {
+            const results = await searchLocationByText(query);
+            setLocationSearchResults(results);
+            if (results.length === 0) {
+                toast({ title: t("account.location.toast.noResultsTitle"), description: t("account.location.toast.noResultsDesc") });
+            }
+        } catch (e: any) {
+            toast({ title: t("account.location.toast.searchFailedTitle"), description: e?.message || t("account.location.toast.searchFailedDesc"), variant: "destructive" });
+        } finally {
+            setLocationSearchLoading(false);
+        }
     };
 
-    useEffect(() => {
-        if (!currentUser) return;
-        if (!Number.isFinite(backendLat) || !Number.isFinite(backendLng)) return;
-        fetchNearby(backendLat, backendLng);
-    }, [currentUser?._id, backendLat, backendLng]);
+    const handlePickSearchResult = (item: LocationSearchResult) => {
+        setManualLat(String(item.lat));
+        setManualLng(String(item.lng));
+        setLocationSearch(item.label);
+        setResolvedAddress(item.parsed);
+        setLocationSearchResults([]);
+        toast({ title: t("account.location.toast.selectedTitle"), description: item.parsed.fullAddress || t("account.location.toast.selectedDesc") });
+    };
 
     const mapLat = useMemo(() => {
         const manual = safeCoord(manualLat);
@@ -1119,6 +1326,30 @@ export default function AccountPage() {
         if (Number.isFinite(userLocation?.longitude as number)) return Number(userLocation?.longitude);
         return NaN;
     }, [manualLng, backendLng, userLocation?.longitude]);
+
+    useEffect(() => {
+        if (!Number.isFinite(mapLat) || !Number.isFinite(mapLng)) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const parsed = await reverseGeocode(mapLat, mapLng);
+                if (!cancelled) setResolvedAddress(parsed);
+            } catch {
+                if (!cancelled) {
+                    setResolvedAddress({
+                        area: "N/A",
+                        city: "N/A",
+                        state: "N/A",
+                        fullAddress: "N/A",
+                    });
+                }
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [mapLat, mapLng]);
 
     useEffect(() => {
         if (!mapsKey || !locationMapRef.current) return;
@@ -1150,7 +1381,7 @@ export default function AccountPage() {
                     locationMarkerRef.current = new google.maps.Marker({
                         position: center,
                         map: locationMapInstanceRef.current,
-                        title: "Your Location",
+                        title: t("account.location.mapMarkerTitle"),
                     });
                 } else {
                     locationMarkerRef.current.setPosition(center);
@@ -1163,44 +1394,113 @@ export default function AccountPage() {
         return () => {
             cancelled = true;
         };
-    }, [mapsKey, mapLat, mapLng]);
+    }, [mapsKey, mapLat, mapLng, t]);
 
-    const locationStatus = Number.isFinite(backendLat) && Number.isFinite(backendLng) ? "Synced" : "Not synced";
+    const locationStatus = Number.isFinite(backendLat) && Number.isFinite(backendLng) ? t("account.location.synced") : t("account.location.notSynced");
 
     const navItems: Array<{ key: DashboardTab; label: string; icon: typeof Home }> = [
-        { key: "overview", label: "Profile Overview", icon: UserCircle2 },
-        { key: "location", label: "Live Location", icon: Navigation },
-        { key: "bookings", label: "My Bookings", icon: CalendarClock },
-        { key: "shops", label: "Nearby Shops", icon: Store },
-        { key: "settings", label: "Settings", icon: Settings },
+        { key: "overview", label: t("account.nav.overview"), icon: UserCircle2 },
+        { key: "location", label: t("account.nav.location"), icon: Navigation },
+        { key: "bookings", label: t("account.nav.bookings"), icon: CalendarClock },
+        { key: "referrals", label: t("account.nav.referrals"), icon: Gift },
+        { key: "wallet", label: t("account.nav.wallet"), icon: Wallet },
+        { key: "feedback", label: t("account.nav.feedback"), icon: Star },
+        { key: "settings", label: t("account.nav.settings"), icon: Settings },
     ];
+
+    const referralSummaryQuery = useQuery({
+        queryKey: ["customer", "referrals", "summary", currentUser?._id],
+        queryFn: async () => {
+            const d = await fetchMyCustomerReferralSummary();
+            return d;
+        },
+        enabled: !!currentUser && currentUser.role === "customer",
+        retry: 1,
+    });
+
+    const walletTxnsQuery = useQuery({
+        queryKey: ["customer", "wallet", "transactions", currentUser?._id],
+        queryFn: async () => {
+            const rows = await fetchMyWalletTransactions();
+            return rows;
+        },
+        enabled: !!currentUser && currentUser.role === "customer",
+        retry: 1,
+    });
+
+    const withdrawalsQuery = useQuery({
+        queryKey: ["customer", "wallet", "withdrawals", currentUser?._id],
+        queryFn: async () => {
+            const rows = await fetchMyWithdrawals();
+            return rows;
+        },
+        enabled: !!currentUser && currentUser.role === "customer",
+        retry: 1,
+    });
+
+    const submitWithdrawal = async () => {
+        try {
+            setWithdrawError("");
+            setWithdrawMessage("");
+            setWithdrawLoading(true);
+
+            const amt = Number(withdrawAmount);
+            if (!Number.isFinite(amt) || amt <= 0) {
+                setWithdrawError(t("account.wallet.errors.invalidAmount"));
+                return;
+            }
+
+            await requestWalletWithdrawal({
+                amount: amt,
+                accountHolderName: withdrawAccountHolderName.trim(),
+                bankName: withdrawBankName.trim(),
+                accountNumber: withdrawAccountNumber.trim(),
+                ifsc: withdrawIfsc.trim().toUpperCase(),
+            });
+
+            setWithdrawMessage(t("account.wallet.messages.submitted"));
+            setWithdrawAmount("");
+
+            withdrawalsQuery.refetch();
+            walletTxnsQuery.refetch();
+            referralSummaryQuery.refetch();
+        } catch (e: any) {
+            setWithdrawError(e?.message || t("account.wallet.errors.requestFailed"));
+        } finally {
+            setWithdrawLoading(false);
+        }
+    };
 
     if (!currentUser) {
         return (
-            <section className="min-h-[calc(100vh-5rem)] bg-[radial-gradient(circle_at_top_left,#ecfdf5,transparent_40%),radial-gradient(circle_at_top_right,#fff7ed,transparent_35%),linear-gradient(#ffffff,#f8fafc)] py-8">
+            <section className="min-h-[calc(100vh-5rem)] bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.12),transparent_40%),radial-gradient(circle_at_top_right,hsl(var(--secondary)/0.12),transparent_35%),linear-gradient(hsl(var(--background)),hsl(var(--muted)/0.35))] py-8">
                 <div className="container">
                     <div className="max-w-2xl mx-auto">
-                        <Card className="rounded-3xl border-0 bg-white/90 shadow-[0_20px_60px_rgba(15,23,42,0.12)]">
+                        <Card className="rounded-3xl border border-border/60 bg-card/90 shadow-sm">
                             <CardHeader>
-                                <CardTitle className="text-3xl font-black tracking-tight text-slate-900">{mode === "register" ? "Create Account" : "Welcome Back"}</CardTitle>
-                                <CardDescription>{mode === "register" ? "Signup as customer and start booking nearby services" : "Login as customer to continue"}</CardDescription>
+                                <CardTitle className="text-3xl font-black tracking-tight text-foreground">
+                                    {mode === "register" ? t("auth.signup.titleForm") : t("auth.login.titleLogin")}
+                                </CardTitle>
+                                <CardDescription>
+                                    {mode === "register" ? t("account.auth.panelDescRegister") : t("account.auth.panelDescLogin")}
+                                </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 {mode === "register" ? (
                                     <div className="space-y-2">
-                                        <Label htmlFor="name">Name</Label>
-                                        <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Priya Sharma" className="h-12" />
+                                        <Label htmlFor="name">{t("auth.signup.name")}</Label>
+                                        <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("auth.signup.placeholderName")} className="h-12" />
                                     </div>
                                 ) : null}
 
                                 {mode === "register" ? (
                                     <div className="space-y-2">
-                                        <Label htmlFor="phone">Mobile Number</Label>
+                                        <Label htmlFor="phone">{t("account.auth.fields.mobileNumber")}</Label>
                                         <Input
                                             id="phone"
                                             value={phone}
                                             onChange={(e) => setPhone(e.target.value.replace(/[^0-9]/g, "").slice(0, 10))}
-                                            placeholder="9876543210"
+                                            placeholder={t("auth.signup.placeholderPhone")}
                                             className="h-12"
                                             inputMode="numeric"
                                             maxLength={10}
@@ -1209,18 +1509,18 @@ export default function AccountPage() {
                                 ) : null}
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="email">Email</Label>
+                                    <Label htmlFor="email">{t("auth.login.email")}</Label>
                                     <div className="relative">
                                         <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                                        <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="your@email.com" className="h-12 pl-10" />
+                                        <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("auth.signup.placeholderEmail")} className="h-12 pl-10" />
                                     </div>
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label htmlFor="password">Password</Label>
+                                    <Label htmlFor="password">{t("auth.login.password")}</Label>
                                     <div className="relative">
                                         <Lock className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                                        <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter password" className="h-12 pl-10 pr-10" />
+                                        <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("auth.signup.placeholderPassword")} className="h-12 pl-10 pr-10" />
                                         <Eye className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                                     </div>
                                 </div>
@@ -1228,14 +1528,21 @@ export default function AccountPage() {
                                 {error ? <p className="text-sm text-destructive">{error}</p> : null}
                                 {customerOnlyNotice ? <p className="text-sm text-destructive">{customerOnlyNotice}</p> : null}
 
-                                <Button className="w-full h-12 bg-emerald-600 hover:bg-emerald-700" onClick={submit} disabled={loading || !email || !password || (mode === "register" && (!name || phone.length !== 10))}>
-                                    {loading ? "Please wait..." : mode === "register" ? "Sign Up" : "Login"} <ArrowRight className="w-4 h-4 ml-2" />
+                                <Button className="w-full h-12 bg-primary hover:bg-primary/90" onClick={submit} disabled={loading || !email || !password || (mode === "register" && (!name || phone.length !== 10))}>
+                                    {loading
+                                        ? mode === "register"
+                                            ? t("auth.signup.creating")
+                                            : t("auth.login.loggingIn")
+                                        : mode === "register"
+                                            ? t("actions.signup")
+                                            : t("actions.login")}{" "}
+                                    <ArrowRight className="w-4 h-4 ml-2" />
                                 </Button>
 
                                 {mode === "login" ? (
                                     <button
                                         type="button"
-                                        className="w-full text-center text-emerald-700 font-medium hover:underline"
+                                        className="w-full text-center text-primary font-medium hover:underline"
                                         onClick={() => {
                                             setForgotOpen((prev) => !prev);
                                             setForgotError("");
@@ -1243,59 +1550,59 @@ export default function AccountPage() {
                                             if (!forgotEmail && email) setForgotEmail(email);
                                         }}
                                     >
-                                        Forgot password?
+                                        {t("auth.login.forgotPassword")}
                                     </button>
                                 ) : null}
 
                                 {mode === "login" && forgotOpen ? (
-                                    <div className="rounded-xl border border-slate-200 p-3 space-y-3 bg-slate-50">
-                                        <p className="text-sm font-medium">Reset Password via OTP</p>
+                                    <div className="rounded-xl border border-border p-3 space-y-3 bg-muted/40">
+                                        <p className="text-sm font-medium">{t("auth.login.titleForgot")}</p>
                                         <div className="space-y-2">
-                                            <Label htmlFor="forgotEmail">Email</Label>
-                                            <Input id="forgotEmail" type="email" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} placeholder="your@email.com" />
+                                            <Label htmlFor="forgotEmail">{t("auth.login.email")}</Label>
+                                            <Input id="forgotEmail" type="email" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} placeholder={t("auth.signup.placeholderEmail")} />
                                         </div>
 
                                         {forgotStep === "verify" ? (
                                             <>
                                                 <div className="space-y-2">
-                                                    <Label htmlFor="forgotOtp">OTP</Label>
-                                                    <Input id="forgotOtp" value={forgotOtp} onChange={(e) => setForgotOtp(e.target.value)} placeholder="6 digit OTP" maxLength={6} />
+                                                    <Label htmlFor="forgotOtp">{t("auth.login.otp")}</Label>
+                                                    <Input id="forgotOtp" value={forgotOtp} onChange={(e) => setForgotOtp(e.target.value)} placeholder={t("auth.validation.otpRequired")} maxLength={6} />
                                                 </div>
                                                 <div className="space-y-2">
-                                                    <Label htmlFor="forgotNewPassword">New Password</Label>
-                                                    <Input id="forgotNewPassword" type="password" value={forgotNewPassword} onChange={(e) => setForgotNewPassword(e.target.value)} placeholder="New password" />
+                                                    <Label htmlFor="forgotNewPassword">{t("account.settings.changePassword.fields.new")}</Label>
+                                                    <Input id="forgotNewPassword" type="password" value={forgotNewPassword} onChange={(e) => setForgotNewPassword(e.target.value)} placeholder={t("auth.signup.placeholderPassword")} />
                                                 </div>
                                                 <div className="flex flex-wrap gap-2">
                                                     <Button size="sm" onClick={resetPasswordWithOtp} disabled={forgotLoading}>
-                                                        {forgotLoading ? "Please wait..." : "Reset Password"}
+                                                        {forgotLoading ? t("auth.login.updating") : t("auth.login.resetPassword")}
                                                     </Button>
                                                     <Button size="sm" variant="outline" onClick={resendForgotOtp} disabled={forgotLoading}>
-                                                        Resend OTP
+                                                        {t("auth.login.resendOtp")}
                                                     </Button>
                                                 </div>
                                             </>
                                         ) : (
                                             <Button size="sm" onClick={requestForgotOtp} disabled={forgotLoading}>
-                                                {forgotLoading ? "Please wait..." : "Send OTP"}
+                                                {forgotLoading ? t("auth.login.sending") : t("auth.login.sendOtp")}
                                             </Button>
                                         )}
 
                                         {forgotError ? <p className="text-xs text-destructive">{forgotError}</p> : null}
-                                        {forgotMessage ? <p className="text-xs text-emerald-700">{forgotMessage}</p> : null}
+                                        {forgotMessage ? <p className="text-xs text-primary">{forgotMessage}</p> : null}
                                     </div>
                                 ) : null}
 
                                 <div className="relative text-center text-xs tracking-wide text-muted-foreground py-2">
-                                    <span className="px-3 bg-card relative z-10">OR CONTINUE WITH</span>
+                                    <span className="px-3 bg-card relative z-10">{t("auth.login.orContinueWith")}</span>
                                     <span className="absolute left-0 right-0 top-1/2 border-t -z-0" />
                                 </div>
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <Button variant="outline" className="h-11" onClick={handleGoogleCustomerAuth} disabled={socialLoading}>
-                                        <span className="text-base mr-2">G</span> {socialLoading ? "Connecting..." : "Google"}
+                                        <GoogleIcon className="w-4 h-4 mr-2" /> {socialLoading ? t("account.common.connecting") : "Google"}
                                     </Button>
                                     <Button variant="outline" className="h-11" onClick={handleFacebookCustomerAuth} disabled={socialLoading}>
-                                        <Facebook className="w-4 h-4 mr-2" /> {socialLoading ? "Connecting..." : "Facebook"}
+                                        <FacebookIcon className="w-4 h-4 mr-2 text-primary" /> {socialLoading ? t("account.common.connecting") : "Facebook"}
                                     </Button>
                                 </div>
 
@@ -1307,7 +1614,9 @@ export default function AccountPage() {
                                         setError("");
                                     }}
                                 >
-                                    {mode === "register" ? "Already have an account? Login" : "Don't have an account? Sign Up"}
+                                    {mode === "register"
+                                        ? `${t("auth.signup.alreadyHave")} ${t("auth.signup.login")}`
+                                        : `${t("auth.login.newTo")} ${t("auth.login.createAccount")}`}
                                 </Button>
                             </CardContent>
                         </Card>
@@ -1318,26 +1627,26 @@ export default function AccountPage() {
     }
 
     return (
-        <section className="min-h-[calc(100vh-5rem)] bg-[radial-gradient(circle_at_top_left,#ecfdf5,transparent_35%),radial-gradient(circle_at_top_right,#fff7ed,transparent_30%),linear-gradient(#ffffff,#f8fafc)] py-6 md:py-8">
+        <section className="min-h-[calc(100vh-5rem)] bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.10),transparent_35%),radial-gradient(circle_at_top_right,hsl(var(--secondary)/0.10),transparent_30%),linear-gradient(hsl(var(--background)),hsl(var(--muted)/0.30))] py-6 md:py-8">
             <div className="container">
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px,1fr]">
-                    <aside className="lg:sticky lg:top-24 h-fit">
-                        <Card className="rounded-2xl border-0 bg-white/90 backdrop-blur shadow-[0_14px_36px_rgba(15,23,42,0.12)]">
+                    <aside className="hidden lg:block lg:sticky lg:top-24 h-fit">
+                        <Card className="rounded-2xl border border-border/60 bg-card/90 backdrop-blur shadow-sm">
                             <CardContent className="p-5 space-y-5">
                                 <div className="flex items-center gap-3">
-                                    <Avatar className="h-12 w-12 border border-emerald-200">
-                                        <AvatarImage src={profileAvatarUrl} alt={displayedUser?.name || "Customer"} />
-                                        <AvatarFallback className="bg-emerald-100 text-emerald-700 font-semibold">
+                                    <Avatar className="h-12 w-12 border border-primary/25">
+                                        <AvatarImage src={profileAvatarUrl} alt={displayedUser?.name || t("account.roles.customer")} />
+                                        <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                                             {getInitials(displayedUser?.name)}
                                         </AvatarFallback>
                                     </Avatar>
                                     <div className="min-w-0">
-                                        <p className="font-semibold text-slate-900 truncate">{displayedUser?.name || "Customer"}</p>
-                                        <p className="text-xs text-slate-500 truncate">{displayedUser?.email || "-"}</p>
+                                        <p className="font-semibold text-foreground truncate">{displayedUser?.name || t("account.roles.customer")}</p>
+                                        <p className="text-xs text-muted-foreground truncate">{displayedUser?.email || "-"}</p>
                                     </div>
                                 </div>
 
-                                <Badge className="bg-emerald-100 text-emerald-700 border border-emerald-200 w-fit">Customer</Badge>
+                                <Badge className="bg-primary/10 text-primary border border-primary/20 w-fit">{t("account.roles.customer")}</Badge>
 
                                 <nav className="space-y-2">
                                     {navItems.map((item) => {
@@ -1349,8 +1658,8 @@ export default function AccountPage() {
                                                 type="button"
                                                 onClick={() => setActiveTab(item.key)}
                                                 className={`w-full rounded-xl px-3 py-2.5 text-left flex items-center gap-2 transition-all duration-200 ${active
-                                                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                                        : "text-slate-600 border border-transparent hover:bg-slate-50"
+                                                    ? "bg-primary/10 text-primary border border-primary/20"
+                                                    : "text-muted-foreground border border-transparent hover:bg-muted/40"
                                                     }`}
                                             >
                                                 <Icon className="h-4 w-4" />
@@ -1360,9 +1669,9 @@ export default function AccountPage() {
                                     })}
                                 </nav>
 
-                                <Button variant="outline" className="w-full mt-3 border-orange-200 text-orange-700 hover:bg-orange-50" onClick={logout}>
+                                <Button variant="outline" className="w-full mt-3 border-secondary/25 text-secondary hover:bg-secondary/10" onClick={logout}>
                                     <LogOut className="h-4 w-4 mr-2" />
-                                    Logout
+                                    {t("account.settings.logout.action")}
                                 </Button>
                             </CardContent>
                         </Card>
@@ -1372,46 +1681,42 @@ export default function AccountPage() {
                         {activeTab === "overview" ? (
                             <>
                                 {displayedUser ? (
-                                    <ProfileCard
-                                        user={displayedUser}
-                                        roleLabel={roleLabel}
-                                        totalBookings={bookingRows.length}
-                                        locationStatus={locationStatus}
-                                    />
-                                ) : (
-                                    <Card className="rounded-2xl">
-                                        <CardContent className="p-6 space-y-3">
-                                            <Skeleton className="h-6 w-56" />
-                                            <Skeleton className="h-5 w-72" />
-                                        </CardContent>
-                                    </Card>
-                                )}
+                                    <>
+                                        <ProfileCard
+                                            user={displayedUser}
+                                            roleLabel={t("account.roles.customer")}
+                                            totalBookings={bookingRows.length}
+                                            locationStatus={locationStatus}
+                                        />
 
-                                <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-                                    <CardHeader>
-                                        <CardTitle className="text-slate-900">Profile Details</CardTitle>
-                                    </CardHeader>
-                                    <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                                        <div className="rounded-xl border border-slate-200 p-4 bg-slate-50">
-                                            <p className="text-xs text-slate-500">User ID</p>
-                                            <p className="font-medium text-slate-900 break-all">{displayedUser?._id || "-"}</p>
-                                        </div>
-                                        <div className="rounded-xl border border-slate-200 p-4 bg-slate-50">
-                                            <p className="text-xs text-slate-500">Email Verified</p>
-                                            <p className="font-medium text-slate-900">{displayedUser?.isEmailVerified ? "Yes" : "No"}</p>
-                                        </div>
-                                    </CardContent>
-                                </Card>
+                                        <Card className="rounded-2xl border border-border bg-card shadow-sm">
+                                            <CardHeader>
+                                                <CardTitle className="text-foreground">{t("account.nav.overview")}</CardTitle>
+                                                <CardDescription>{displayedUser?.email || "-"}</CardDescription>
+                                            </CardHeader>
+                                            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                                                <div className="rounded-xl border border-border p-4 bg-muted/40">
+                                                    <p className="text-xs text-muted-foreground">{t("account.profile.labels.userId")}</p>
+                                                    <p className="font-medium text-foreground break-all">{displayedUser?._id || "-"}</p>
+                                                </div>
+                                                <div className="rounded-xl border border-border p-4 bg-muted/40">
+                                                    <p className="text-xs text-muted-foreground">{t("account.profile.labels.emailVerified")}</p>
+                                                    <p className="font-medium text-foreground">
+                                                        {displayedUser?.isEmailVerified ? t("account.common.yes") : t("account.common.no")}
+                                                    </p>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
 
-                                <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+                                <Card className="rounded-2xl border border-border bg-card shadow-sm">
                                     <CardHeader>
-                                        <CardTitle className="text-slate-900">Profile Photo</CardTitle>
-                                        <CardDescription>Upload a profile picture just like modern apps.</CardDescription>
+                                        <CardTitle className="text-foreground">{t("account.profilePhoto.sectionTitle")}</CardTitle>
+                                        <CardDescription>{t("account.profilePhoto.sectionDesc")}</CardDescription>
                                     </CardHeader>
                                     <CardContent className="flex flex-col sm:flex-row sm:items-center gap-4">
-                                        <Avatar className="h-20 w-20 border-2 border-emerald-200">
-                                            <AvatarImage src={profileAvatarUrl} alt={displayedUser?.name || "Customer"} />
-                                            <AvatarFallback className="bg-emerald-100 text-emerald-700 font-bold text-lg">
+                                        <Avatar className="h-20 w-20 border-2 border-primary/25">
+                                            <AvatarImage src={profileAvatarUrl} alt={displayedUser?.name || t("account.roles.customer")} />
+                                            <AvatarFallback className="bg-primary/10 text-primary font-bold text-lg">
                                                 {getInitials(displayedUser?.name)}
                                             </AvatarFallback>
                                         </Avatar>
@@ -1429,20 +1734,32 @@ export default function AccountPage() {
                                             />
                                             <Button
                                                 variant="outline"
-                                                className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                                className="border-primary/25 text-primary hover:bg-primary/10"
                                                 onClick={() => avatarInputRef.current?.click()}
                                             >
                                                 <Upload className="h-4 w-4 mr-2" />
-                                                {displayedUser?.avatarUrl ? "Change Photo" : "Upload Photo"}
+                                                {displayedUser?.avatarUrl
+                                                    ? t("account.profilePhoto.actions.changePhoto")
+                                                    : t("account.profilePhoto.actions.uploadPhoto")}
                                             </Button>
                                             {displayedUser?.avatarUrl ? (
-                                                <Button variant="outline" className="border-slate-300" onClick={removeAvatar}>
-                                                    Remove
+                                                <Button variant="outline" className="border-border" onClick={removeAvatar}>
+                                                    {t("account.profilePhoto.actions.remove")}
                                                 </Button>
                                             ) : null}
                                         </div>
                                     </CardContent>
                                 </Card>
+                                    </>
+                                ) : (
+                                    <Card className="rounded-2xl border border-border bg-card shadow-sm">
+                                        <CardContent className="p-6 space-y-3">
+                                            <Skeleton className="h-6 w-56" />
+                                            <Skeleton className="h-5 w-72" />
+                                            <Skeleton className="h-28 w-full rounded-2xl" />
+                                        </CardContent>
+                                    </Card>
+                                )}
                             </>
                         ) : null}
 
@@ -1452,163 +1769,517 @@ export default function AccountPage() {
                                     locationLoading={locationLoading}
                                     userLocation={userLocation}
                                     permissionDenied={permissionDenied}
-                                    profileLat={backendLat}
-                                    profileLng={backendLng}
-                                    manualLat={manualLat}
-                                    manualLng={manualLng}
-                                    manualAccuracy={manualAccuracy}
-                                    onManualLat={setManualLat}
-                                    onManualLng={setManualLng}
-                                    onManualAccuracy={setManualAccuracy}
+                                    area={resolvedAddress.area}
+                                    city={resolvedAddress.city}
+                                    state={resolvedAddress.state}
+                                    locationSearch={locationSearch}
+                                    onLocationSearch={setLocationSearch}
+                                    onSearchLocation={searchLocation}
+                                    locationSearchLoading={locationSearchLoading}
+                                    searchResults={locationSearchResults}
+                                    onPickSearchResult={handlePickSearchResult}
                                     onRefresh={refreshLiveLocation}
                                     onUseDevice={useDeviceLocation}
                                     onSave={saveLocationManually}
                                     locationSaveLoading={locationSaveLoading}
                                     locationCapturedAt={locationCapturedAt}
+                                    mapLat={mapLat}
+                                    mapLng={mapLng}
                                     mapRef={locationMapRef}
                                     hasMapsKey={!!mapsKey}
                                 />
 
                                 {locationSaveError ? (
-                                    <Card className="rounded-xl border border-red-200 bg-red-50">
-                                        <CardContent className="p-3 text-sm text-red-700">{locationSaveError}</CardContent>
+                                    <Card className="rounded-xl border border-destructive/30 bg-destructive/10">
+                                        <CardContent className="p-3 text-sm text-destructive">{locationSaveError}</CardContent>
                                     </Card>
                                 ) : null}
 
                                 {locationSaveMessage ? (
-                                    <Card className="rounded-xl border border-emerald-200 bg-emerald-50">
-                                        <CardContent className="p-3 text-sm text-emerald-700">{locationSaveMessage}</CardContent>
+                                    <Card className="rounded-xl border border-primary/20 bg-primary/10">
+                                        <CardContent className="p-3 text-sm text-primary">{locationSaveMessage}</CardContent>
                                     </Card>
                                 ) : null}
                             </>
                         ) : null}
 
                         {activeTab === "bookings" ? (
-                            <Card className="rounded-2xl border-0 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.08)]">
+                            <Card className="rounded-2xl border border-border bg-card shadow-sm">
                                 <CardHeader>
-                                    <CardTitle className="text-slate-900">My Bookings</CardTitle>
-                                    <CardDescription>Track upcoming and past service bookings.</CardDescription>
+                                    <CardTitle className="text-foreground">{t("account.bookings.title")}</CardTitle>
+                                    <CardDescription>{t("account.bookings.desc")}</CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                    {bookingsQuery.isLoading ? (
+                                    {bookingsQuery.isLoading || ordersQuery.isLoading ? (
                                         <div className="space-y-3">
                                             <Skeleton className="h-28 w-full rounded-2xl" />
                                             <Skeleton className="h-28 w-full rounded-2xl" />
                                             <Skeleton className="h-28 w-full rounded-2xl" />
                                         </div>
-                                    ) : bookingRows.length === 0 ? (
-                                        <div className="rounded-2xl border border-dashed border-slate-300 p-10 text-center bg-slate-50">
-                                            <CalendarClock className="mx-auto h-8 w-8 text-slate-400" />
-                                            <p className="mt-3 text-base font-medium text-slate-800">No bookings yet</p>
-                                            <p className="text-sm text-slate-500">Abhi tak koi booking nahi mili.</p>
+                                    ) : bookingRows.length === 0 && orderRows.length === 0 ? (
+                                        <div className="rounded-2xl border border-dashed border-border p-10 text-center bg-muted/40">
+                                            <CalendarClock className="mx-auto h-8 w-8 text-muted-foreground" />
+                                            <p className="mt-3 text-base font-medium text-foreground">{t("account.bookings.emptyTitle")}</p>
+                                            <p className="text-sm text-muted-foreground">{t("account.bookings.emptyDesc")}</p>
                                         </div>
                                     ) : (
-                                        <div className="space-y-4">
-                                            {bookingRows.map((booking) => (
-                                                <BookingCard key={booking._id} booking={booking} />
-                                            ))}
+                                        <div className="space-y-6">
+                                            <div className="space-y-4">
+                                                {bookingRows.length ? (
+                                                    bookingRows.map((booking) => <BookingCard key={booking._id} booking={booking} />)
+                                                ) : (
+                                                    <div className="rounded-2xl border border-dashed border-border p-6 text-center bg-muted/40">
+                                                        <p className="text-sm text-muted-foreground">{t("account.bookings.emptyTitle")}</p>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="h-px w-full bg-border" />
+
+                                            <div className="space-y-2">
+                                                <div>
+                                                    <p className="text-base font-semibold text-foreground">{t("account.orders.title")}</p>
+                                                    <p className="text-sm text-muted-foreground">{t("account.orders.desc")}</p>
+                                                </div>
+
+                                                {orderRows.length ? (
+                                                    <div className="space-y-4">
+                                                        {orderRows.map((order) => (
+                                                            <OrderCard key={order._id} order={order} />
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <div className="rounded-2xl border border-dashed border-border p-6 text-center bg-muted/40">
+                                                        <p className="text-sm font-medium text-foreground">{t("account.orders.emptyTitle")}</p>
+                                                        <p className="text-sm text-muted-foreground">{t("account.orders.emptyDesc")}</p>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     )}
                                 </CardContent>
                             </Card>
                         ) : null}
 
-                        {activeTab === "shops" ? (
-                            <Card className="rounded-2xl border-0 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.08)]">
+                        {activeTab === "referrals" ? (
+                            <Card className="rounded-2xl border border-border bg-card shadow-sm">
                                 <CardHeader>
-                                    <CardTitle className="text-slate-900 flex items-center gap-2">
-                                        <Store className="h-5 w-5 text-emerald-600" />
-                                        Nearby Shops
-                                    </CardTitle>
-                                    <CardDescription>Based on your current location</CardDescription>
+                                    <CardTitle className="text-foreground">{t("account.referrals.title")}</CardTitle>
+                                    <CardDescription>{t("account.referrals.desc")}</CardDescription>
                                 </CardHeader>
-                                <CardContent className="space-y-4">
-                                    <Button
-                                        className="bg-emerald-600 hover:bg-emerald-700"
-                                        onClick={() => {
-                                            const lat = safeCoord(manualLat || backendLat || userLocation?.latitude || "");
-                                            const lng = safeCoord(manualLng || backendLng || userLocation?.longitude || "");
-                                            fetchNearby(lat, lng);
-                                        }}
-                                        disabled={nearbyShopsQuery.isFetching}
-                                    >
-                                        <Navigation className="h-4 w-4 mr-2" />
-                                        {nearbyShopsQuery.isFetching ? "Finding..." : "Find Nearby Shops"}
-                                    </Button>
-
-                                    {nearbyShopsQuery.isFetching ? (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <Skeleton className="h-44 w-full rounded-2xl" />
-                                            <Skeleton className="h-44 w-full rounded-2xl" />
-                                            <Skeleton className="h-44 w-full rounded-2xl" />
-                                            <Skeleton className="h-44 w-full rounded-2xl" />
+                                <CardContent className="space-y-5">
+                                    {referralSummaryQuery.isLoading ? (
+                                        <div className="space-y-3">
+                                            <Skeleton className="h-10 w-full rounded-xl" />
+                                            <Skeleton className="h-24 w-full rounded-2xl" />
                                         </div>
-                                    ) : (nearbyShopsQuery.data || []).length === 0 ? (
-                                        <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center bg-slate-50">
-                                            <MapPin className="mx-auto h-8 w-8 text-slate-400" />
-                                            <p className="mt-3 text-sm font-medium text-slate-700">No nearby shops found yet.</p>
-                                            <p className="text-xs text-slate-500">Update your location and try again.</p>
+                                    ) : referralSummaryQuery.isError ? (
+                                        <div className="rounded-xl border border-border p-4 text-sm text-muted-foreground bg-muted/40">
+                                            {t("account.referrals.errors.summaryLoad")}
                                         </div>
                                     ) : (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            {(nearbyShopsQuery.data || []).map((shop) => (
-                                                <ShopCard key={shop.id} shop={shop as Shop & { distanceKm?: number }} />
-                                            ))}
-                                        </div>
-                                    )}
+                                        <>
+                                            <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4">
+                                                <p className="text-xs text-primary font-medium">{t("account.referrals.yourCode")}</p>
+                                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                    <div className="px-3 py-2 rounded-xl bg-card border border-primary/20 font-mono text-sm text-primary">
+                                                        {referralSummaryQuery.data?.referralCode || "—"}
+                                                    </div>
+                                                    <Button
+                                                        variant="outline"
+                                                        className="border-primary/25 text-primary hover:bg-primary/10"
+                                                        onClick={async () => {
+                                                            const code = referralSummaryQuery.data?.referralCode || "";
+                                                            if (!code) return;
+                                                            try {
+                                                                await navigator.clipboard.writeText(code);
+                                                                toast({ title: t("account.referrals.toast.copiedTitle"), description: t("account.referrals.toast.copiedDesc") });
+                                                            } catch {
+                                                                toast({ title: t("account.referrals.toast.copyFailedTitle"), description: t("account.referrals.toast.copyFailedDesc") });
+                                                            }
+                                                        }}
+                                                    >
+                                                        {t("account.referrals.copy")}
+                                                    </Button>
+                                                </div>
+                                                <p className="mt-2 text-xs text-primary">{t("account.referrals.tip")}</p>
+                                                <p className="mt-1 text-xs text-primary">
+                                                    <Link to="/referral-program" className="font-medium underline underline-offset-4">
+                                                        {t("account.referrals.learnMore")}
+                                                    </Link>
+                                                </p>
+                                                {referralSummaryQuery.data?.activeOffer?.commissionPercent ? (
+                                                    <p className="mt-1 text-xs text-primary">
+                                                        {t("account.referrals.activeOffer", {
+                                                            offerName: referralSummaryQuery.data.activeOffer.offerName,
+                                                            percent: Math.round(Number(referralSummaryQuery.data.activeOffer.commissionPercent || 0) * 100) / 100,
+                                                        })}
+                                                    </p>
+                                                ) : null}
+                                            </div>
 
-                                    <p className="text-xs text-slate-500">
-                                        Prefer browsing all stores? <Link className="text-emerald-700 underline" to="/shops">Open shops directory</Link>
-                                    </p>
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                <div className="rounded-2xl border border-border p-4 bg-muted/40">
+                                                    <p className="text-xs text-muted-foreground">{t("account.referrals.stats.totalReferrals")}</p>
+                                                    <p className="text-2xl font-bold text-foreground">{referralSummaryQuery.data?.totalReferrals ?? 0}</p>
+                                                </div>
+                                                <div className="rounded-2xl border border-border p-4 bg-muted/40">
+                                                    <p className="text-xs text-muted-foreground">{t("account.referrals.stats.totalEarnings")}</p>
+                                                    <p className="text-2xl font-bold text-foreground">₹{Math.round((referralSummaryQuery.data?.totalEarnings || 0) * 100) / 100}</p>
+                                                </div>
+                                                <div className="rounded-2xl border border-border p-4 bg-muted/40">
+                                                    <p className="text-xs text-muted-foreground">{t("account.referrals.stats.walletBalance")}</p>
+                                                    <p className="text-2xl font-bold text-foreground">₹{Math.round((referralSummaryQuery.data?.walletBalance || 0) * 100) / 100}</p>
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-3">
+                                                <p className="text-sm font-semibold text-foreground">{t("account.referrals.recentTitle")}</p>
+                                                {(referralSummaryQuery.data?.recentReferrals || []).length === 0 ? (
+                                                    <div className="rounded-2xl border border-dashed border-border p-8 text-center bg-muted/40 text-sm text-muted-foreground">
+                                                        {t("account.referrals.emptyRecent")}
+                                                    </div>
+                                                ) : (
+                                                    <div className="space-y-2">
+                                                        {(referralSummaryQuery.data?.recentReferrals || []).slice(0, 10).map((r: any) => (
+                                                            <div key={r._id} className="rounded-2xl border border-border p-4 bg-card">
+                                                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                                                    <div>
+                                                                        <p className="text-sm font-medium text-foreground">
+                                                                            {r.referredUser?.name || r.referredUser?.email || t("account.referrals.fallbackReferredUser")}
+                                                                        </p>
+                                                                        <p className="text-xs text-muted-foreground">{r.createdAt ? new Date(r.createdAt).toLocaleDateString("en-IN") : "—"}</p>
+                                                                    </div>
+                                                                    <Badge
+                                                                        className={
+                                                                            r.status === "rewarded"
+                                                                                ? "bg-primary/10 text-primary border border-primary/20"
+                                                                                : "bg-muted text-muted-foreground border border-border"
+                                                                        }
+                                                                    >
+                                                                        {r.status}
+                                                                    </Badge>
+                                                                </div>
+                                                                {r.status === "rewarded" ? (
+                                                                    <p className="mt-2 text-sm text-muted-foreground">
+                                                                        {t("account.referrals.earned", { amount: Math.round((r.commissionEarned || 0) * 100) / 100 })}
+                                                                    </p>
+                                                                ) : null}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        ) : null}
+
+                        {activeTab === "wallet" ? (
+                            <Card className="rounded-2xl border border-border bg-card shadow-sm">
+                                <CardHeader>
+                                    <CardTitle className="text-foreground">{t("account.wallet.title")}</CardTitle>
+                                    <CardDescription>{t("account.wallet.desc")}</CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-6">
+                                    <div className="rounded-2xl border border-border p-4 bg-muted/40">
+                                        <p className="text-xs text-muted-foreground">{t("account.wallet.currentBalance")}</p>
+                                        <p className="text-2xl font-bold text-foreground">₹{Math.round((referralSummaryQuery.data?.walletBalance || 0) * 100) / 100}</p>
+                                    </div>
+
+                                    <div className="rounded-2xl border border-border p-4 bg-card space-y-3">
+                                        <p className="text-sm font-semibold text-foreground">{t("account.wallet.requestTitle")}</p>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                            <div className="space-y-1.5">
+                                                <Label>{t("account.wallet.form.amount")}</Label>
+                                                <Input
+                                                    value={withdrawAmount}
+                                                    onChange={(e) => setWithdrawAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+                                                    placeholder={t("account.wallet.placeholders.amount")}
+                                                />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <Label>{t("account.wallet.form.accountHolderName")}</Label>
+                                                <Input
+                                                    value={withdrawAccountHolderName}
+                                                    onChange={(e) => setWithdrawAccountHolderName(e.target.value)}
+                                                    placeholder={t("account.wallet.placeholders.accountHolderName")}
+                                                />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <Label>{t("account.wallet.form.bankName")}</Label>
+                                                <Input
+                                                    value={withdrawBankName}
+                                                    onChange={(e) => setWithdrawBankName(e.target.value)}
+                                                    placeholder={t("account.wallet.placeholders.bankName")}
+                                                />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <Label>{t("account.wallet.form.accountNumber")}</Label>
+                                                <Input
+                                                    value={withdrawAccountNumber}
+                                                    onChange={(e) => setWithdrawAccountNumber(e.target.value)}
+                                                    placeholder={t("account.wallet.placeholders.accountNumber")}
+                                                />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <Label>{t("account.wallet.form.ifsc")}</Label>
+                                                <Input
+                                                    value={withdrawIfsc}
+                                                    onChange={(e) => setWithdrawIfsc(e.target.value)}
+                                                    placeholder={t("account.wallet.placeholders.ifsc")}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {withdrawError ? <p className="text-sm text-destructive">{withdrawError}</p> : null}
+                                        {withdrawMessage ? <p className="text-sm text-primary">{withdrawMessage}</p> : null}
+
+                                        <Button onClick={submitWithdrawal} disabled={withdrawLoading} className="bg-secondary hover:bg-secondary/90 text-secondary-foreground">
+                                            {withdrawLoading ? t("account.wallet.actions.pleaseWait") : t("account.wallet.actions.request")}
+                                        </Button>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        <p className="text-sm font-semibold text-foreground">{t("account.wallet.sections.withdrawalRequestsTitle")}</p>
+                                        {withdrawalsQuery.isLoading ? (
+                                            <div className="space-y-2">
+                                                <Skeleton className="h-16 w-full rounded-2xl" />
+                                                <Skeleton className="h-16 w-full rounded-2xl" />
+                                            </div>
+                                        ) : (withdrawalsQuery.data || []).length === 0 ? (
+                                            <div className="rounded-2xl border border-dashed border-border p-8 text-center bg-muted/40 text-sm text-muted-foreground">
+                                                {t("account.wallet.sections.noWithdrawalsYet")}
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {(withdrawalsQuery.data || []).slice(0, 10).map((w: any) => (
+                                                    <div key={w._id} className="rounded-2xl border border-border p-4 bg-card">
+                                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                                            <div>
+                                                                <p className="text-sm font-medium text-foreground">₹{Math.round((w.amount || 0) * 100) / 100}</p>
+                                                                <p className="text-xs text-muted-foreground">{w.createdAt ? new Date(w.createdAt).toLocaleDateString("en-IN") : "—"}</p>
+                                                            </div>
+                                                            <Badge
+                                                                className={
+                                                                    w.status === "approved"
+                                                                        ? "bg-primary/10 text-primary border border-primary/20"
+                                                                        : w.status === "rejected"
+                                                                            ? "bg-destructive/10 text-destructive border border-destructive/20"
+                                                                            : "bg-muted text-muted-foreground border border-border"
+                                                                }
+                                                            >
+                                                                {w.status}
+                                                            </Badge>
+                                                        </div>
+                                                        {w.rejectionReason ? (
+                                                            <p className="mt-2 text-xs text-destructive">
+                                                                {t("account.wallet.reasonLabel")} {w.rejectionReason}
+                                                            </p>
+                                                        ) : null}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        <p className="text-sm font-semibold text-foreground">{t("account.wallet.sections.recentTransactionsTitle")}</p>
+                                        {walletTxnsQuery.isLoading ? (
+                                            <div className="space-y-2">
+                                                <Skeleton className="h-16 w-full rounded-2xl" />
+                                                <Skeleton className="h-16 w-full rounded-2xl" />
+                                            </div>
+                                        ) : (walletTxnsQuery.data || []).length === 0 ? (
+                                            <div className="rounded-2xl border border-dashed border-border p-8 text-center bg-muted/40 text-sm text-muted-foreground">
+                                                {t("account.wallet.sections.noTransactionsYet")}
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {(walletTxnsQuery.data || []).slice(0, 10).map((t: any) => (
+                                                    <div key={t._id} className="rounded-2xl border border-border p-4 bg-card">
+                                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                                            <div>
+                                                                <p className="text-sm font-medium text-foreground">
+                                                                    {t.type === "credit" ? "+" : "-"}₹{Math.round((t.amount || 0) * 100) / 100} • {t.source}
+                                                                </p>
+                                                                <p className="text-xs text-muted-foreground">{t.createdAt ? new Date(t.createdAt).toLocaleDateString("en-IN") : "—"}</p>
+                                                            </div>
+                                                            <Badge
+                                                                className={
+                                                                    t.status === "completed"
+                                                                        ? "bg-primary/10 text-primary border border-primary/20"
+                                                                        : t.status === "rejected"
+                                                                            ? "bg-destructive/10 text-destructive border border-destructive/20"
+                                                                            : "bg-muted text-muted-foreground border border-border"
+                                                                }
+                                                            >
+                                                                {t.status}
+                                                            </Badge>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        ) : null}
+
+                        {activeTab === "feedback" ? (
+                            <Card className="rounded-2xl border border-border bg-card shadow-sm">
+                                <CardHeader>
+                                    <CardTitle className="text-foreground">{t("account.feedback.title")}</CardTitle>
+                                    <CardDescription>
+                                        {t("account.feedback.desc")}
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    <div className="grid gap-2 max-w-sm">
+                                        <Label>{t("account.feedback.form.rating")}</Label>
+                                        <select
+                                            value={platformRating}
+                                            onChange={(e) => setPlatformRating(e.target.value)}
+                                            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                                        >
+                                            <option value="5">{t("account.feedback.form.option5")}</option>
+                                            <option value="4">{t("account.feedback.form.option4")}</option>
+                                            <option value="3">{t("account.feedback.form.option3")}</option>
+                                            <option value="2">{t("account.feedback.form.option2")}</option>
+                                            <option value="1">{t("account.feedback.form.option1")}</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label>{t("account.feedback.form.textLabel")}</Label>
+                                        <Textarea
+                                            value={platformFeedbackText}
+                                            onChange={(e) => setPlatformFeedbackText(e.target.value)}
+                                            placeholder={t("account.feedback.form.textPlaceholder")}
+                                            maxLength={2000}
+                                        />
+                                        <p className="text-xs text-muted-foreground">{t("account.feedback.form.maxChars", { count: 2000 })}</p>
+                                    </div>
+
+                                    {platformSubmitError ? <p className="text-sm text-destructive">{platformSubmitError}</p> : null}
+                                    {platformSubmitMessage ? <p className="text-sm text-primary">{platformSubmitMessage}</p> : null}
+
+                                    <Button onClick={submitPlatformFeedbackForm} disabled={platformSubmitLoading} className="bg-primary hover:bg-primary/90">
+                                        {platformSubmitLoading ? t("account.feedback.actions.submitting") : t("account.feedback.actions.submit")}
+                                    </Button>
                                 </CardContent>
                             </Card>
                         ) : null}
 
                         {activeTab === "settings" ? (
-                            <Card className="rounded-2xl border-0 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.08)]">
+                            <Card className="rounded-2xl border border-border bg-card shadow-sm">
                                 <CardHeader>
-                                    <CardTitle className="text-slate-900">Settings</CardTitle>
-                                    <CardDescription>Manage account preferences and profile fields.</CardDescription>
+                                    <CardTitle className="text-foreground">{t("account.settings.title")}</CardTitle>
+                                    <CardDescription>{t("account.settings.desc")}</CardDescription>
                                 </CardHeader>
                                 <CardContent className="space-y-4">
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div className="space-y-1.5">
-                                            <Label>Name</Label>
+                                            <Label>{t("account.settings.fields.name")}</Label>
                                             <Input value={displayedUser?.name || ""} disabled />
                                         </div>
                                         <div className="space-y-1.5">
-                                            <Label>Email</Label>
+                                            <Label>{t("account.settings.fields.email")}</Label>
                                             <Input value={displayedUser?.email || ""} disabled />
                                         </div>
                                     </div>
 
                                     <div className="space-y-1.5 max-w-sm">
-                                        <Label>Phone</Label>
-                                        <Input value={displayedUser?.phone || "Not added"} disabled />
+                                        <Label>{t("account.settings.fields.phone")}</Label>
+                                        <Input value={displayedUser?.phone || t("account.settings.fields.phoneNotAdded")} disabled />
                                     </div>
 
                                     <div className="space-y-2">
-                                        <Label>Profile Photo</Label>
+                                        <Label>{t("account.settings.profilePhoto.label")}</Label>
                                         <div className="flex items-center gap-3">
-                                            <Avatar className="h-12 w-12 border border-emerald-200">
-                                                <AvatarImage src={profileAvatarUrl} alt={displayedUser?.name || "Customer"} />
-                                                <AvatarFallback className="bg-emerald-100 text-emerald-700 font-semibold">
+                                            <Avatar className="h-12 w-12 border border-primary/25">
+                                                <AvatarImage src={profileAvatarUrl} alt={displayedUser?.name || t("account.roles.customer")} />
+                                                <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                                                     {getInitials(displayedUser?.name)}
                                                 </AvatarFallback>
                                             </Avatar>
                                             <Button
                                                 variant="outline"
-                                                className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                                className="border-primary/25 text-primary hover:bg-primary/10"
                                                 onClick={() => avatarInputRef.current?.click()}
                                             >
-                                                <Upload className="h-4 w-4 mr-2" /> Upload / Change
+                                                <Upload className="h-4 w-4 mr-2" /> {t("account.settings.profilePhoto.uploadChange")}
                                             </Button>
                                         </div>
                                     </div>
 
-                                    <p className="text-xs text-slate-500">
-                                        Editable settings can be connected to backend profile APIs in the next iteration.
+                                    <p className="text-xs text-muted-foreground">
+                                        {t("account.settings.note")}
                                     </p>
+
+                                    <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+                                        <p className="text-sm font-semibold text-foreground">{t("account.settings.changePassword.title")}</p>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div className="space-y-1.5">
+                                                <Label>{t("account.settings.changePassword.fields.current")}</Label>
+                                                <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder={t("account.settings.changePassword.placeholders.current")} />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <Label>{t("account.settings.changePassword.fields.new")}</Label>
+                                                <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder={t("account.settings.changePassword.placeholders.new")} />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-1.5 max-w-sm">
+                                            <Label>{t("account.settings.changePassword.fields.confirm")}</Label>
+                                            <Input type="password" value={confirmNewPassword} onChange={(e) => setConfirmNewPassword(e.target.value)} placeholder={t("account.settings.changePassword.placeholders.confirm")} />
+                                        </div>
+
+                                        {changePasswordError ? <p className="text-xs text-destructive">{changePasswordError}</p> : null}
+                                        {changePasswordMessage ? <p className="text-xs text-primary">{changePasswordMessage}</p> : null}
+
+                                        <Button
+                                            onClick={submitChangePassword}
+                                            disabled={changePasswordLoading}
+                                            className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                                        >
+                                            {changePasswordLoading
+                                                ? t("account.settings.changePassword.actions.updating")
+                                                : t("account.settings.changePassword.actions.change")}
+                                        </Button>
+                                    </div>
+
+                                    <div className="rounded-2xl border border-border bg-muted/40 p-4">
+                                        <p className="text-sm font-semibold text-foreground">{t("account.settings.help.title")}</p>
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                            {t("account.settings.help.desc")}
+                                        </p>
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                            <Button asChild variant="outline" className="border-primary/25 text-primary hover:bg-primary/10">
+                                                <Link to="/contact">{t("account.settings.help.contactSupport")}</Link>
+                                            </Button>
+                                        </div>
+                                    </div>
+
+                                    <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
+                                        <p className="text-sm font-semibold text-foreground">{t("account.settings.logout.title")}</p>
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                            {t("account.settings.logout.desc")}
+                                        </p>
+                                        <div className="mt-3">
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                className="border-destructive/30 text-destructive hover:bg-destructive/10"
+                                                onClick={handleLogoutClick}
+                                            >
+                                                <LogOut className="h-4 w-4 mr-2" />
+                                                {t("account.settings.logout.action")}
+                                            </Button>
+                                        </div>
+                                    </div>
                                 </CardContent>
                             </Card>
                         ) : null}

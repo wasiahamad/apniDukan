@@ -159,5 +159,6 @@ router.post('/logout', protect, authController.logout);
 // Admin-only: issue impersonation token for dukandar
 router.post('/admin/impersonate', protect, authorize('admin'), authController.adminImpersonate);
 router.get('/admin/customers', protect, authorize('admin'), authController.adminListCustomers);
+router.get('/admin/customers/:customerId', protect, authorize('admin'), authController.adminGetCustomerDetails);
 
 export default router;

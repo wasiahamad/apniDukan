@@ -11,6 +11,7 @@ export interface Plan {
   description?: string;
   price: number;
   durationInDays: number;
+  billingCycle?: 'monthly' | 'quarterly' | 'yearly';
   features: {
     maxListings: number;
     publicShopEnabled?: boolean;

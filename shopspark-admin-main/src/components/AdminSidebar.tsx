@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Store, ShoppingCart, Truck, CreditCard,
-  BarChart3, HeadphonesIcon, Shield, Settings, Globe, FileText, LogOut, Gift, Tags, Users
+  BarChart3, HeadphonesIcon, Shield, Settings, Globe, FileText, LogOut, Gift, Tags, Users, MessageCircle, Phone, Info, Clapperboard
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
@@ -14,10 +14,16 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
+const PLATFORM_LOGO_SRC = "/logo-removebg-preview.png";
+
 const mainNav = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Shops", url: "/shops", icon: Store },
+  { title: "Stories", url: "/stories", icon: Clapperboard },
   { title: "Customers", url: "/customers", icon: Users },
+  { title: "Platform Feedback", url: "/platform-feedback", icon: MessageCircle },
+  { title: "Contact", url: "/contact", icon: Phone },
+  { title: "About Page", url: "/about-page", icon: Info },
   { title: "Business Types", url: "/business-types", icon: Tags },
   { title: "Orders", url: "/orders", icon: ShoppingCart },
   { title: "Delivery", url: "/delivery", icon: Truck },
@@ -46,12 +52,12 @@ export function AdminSidebar() {
     <Sidebar collapsible="icon" className="border-r border-border">
       <SidebarHeader className="p-4 border-b border-border">
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-md bg-primary flex items-center justify-center shrink-0">
-            <Store className="h-4 w-4 text-primary-foreground" />
+          <div className="h-8 w-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0 overflow-hidden">
+            <img src={PLATFORM_LOGO_SRC} alt="PublicDukan" className="h-6 w-6 object-contain" />
           </div>
           {!collapsed && (
             <div>
-              <h2 className="text-sm font-semibold text-foreground">LocalBooster</h2>
+              <h2 className="text-sm font-semibold text-foreground">PublicDukan</h2>
               <p className="text-xs text-muted-foreground">Super Admin</p>
             </div>
           )}
@@ -99,7 +105,7 @@ export function AdminSidebar() {
               </div>
               <div className="min-w-0">
                 <p className="text-xs font-medium text-foreground truncate">{user?.name || "Admin User"}</p>
-                <p className="text-xs text-muted-foreground truncate">{user?.email || "admin@localbooster.in"}</p>
+                <p className="text-xs text-muted-foreground truncate">{user?.email || "admin@publicdukan.in"}</p>
               </div>
             </div>
             <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={handleLogout}>

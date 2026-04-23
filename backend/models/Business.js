@@ -21,6 +21,12 @@ const businessSchema = new mongoose.Schema(
       trim: true,
       maxlength: [150, 'Business name cannot exceed 150 characters'],
     },
+    // Optional Hindi display name (Devanagari). Does NOT affect slug generation.
+    nameHi: {
+      type: String,
+      trim: true,
+      maxlength: [150, 'Business Hindi name cannot exceed 150 characters'],
+    },
     slug: {
       type: String,
       unique: true,
@@ -37,6 +43,10 @@ const businessSchema = new mongoose.Schema(
     },
     coverImage: {
       type: String, // Cloudinary URL
+    },
+    coverImages: {
+      type: [String], // Multiple Cloudinary URLs (for website auto slider)
+      default: [],
     },
     branding: {
       themeColor: {
@@ -112,14 +122,18 @@ const businessSchema = new mongoose.Schema(
     },
     address: {
       street: String,
+      // Optional Hindi address fields (Devanagari)
+      streetHi: { type: String, trim: true, maxlength: [300, 'Hindi street cannot exceed 300 characters'] },
       city: {
         type: String,
         required: [true, 'City is required'],
       },
+      cityHi: { type: String, trim: true, maxlength: [120, 'Hindi city cannot exceed 120 characters'] },
       state: {
         type: String,
         required: [true, 'State is required'],
       },
+      stateHi: { type: String, trim: true, maxlength: [120, 'Hindi state cannot exceed 120 characters'] },
       pincode: String,
       // Legacy/compat coordinates used by some clients.
       // Source of truth remains GeoJSON `address.location`.
@@ -161,6 +175,11 @@ const businessSchema = new mongoose.Schema(
     description: {
       type: String,
       maxlength: [2000, 'Description cannot exceed 2000 characters'],
+    },
+    // Optional Hindi description (Devanagari)
+    descriptionHi: {
+      type: String,
+      maxlength: [2000, 'Hindi description cannot exceed 2000 characters'],
     },
     whyChooseUs: [
       {
@@ -217,6 +236,7 @@ const businessSchema = new mongoose.Schema(
       bookingEnabled: { type: Boolean },
       featuredEnabled: { type: Boolean },
       maxFeaturedListings: { type: Number },
+      listingStoriesEnabled: { type: Boolean },
       customDomain: { type: Boolean },
       analyticsEnabled: { type: Boolean },
       prioritySupport: { type: Boolean },

@@ -14,7 +14,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Gift, Plus, Edit, Power, TreePine, Users, Award, CheckCircle2, XCircle, Clock3 } from "lucide-react";
 import { toast } from "sonner";
 
-import { referralAdminApi, type ReferralOffer, type ReferralDashboardStats, type AdminReferralRow, type ReferralTreeNode } from "@/lib/api";
+import {
+  referralAdminApi,
+  customerReferralAdminApi,
+  walletAdminApi,
+  type ReferralOffer,
+  type ReferralDashboardStats,
+  type AdminReferralRow,
+  type ReferralTreeNode,
+  type AdminCustomerReferralRow,
+  type CustomerReferralStatus,
+  type CustomerReferralOffer,
+  type AdminWithdrawalRequest,
+  type WithdrawalStatus,
+} from "@/lib/api";
 
 export default function Referrals() {
   const [offerDialog, setOfferDialog] = useState(false);
@@ -31,6 +44,17 @@ export default function Referrals() {
   });
 
   const qc = useQueryClient();
+
+  const [customerOfferDialog, setCustomerOfferDialog] = useState(false);
+  const [editingCustomerOffer, setEditingCustomerOffer] = useState<CustomerReferralOffer | null>(null);
+  const [customerOfferForm, setCustomerOfferForm] = useState({
+    offerName: "",
+    description: "",
+    commissionPercent: 5,
+  });
+
+  const [customerReferralStatus, setCustomerReferralStatus] = useState<CustomerReferralStatus | "all">("all");
+  const [withdrawalStatus, setWithdrawalStatus] = useState<WithdrawalStatus | "all">("pending");
 
   const statsQuery = useQuery({
     queryKey: ["admin", "referrals", "stats"],
@@ -75,6 +99,135 @@ export default function Referrals() {
       if (!res.success) throw new Error(res.message || "Failed to load reward requests");
       return res.data?.requests || [];
     },
+  });
+
+  const customerReferralMetricsQuery = useQuery({
+    queryKey: ["admin", "customer-referrals", "metrics"],
+    queryFn: async () => {
+      const res = await customerReferralAdminApi.getMetrics();
+      if (!res.success) throw new Error(res.message || "Failed to load customer referral metrics");
+      return res.data;
+    },
+  });
+
+  const customerReferralsQuery = useQuery({
+    queryKey: ["admin", "customer-referrals", "list", customerReferralStatus],
+    queryFn: async () => {
+      const res = await customerReferralAdminApi.list({
+        status: customerReferralStatus === "all" ? undefined : customerReferralStatus,
+      });
+      if (!res.success) throw new Error(res.message || "Failed to load customer referrals");
+      return (res.data || []) as AdminCustomerReferralRow[];
+    },
+  });
+
+  const customerReferralOffersQuery = useQuery({
+    queryKey: ["admin", "customer-referrals", "offers"],
+    queryFn: async () => {
+      const res = await customerReferralAdminApi.listOffers();
+      if (!res.success) throw new Error(res.message || "Failed to load customer referral offers");
+      return (res.data || []) as CustomerReferralOffer[];
+    },
+  });
+
+  const createCustomerOfferMutation = useMutation({
+    mutationFn: async () => {
+      const res = await customerReferralAdminApi.createOffer({
+        offerName: customerOfferForm.offerName,
+        description: customerOfferForm.description || undefined,
+        commissionPercent: Number(customerOfferForm.commissionPercent),
+      });
+      if (!res.success) throw new Error(res.message || "Failed to create offer");
+      return res.data;
+    },
+    onSuccess: () => {
+      toast.success("Customer referral offer created");
+      qc.invalidateQueries({ queryKey: ["admin", "customer-referrals", "offers"] });
+      setCustomerOfferDialog(false);
+    },
+    onError: (e: any) => toast.error(e?.message || "Create failed"),
+  });
+
+  const updateCustomerOfferMutation = useMutation({
+    mutationFn: async () => {
+      if (!editingCustomerOffer?._id) throw new Error("No offer selected");
+      const res = await customerReferralAdminApi.updateOffer(editingCustomerOffer._id, {
+        offerName: customerOfferForm.offerName,
+        description: customerOfferForm.description || undefined,
+        commissionPercent: Number(customerOfferForm.commissionPercent),
+      });
+      if (!res.success) throw new Error(res.message || "Failed to update offer");
+      return res.data;
+    },
+    onSuccess: () => {
+      toast.success("Customer referral offer updated");
+      qc.invalidateQueries({ queryKey: ["admin", "customer-referrals", "offers"] });
+      setCustomerOfferDialog(false);
+    },
+    onError: (e: any) => toast.error(e?.message || "Update failed"),
+  });
+
+  const toggleCustomerOfferStatusMutation = useMutation({
+    mutationFn: async (offer: CustomerReferralOffer) => {
+      const res = offer.status === 'active'
+        ? await customerReferralAdminApi.closeOffer(offer._id)
+        : await customerReferralAdminApi.activateOffer(offer._id);
+      if (!res.success) throw new Error(res.message || "Failed to update offer status");
+      return res.data;
+    },
+    onSuccess: () => {
+      toast.success("Customer offer status updated");
+      qc.invalidateQueries({ queryKey: ["admin", "customer-referrals", "offers"] });
+    },
+    onError: (e: any) => toast.error(e?.message || "Status update failed"),
+  });
+
+  const walletMetricsQuery = useQuery({
+    queryKey: ["admin", "wallet", "metrics"],
+    queryFn: async () => {
+      const res = await walletAdminApi.getMetrics();
+      if (!res.success) throw new Error(res.message || "Failed to load wallet metrics");
+      return res.data;
+    },
+  });
+
+  const withdrawalsQuery = useQuery({
+    queryKey: ["admin", "wallet", "withdrawals", withdrawalStatus],
+    queryFn: async () => {
+      const res = await walletAdminApi.listWithdrawals({
+        status: withdrawalStatus === "all" ? undefined : withdrawalStatus,
+      });
+      if (!res.success) throw new Error(res.message || "Failed to load withdrawals");
+      return (res.data || []) as AdminWithdrawalRequest[];
+    },
+  });
+
+  const approveWithdrawalMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await walletAdminApi.approveWithdrawal(id);
+      if (!res.success) throw new Error(res.message || "Approve failed");
+      return res.data;
+    },
+    onSuccess: () => {
+      toast.success("Withdrawal approved");
+      qc.invalidateQueries({ queryKey: ["admin", "wallet", "withdrawals"] });
+      qc.invalidateQueries({ queryKey: ["admin", "wallet", "metrics"] });
+    },
+    onError: (e: any) => toast.error(e?.message || "Approve failed"),
+  });
+
+  const rejectWithdrawalMutation = useMutation({
+    mutationFn: async (payload: { id: string; reason?: string }) => {
+      const res = await walletAdminApi.rejectWithdrawal(payload.id, payload.reason);
+      if (!res.success) throw new Error(res.message || "Reject failed");
+      return res.data;
+    },
+    onSuccess: () => {
+      toast.success("Withdrawal rejected (refunded)");
+      qc.invalidateQueries({ queryKey: ["admin", "wallet", "withdrawals"] });
+      qc.invalidateQueries({ queryKey: ["admin", "wallet", "metrics"] });
+    },
+    onError: (e: any) => toast.error(e?.message || "Reject failed"),
   });
 
   const approveRequestMutation = useMutation({
@@ -209,6 +362,43 @@ export default function Referrals() {
 
   const activeOffer = useMemo(() => offers.find((o) => o.status === 'active'), [offers]);
 
+  const customerOffers = customerReferralOffersQuery.data || [];
+  const activeCustomerOffer = useMemo(
+    () => customerOffers.find((o) => o.status === 'active'),
+    [customerOffers]
+  );
+
+  const openCreateCustomerOfferDialog = () => {
+    setEditingCustomerOffer(null);
+    setCustomerOfferForm({ offerName: "", description: "", commissionPercent: 5 });
+    setCustomerOfferDialog(true);
+  };
+
+  const openEditCustomerOfferDialog = (offer: CustomerReferralOffer) => {
+    setEditingCustomerOffer(offer);
+    setCustomerOfferForm({
+      offerName: offer.offerName || "",
+      description: offer.description || "",
+      commissionPercent: Number(offer.commissionPercent || 0),
+    });
+    setCustomerOfferDialog(true);
+  };
+
+  const handleSaveCustomerOffer = () => {
+    if (!customerOfferForm.offerName.trim()) {
+      toast.error("Offer name is required");
+      return;
+    }
+    const percent = Number(customerOfferForm.commissionPercent);
+    if (!Number.isFinite(percent) || percent <= 0 || percent > 100) {
+      toast.error("Commission % must be between 0 and 100");
+      return;
+    }
+
+    if (editingCustomerOffer) updateCustomerOfferMutation.mutate();
+    else createCustomerOfferMutation.mutate();
+  };
+
   const openCreateDialog = () => {
     setEditingOffer(null);
     setForm({
@@ -316,6 +506,8 @@ export default function Referrals() {
           <TabsTrigger value="leaderboard">Referrer Leaderboard</TabsTrigger>
           <TabsTrigger value="tree">Referral Tree</TabsTrigger>
           <TabsTrigger value="history">Referral History</TabsTrigger>
+          <TabsTrigger value="customer">Customer Referrals</TabsTrigger>
+          <TabsTrigger value="withdrawals">Withdrawals</TabsTrigger>
         </TabsList>
 
         {/* Offers Tab */}
@@ -655,6 +847,294 @@ export default function Referrals() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Customer Referrals (earnings) */}
+        <TabsContent value="customer" className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                <CardTitle className="text-sm font-medium">Customer Referrals</CardTitle>
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{customerReferralMetricsQuery.data?.totalReferrals ?? "—"}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                <CardTitle className="text-sm font-medium">Total Paid</CardTitle>
+                <Gift className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">₹{Math.round((customerReferralMetricsQuery.data?.totalEarningsPaid || 0) * 100) / 100}</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+                <CardTitle className="text-sm font-medium">Pending Withdrawals</CardTitle>
+                <Clock3 className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{walletMetricsQuery.data?.pendingWithdrawals ?? "—"}</div>
+                <div className="text-xs text-muted-foreground">₹{Math.round((walletMetricsQuery.data?.pendingWithdrawalsAmount || 0) * 100) / 100}</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Customer Referral Offers</CardTitle>
+                <CardDescription>
+                  Active commission: {activeCustomerOffer ? `${Number(activeCustomerOffer.commissionPercent || 0)}%` : "—"}
+                </CardDescription>
+              </div>
+              <Button onClick={openCreateCustomerOfferDialog}>
+                <Plus className="h-4 w-4 mr-2" /> Create Offer
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {customerReferralOffersQuery.isLoading ? (
+                <div className="space-y-3 py-2">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-5 w-20 rounded-full" />
+                      <Skeleton className="h-8 w-28" />
+                    </div>
+                  ))}
+                </div>
+              ) : customerReferralOffersQuery.isError ? (
+                <div className="py-6 text-center text-muted-foreground">Failed to load offers</div>
+              ) : (customerOffers || []).length === 0 ? (
+                <div className="py-6 text-center text-muted-foreground">No offers yet</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Offer</TableHead>
+                      <TableHead>Commission</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Validity</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(customerOffers || []).map((o) => (
+                      <TableRow key={o._id}>
+                        <TableCell>
+                          <div className="font-medium">{o.offerName}</div>
+                          {o.description ? <div className="text-xs text-muted-foreground">{o.description}</div> : null}
+                        </TableCell>
+                        <TableCell>{Number(o.commissionPercent || 0)}%</TableCell>
+                        <TableCell>
+                          <Badge variant={o.status === 'active' ? 'default' : o.status === 'draft' ? 'secondary' : 'outline'} className="capitalize">
+                            {o.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {o.validFrom ? new Date(o.validFrom).toLocaleDateString('en-IN') : '—'}
+                          {o.validUntil ? ` → ${new Date(o.validUntil).toLocaleDateString('en-IN')}` : ''}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="inline-flex items-center gap-2">
+                            <Button size="sm" variant="outline" onClick={() => openEditCustomerOfferDialog(o)}>
+                              <Edit className="h-3.5 w-3.5 mr-1" /> Edit
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant={o.status === 'active' ? 'secondary' : 'default'}
+                              onClick={() => toggleCustomerOfferStatusMutation.mutate(o)}
+                              disabled={toggleCustomerOfferStatusMutation.isPending}
+                            >
+                              <Power className="h-3.5 w-3.5 mr-1" /> {o.status === 'active' ? 'Close' : 'Activate'}
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Customer Referral Records</CardTitle>
+                <CardDescription>
+                  Customer earns {activeCustomerOffer ? `${Number(activeCustomerOffer.commissionPercent || 0)}%` : '—'} when referred dukandar buys a paid plan
+                </CardDescription>
+              </div>
+              <Select value={customerReferralStatus} onValueChange={(v) => setCustomerReferralStatus(v as any)}>
+                <SelectTrigger className="w-[180px]"><SelectValue placeholder="Status" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="rewarded">Rewarded</SelectItem>
+                </SelectContent>
+              </Select>
+            </CardHeader>
+            <CardContent>
+              {customerReferralsQuery.isLoading ? (
+                <div className="space-y-3 py-2">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-5 w-20 rounded-full" />
+                      <Skeleton className="h-4 w-20" />
+                    </div>
+                  ))}
+                </div>
+              ) : customerReferralsQuery.isError ? (
+                <div className="py-8 text-center text-muted-foreground">Failed to load customer referrals</div>
+              ) : (customerReferralsQuery.data || []).length === 0 ? (
+                <div className="py-8 text-center text-muted-foreground">No customer referrals found</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Referred Dukandar</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Commission</TableHead>
+                      <TableHead>Plan</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(customerReferralsQuery.data || []).map((r) => (
+                      <TableRow key={r._id}>
+                        <TableCell className="text-muted-foreground">{r.createdAt ? new Date(r.createdAt).toLocaleDateString('en-IN') : '—'}</TableCell>
+                        <TableCell>
+                          <div className="font-medium">{r.referrer?.name || '—'}</div>
+                          <div className="text-xs text-muted-foreground">{r.referrer?.email || '—'}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{r.referredUser?.name || '—'}</div>
+                          <div className="text-xs text-muted-foreground">{r.referredUser?.email || '—'}</div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={r.status === 'rewarded' ? 'default' : r.status === 'pending' ? 'secondary' : 'outline'} className="capitalize">
+                            {r.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>₹{Math.round((r.commissionEarned || 0) * 100) / 100}</TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {typeof r.planId === 'object' && r.planId ? (r.planId as any).name || (r.planId as any).slug || '—' : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Withdrawals */}
+        <TabsContent value="withdrawals" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Withdrawal Requests</CardTitle>
+                <CardDescription>Approve or reject customer withdrawals (rejection auto-refunds wallet)</CardDescription>
+              </div>
+              <Select value={withdrawalStatus} onValueChange={(v) => setWithdrawalStatus(v as any)}>
+                <SelectTrigger className="w-[180px]"><SelectValue placeholder="Status" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
+            </CardHeader>
+            <CardContent>
+              {withdrawalsQuery.isLoading ? (
+                <div className="space-y-3 py-2">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <Skeleton className="h-4 w-28" />
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-4 w-36" />
+                      <Skeleton className="h-5 w-20 rounded-full" />
+                      <Skeleton className="h-8 w-28 ml-auto rounded-md" />
+                    </div>
+                  ))}
+                </div>
+              ) : withdrawalsQuery.isError ? (
+                <div className="py-8 text-center text-muted-foreground">Failed to load withdrawals</div>
+              ) : (withdrawalsQuery.data || []).length === 0 ? (
+                <div className="py-8 text-center text-muted-foreground">No withdrawals found</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Bank</TableHead>
+                      <TableHead>Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(withdrawalsQuery.data || []).map((w) => (
+                      <TableRow key={w._id}>
+                        <TableCell className="text-muted-foreground">{w.createdAt ? new Date(w.createdAt).toLocaleDateString('en-IN') : '—'}</TableCell>
+                        <TableCell>
+                          <div className="font-medium">{w.user?.name || '—'}</div>
+                          <div className="text-xs text-muted-foreground">{w.user?.email || '—'}</div>
+                        </TableCell>
+                        <TableCell className="font-medium">₹{Math.round((w.amount || 0) * 100) / 100}</TableCell>
+                        <TableCell>
+                          <Badge variant={w.status === 'rejected' ? 'destructive' : w.status === 'pending' ? 'secondary' : 'default'} className="capitalize">
+                            {w.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          <div className="text-xs">{w.bankDetails?.bankName || '—'}</div>
+                          <div className="text-xs">{w.bankDetails?.accountHolderName || '—'}</div>
+                        </TableCell>
+                        <TableCell>
+                          {w.status === 'pending' ? (
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => approveWithdrawalMutation.mutate(w._id)}
+                                disabled={approveWithdrawalMutation.isPending || rejectWithdrawalMutation.isPending}
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => rejectWithdrawalMutation.mutate({ id: w._id })}
+                                disabled={approveWithdrawalMutation.isPending || rejectWithdrawalMutation.isPending}
+                              >
+                                <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="text-xs text-muted-foreground">
+                              {w.processedAt ? `Processed ${new Date(w.processedAt).toLocaleDateString('en-IN')}` : '—'}
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* Create/Edit Offer Dialog */}
@@ -731,6 +1211,49 @@ export default function Referrals() {
             <Button variant="outline" onClick={() => setOfferDialog(false)}>Cancel</Button>
             <Button onClick={handleSaveOffer} disabled={createOfferMutation.isPending || updateOfferMutation.isPending}>
               {editingOffer ? "Update" : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create/Edit Customer Referral Offer Dialog */}
+      <Dialog open={customerOfferDialog} onOpenChange={setCustomerOfferDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingCustomerOffer ? "Edit Customer Offer" : "Create Customer Offer"}</DialogTitle>
+            <DialogDescription>Set commission percentage for customer referral earnings</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Offer Name</Label>
+              <Input
+                value={customerOfferForm.offerName}
+                onChange={(e) => setCustomerOfferForm((f) => ({ ...f, offerName: e.target.value }))}
+                placeholder="e.g. Summer Commission"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Description (optional)</Label>
+              <Input
+                value={customerOfferForm.description}
+                onChange={(e) => setCustomerOfferForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="Short description"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Commission %</Label>
+              <Input
+                type="number"
+                value={customerOfferForm.commissionPercent}
+                onChange={(e) => setCustomerOfferForm((f) => ({ ...f, commissionPercent: Number(e.target.value) }))}
+                placeholder="5"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCustomerOfferDialog(false)}>Cancel</Button>
+            <Button onClick={handleSaveCustomerOffer} disabled={createCustomerOfferMutation.isPending || updateCustomerOfferMutation.isPending}>
+              {editingCustomerOffer ? "Update" : "Create"}
             </Button>
           </DialogFooter>
         </DialogContent>

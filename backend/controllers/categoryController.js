@@ -1,5 +1,7 @@
 import { Category, Business, Listing, BusinessType } from '../models/index.js';
 import { getEffectiveEntitlementsForBusiness } from '../services/entitlementsService.js';
+import { getSmartCategoryIcon } from '../services/categoryIconAiService.js';
+import { CATEGORY_FALLBACK_ICON, inferCategoryIcon } from '../utils/categoryIcon.js';
 
 const DEMO_SHOP_SLUG = 'ram-kirana-store';
 
@@ -14,7 +16,7 @@ const normalizeExampleCategories = (raw) => {
   return Array.from(unique);
 };
 
-const ensureDefaultCategoriesForBusiness = async ({ business }) => {
+const ensureDefaultCategoriesForBusiness = async ({ business, user = null }) => {
   if (!business?._id) return;
 
   const businessTypeDoc = await BusinessType.findById(business.businessType).select('exampleCategories').lean();
@@ -28,12 +30,33 @@ const ensureDefaultCategoriesForBusiness = async ({ business }) => {
       .filter(Boolean)
   );
 
+  const entitlements = await getEffectiveEntitlementsForBusiness(business);
+  const aiEnabled = entitlements?.features?.aiDukandarAgentEnabled === true;
+
   const creations = [];
+  const MAX_AI_ICON_CALLS = 8;
+  let aiIconCalls = 0;
   for (let i = 0; i < exampleCategories.length; i++) {
     const name = exampleCategories[i];
     const key = name.trim().toLowerCase();
     if (!key || existingNameSet.has(key)) continue;
-    creations.push(Category.create({ business: business._id, name, order: i }));
+
+    let icon = inferCategoryIcon(name);
+    if (
+      aiEnabled &&
+      user &&
+      icon === CATEGORY_FALLBACK_ICON &&
+      aiIconCalls < MAX_AI_ICON_CALLS
+    ) {
+      aiIconCalls += 1;
+      try {
+        icon = await getSmartCategoryIcon({ name, user, aiEnabled: true });
+      } catch {
+        // ignore
+      }
+    }
+
+    creations.push(Category.create({ business: business._id, name, order: i, icon }));
   }
 
   if (creations.length === 0) return;
@@ -70,6 +93,7 @@ export const createCategory = async (req, res) => {
     const existingCategory = await Category.findOne({
       business: businessId,
       name: { $regex: new RegExp(`^${name}$`, 'i') },
+      isDeleted: { $ne: true },
     });
 
     if (existingCategory) {
@@ -79,13 +103,33 @@ export const createCategory = async (req, res) => {
       });
     }
 
+    // Determine icon:
+    // - If user provided `icon`, keep it.
+    // - Else infer deterministically.
+    // - If still fallback and AI is enabled for dukandar, ask AI (cached + quota-limited).
+    let finalIcon = String(icon || '').trim();
+    if (!finalIcon) finalIcon = inferCategoryIcon(name);
+
+    try {
+      if (finalIcon === CATEGORY_FALLBACK_ICON) {
+        const entitlements = await getEffectiveEntitlementsForBusiness(business);
+        finalIcon = await getSmartCategoryIcon({
+          name,
+          user: req.user,
+          aiEnabled: entitlements?.features?.aiDukandarAgentEnabled === true,
+        });
+      }
+    } catch {
+      // ignore; never block category creation for icon generation
+    }
+
     const category = await Category.create({
       business: businessId,
       name,
       description,
       image,
       order,
-      icon,
+      icon: finalIcon,
     });
 
     res.status(201).json({
@@ -129,7 +173,7 @@ export const getCategoriesByBusiness = async (req, res) => {
 
     const categories = await Category.find({
       business: businessId,
-      isActive: true,
+      isDeleted: { $ne: true },
     })
       .sort({ order: 1, name: 1 })
       .lean();
@@ -170,13 +214,15 @@ export const getMyCategories = async (req, res) => {
     // Safety net: if no categories exist yet, auto-create defaults from BusinessType.
     // This makes categories appear immediately in dashboard even for older records.
     try {
-      await ensureDefaultCategoriesForBusiness({ business });
+      await ensureDefaultCategoriesForBusiness({ business, user: req.user });
     } catch (e) {
       console.warn('Auto default category bootstrap failed:', e?.message || e);
     }
 
     const categories = await Category.find({
       business: businessId,
+      isActive: true,
+      isDeleted: { $ne: true },
     })
       .sort({ order: 1, name: 1 })
       .lean();
@@ -203,7 +249,7 @@ export const getCategoryById = async (req, res) => {
 
     const category = await Category.findById(id).populate('business', 'name slug');
 
-    if (!category) {
+    if (!category || category.isDeleted === true || category.isActive === false) {
       return res.status(404).json({
         success: false,
         message: 'Category not found',
@@ -239,6 +285,10 @@ export const updateCategory = async (req, res) => {
       });
     }
 
+    if (category.isDeleted === true && req.user.role !== 'admin') {
+      return res.status(410).json({ success: false, message: 'Category has been deleted' });
+    }
+
     // Verify business ownership
     const business = await Business.findOne({
       _id: category.business,
@@ -258,6 +308,7 @@ export const updateCategory = async (req, res) => {
         business: category.business,
         name: { $regex: new RegExp(`^${name}$`, 'i') },
         _id: { $ne: id },
+        isDeleted: { $ne: true },
       });
 
       if (existingCategory) {
@@ -307,6 +358,10 @@ export const deleteCategory = async (req, res) => {
       });
     }
 
+    if (category.isDeleted === true) {
+      return res.status(200).json({ success: true, message: 'Category deleted successfully' });
+    }
+
     // Verify business ownership
     const business = await Business.findOne({
       _id: category.business,
@@ -330,7 +385,11 @@ export const deleteCategory = async (req, res) => {
       });
     }
 
-    await category.deleteOne();
+    category.isActive = false;
+    category.isDeleted = true;
+    category.deletedAt = new Date();
+    category.deletedBy = req.user?._id || null;
+    await category.save();
 
     res.status(200).json({
       success: true,

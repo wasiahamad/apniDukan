@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Save, Eye, TrendingUp, Package, MessageSquare, Users, Clock, ExternalLink, Plus, Trash2 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { businessApi, type Business } from "@/lib/api/index";
+import { useTranslation } from "react-i18next";
+import { aiApi, businessApi, type Business } from "@/lib/api/index";
 import { useToast } from "@/hooks/use-toast";
 import { useEntitlements } from "@/contexts/EntitlementsContext";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,15 +17,6 @@ type WorkingDay = {
 };
 
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
-const DAY_LABELS: Record<string, string> = {
-  monday: "Monday",
-  tuesday: "Tuesday",
-  wednesday: "Wednesday",
-  thursday: "Thursday",
-  friday: "Friday",
-  saturday: "Saturday",
-  sunday: "Sunday",
-};
 
 type CustomSocialLink = {
   label: string;
@@ -42,7 +34,94 @@ const BusinessProfile = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { toast } = useToast();
   const { entitlements } = useEntitlements();
+  const { t } = useTranslation();
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+
+  const aiToolsEnabled = entitlements?.features?.aiDukandarAgentEnabled === true;
+
+  const handleAiError = (err: any, fallbackMsg: string) => {
+    const status = err?.status;
+    if (status === 403) {
+      toast({
+        title: t("businessProfile.toasts.errorTitle"),
+        description: err?.message || t("subscription.aiNotAvailable", { defaultValue: "AI tools are not available for your current plan." }),
+        variant: "destructive",
+      });
+      return;
+    }
+    if (status === 429) {
+      toast({
+        title: t("businessProfile.toasts.errorTitle"),
+        description: err?.message || t("subscription.aiDailyLimit", { defaultValue: "Daily AI limit reached. Try tomorrow." }),
+        variant: "destructive",
+      });
+      return;
+    }
+    toast({
+      title: t("businessProfile.toasts.errorTitle"),
+      description: err?.message || fallbackMsg,
+      variant: "destructive",
+    });
+  };
+
+  const generateDescriptionAi = async () => {
+    if (!aiToolsEnabled) {
+      toast({
+        title: t("businessProfile.toasts.errorTitle"),
+        description: t("subscription.aiNotAvailable", { defaultValue: "AI tools are not available for your current plan." }),
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!business?._id) return;
+
+    try {
+      setSaving(true);
+      const res = await aiApi.generate({ mode: "business_description" });
+      if (!res.success || !res.data?.description) throw new Error(res.message || "AI generate failed");
+      updateForm("description", res.data.description);
+      toast({
+        title: t("businessProfile.toasts.savedTitle"),
+        description: t("businessProfile.ai.descriptionGenerated", { defaultValue: "AI description generated." }),
+      });
+    } catch (err: any) {
+      handleAiError(err, t("businessProfile.toasts.saveFailedDesc"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const generateWhyChooseUsAi = async () => {
+    if (!aiToolsEnabled) {
+      toast({
+        title: t("businessProfile.toasts.errorTitle"),
+        description: t("subscription.aiNotAvailable", { defaultValue: "AI tools are not available for your current plan." }),
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!business?._id) return;
+
+    try {
+      setSaving(true);
+      const res = await aiApi.generate({ mode: "why_choose_us", maxCards: 4 });
+      const cards = (res.success && res.data && Array.isArray((res.data as any).cards)) ? (res.data as any).cards : [];
+      const normalized = cards
+        .map((x: any) => ({ title: String(x?.title || ""), desc: String(x?.desc || ""), iconName: "" }))
+        .slice(0, 12);
+      while (normalized.length < 4) normalized.push({ title: "", desc: "", iconName: "" });
+      setWhyChooseDraft(normalized);
+      setIsEditingWhyChooseUs(true);
+      toast({
+        title: t("businessProfile.toasts.savedTitle"),
+        description: t("businessProfile.ai.whyChooseGenerated", { defaultValue: "AI cards generated. Review and Save." }),
+      });
+    } catch (err: any) {
+      handleAiError(err, t("businessProfile.toasts.saveFailedDesc"));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const isFreePlan = business?.plan?.slug === "free";
 
@@ -104,14 +183,20 @@ const BusinessProfile = () => {
 
     if (status === "connected") {
       toast({
-        title: "Connected",
-        description: `${social} connected successfully`,
+        title: t("businessProfile.toasts.connectedTitle"),
+        description: t("businessProfile.toasts.socialConnectedDesc", {
+          social: t(`businessProfile.social.platforms.${social}`, { defaultValue: social }),
+        }),
       });
       loadBusiness();
     } else if (status === "failed") {
       toast({
-        title: "Connect failed",
-        description: message || `Could not connect ${social}`,
+        title: t("businessProfile.toasts.connectFailedTitle"),
+        description:
+          message ||
+          t("businessProfile.toasts.socialConnectFailedDesc", {
+            social: t(`businessProfile.social.platforms.${social}`, { defaultValue: social }),
+          }),
         variant: "destructive",
       });
     }
@@ -132,20 +217,20 @@ const BusinessProfile = () => {
       script.src = "https://accounts.google.com/gsi/client";
       script.async = true;
       script.onload = () => resolve();
-      script.onerror = () => reject(new Error("Failed to load Google SDK"));
+      script.onerror = () => reject(new Error(t("businessProfile.social.youtube.errors.googleSdkLoadFailed")));
       document.body.appendChild(script);
     });
 
   const connectYoutubeViaGoogle = async () => {
     if (!business) return;
     if (!googleClientId) {
-      throw new Error("Google is not configured. Please set VITE_GOOGLE_CLIENT_ID.");
+      throw new Error(t("businessProfile.social.youtube.errors.missingClientId"));
     }
 
     await loadGoogleScript();
     const google = (window as any).google;
     if (!google?.accounts?.oauth2?.initTokenClient) {
-      throw new Error("Google SDK unavailable");
+      throw new Error(t("businessProfile.social.youtube.errors.googleSdkUnavailable"));
     }
 
     const accessToken = await new Promise<string>((resolve, reject) => {
@@ -161,16 +246,16 @@ const BusinessProfile = () => {
               if (rawError === "access_denied" || rawDescription.includes("not completed the google verification process")) {
                 reject(
                   new Error(
-                    "Google app abhi testing mode me hai. Is Google account ko OAuth test user list me add karein, ya app verify/publish karein."
+                    t("businessProfile.social.youtube.errors.testingMode"),
                   )
                 );
                 return;
               }
-              reject(new Error(response.error_description || response.error || "Google connect failed"));
+              reject(new Error(response.error_description || response.error || t("businessProfile.social.youtube.errors.googleConnectFailed")));
             return;
           }
           if (!response?.access_token) {
-            reject(new Error("Google access token not received"));
+            reject(new Error(t("businessProfile.social.youtube.errors.accessTokenMissing")));
             return;
           }
           resolve(response.access_token);
@@ -182,7 +267,7 @@ const BusinessProfile = () => {
         if (!settled) {
           reject(
             new Error(
-              "Google access blocked or timed out. OAuth app testing mode me ho sakta hai. Apna Gmail test users me add karein (Google Cloud Console > OAuth consent screen > Test users)."
+              t("businessProfile.social.youtube.errors.timeout"),
             )
           );
         }
@@ -191,12 +276,12 @@ const BusinessProfile = () => {
 
     const res = await businessApi.connectYoutubeWithToken(business._id, accessToken);
     if (!res.success) {
-      throw new Error(res.message || "Failed to connect YouTube");
+      throw new Error(res.message || t("businessProfile.social.youtube.errors.connectFailed"));
     }
 
     toast({
-      title: "Connected",
-      description: "YouTube connected successfully",
+      title: t("businessProfile.toasts.connectedTitle"),
+      description: t("businessProfile.toasts.youtubeConnectedDesc"),
     });
     await loadBusiness();
   };
@@ -242,8 +327,8 @@ const BusinessProfile = () => {
       }
     } catch (err: any) {
       toast({
-        title: "Error",
-        description: err.message || "Failed to load business data",
+        title: t("businessProfile.toasts.errorTitle"),
+        description: err.message || t("businessProfile.toasts.loadFailedDesc"),
         variant: "destructive",
       });
     } finally {
@@ -300,16 +385,16 @@ const BusinessProfile = () => {
 
       if (res.success) {
         toast({
-          title: "Success",
-          description: "Business profile updated successfully",
+          title: t("businessProfile.toasts.savedTitle"),
+          description: t("businessProfile.toasts.savedDesc"),
         });
         await loadBusiness(); // Reload to get updated data
         setIsEditingWhyChooseUs(false);
       }
     } catch (err: any) {
       toast({
-        title: "Error",
-        description: err.message || "Failed to save changes",
+        title: t("businessProfile.toasts.errorTitle"),
+        description: err.message || t("businessProfile.toasts.saveFailedDesc"),
         variant: "destructive",
       });
     } finally {
@@ -342,7 +427,11 @@ const BusinessProfile = () => {
     const label = customSocialForm.label.trim();
     const url = customSocialForm.url.trim();
     if (!label || !url) {
-      toast({ title: "Missing fields", description: "Please enter platform name and URL", variant: "destructive" });
+      toast({
+        title: t("businessProfile.toasts.missingFieldsTitle"),
+        description: t("businessProfile.toasts.missingFieldsDesc"),
+        variant: "destructive",
+      });
       return;
     }
 
@@ -374,14 +463,14 @@ const BusinessProfile = () => {
       const res = await businessApi.getSocialOAuthUrl(platform, business._id);
       const url = res?.data?.url;
       if (!res.success || !url) {
-        throw new Error(res.message || "Failed to start connect flow");
+        throw new Error(res.message || t("businessProfile.toasts.connectStartFailedDesc"));
       }
 
       window.location.href = url;
     } catch (err: any) {
-      const message = err.message || "Failed to start connect";
+      const message = err.message || t("businessProfile.toasts.connectStartFailedDesc");
       toast({
-        title: "Error",
+        title: t("businessProfile.toasts.errorTitle"),
         description: message,
         variant: "destructive",
       });
@@ -443,13 +532,13 @@ const BusinessProfile = () => {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">Business Profile</h1>
+        <h1 className="text-xl font-bold">{t("businessProfile.title")}</h1>
         {business?.slug && entitlements?.features?.publicShopEnabled === true && (
           <button 
             onClick={() => navigate(`/shop/${business.slug}`)} 
             className="flex items-center gap-1 text-xs text-primary font-medium hover:underline"
           >
-            <Eye className="w-3.5 h-3.5" /> Preview Shop
+            <Eye className="w-3.5 h-3.5" /> {t("businessProfile.actions.previewShop")}
           </button>
         )}
       </div>
@@ -460,7 +549,7 @@ const BusinessProfile = () => {
           <div className="bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <Package className="w-4 h-4 text-primary" />
-              <span className="text-xs text-muted-foreground">Listings</span>
+              <span className="text-xs text-muted-foreground">{t("businessProfile.stats.listings")}</span>
             </div>
             <p className="text-2xl font-bold">{business.stats.totalListings}</p>
           </div>
@@ -468,7 +557,7 @@ const BusinessProfile = () => {
           <div className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 border border-blue-500/20 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <MessageSquare className="w-4 h-4 text-blue-600" />
-              <span className="text-xs text-muted-foreground">Inquiries</span>
+              <span className="text-xs text-muted-foreground">{t("businessProfile.stats.inquiries")}</span>
             </div>
             <p className="text-2xl font-bold">{business.stats.totalInquiries}</p>
           </div>
@@ -476,7 +565,7 @@ const BusinessProfile = () => {
           <div className="bg-gradient-to-br from-purple-500/10 to-purple-500/5 border border-purple-500/20 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <Users className="w-4 h-4 text-purple-600" />
-              <span className="text-xs text-muted-foreground">Views</span>
+              <span className="text-xs text-muted-foreground">{t("businessProfile.stats.views")}</span>
             </div>
             <p className="text-2xl font-bold">{business.stats.totalViews}</p>
           </div>
@@ -484,55 +573,65 @@ const BusinessProfile = () => {
           <div className="bg-gradient-to-br from-green-500/10 to-green-500/5 border border-green-500/20 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <TrendingUp className="w-4 h-4 text-green-600" />
-              <span className="text-xs text-muted-foreground">Status</span>
+              <span className="text-xs text-muted-foreground">{t("businessProfile.stats.status")}</span>
             </div>
             <p className="text-sm font-semibold text-green-600">
-              {business.isActive ? "Active" : "Inactive"}
+              {business.isActive ? t("businessProfile.status.active") : t("businessProfile.status.inactive")}
             </p>
           </div>
         </div>
       )}
 
       <div className="bg-card border rounded-xl p-4 space-y-4">
-        <h3 className="font-bold text-sm">Basic Info</h3>
-        <Field label="Business Name" value={form.name} onChange={(v) => updateForm("name", v)} />
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="font-bold text-sm">{t("businessProfile.basic.title")}</h3>
+          <button
+            type="button"
+            onClick={() => void generateDescriptionAi()}
+            disabled={saving || !aiToolsEnabled}
+            className="px-3 py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground disabled:opacity-50"
+          >
+            {t("businessProfile.ai.generateDescription", { defaultValue: "Generate with AI" })}
+          </button>
+        </div>
+        <Field label={t("businessProfile.basic.name")} value={form.name} onChange={(v) => updateForm("name", v)} />
         <div>
-          <label className="text-xs font-medium text-muted-foreground mb-1 block">Description</label>
+          <label className="text-xs font-medium text-muted-foreground mb-1 block">{t("businessProfile.basic.description")}</label>
           <textarea 
             value={form.description} 
             onChange={(e) => updateForm("description", e.target.value)} 
             rows={3}
-            placeholder="Describe your business..."
+            placeholder={t("businessProfile.basic.descriptionPlaceholder")}
             className="w-full px-3 py-2.5 bg-muted border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" 
           />
         </div>
       </div>
 
       <div className="bg-card border rounded-xl p-4 space-y-4">
-        <h3 className="font-bold text-sm">Contact</h3>
-        <Field label="Phone Number" value={form.phone} onChange={(v) => updateForm("phone", v)} />
-        <Field label="WhatsApp Number" value={form.whatsapp} onChange={(v) => updateForm("whatsapp", v)} />
-        <Field label="Email" value={form.email} onChange={(v) => updateForm("email", v)} type="email" />
+        <h3 className="font-bold text-sm">{t("businessProfile.contact.title")}</h3>
+        <Field label={t("businessProfile.contact.phone")} value={form.phone} onChange={(v) => updateForm("phone", v)} />
+        <Field label={t("businessProfile.contact.whatsapp")} value={form.whatsapp} onChange={(v) => updateForm("whatsapp", v)} />
+        <Field label={t("businessProfile.contact.email")} value={form.email} onChange={(v) => updateForm("email", v)} type="email" />
       </div>
 
       <div className="bg-card border rounded-xl p-4 space-y-4">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="font-bold text-sm">Social Media Links</h3>
+          <h3 className="font-bold text-sm">{t("businessProfile.social.title")}</h3>
           <button
             type="button"
             onClick={() => setCustomSocialDialogOpen(true)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-primary text-primary-foreground"
           >
-            <Plus className="w-3.5 h-3.5" /> Add Social Media
+            <Plus className="w-3.5 h-3.5" /> {t("businessProfile.social.add")}
           </button>
         </div>
-        <p className="text-xs text-muted-foreground">These links show on your public shop footer.</p>
+        <p className="text-xs text-muted-foreground">{t("businessProfile.social.subtitle")}</p>
         <div className="grid grid-cols-1 gap-4">
           {([
-            { key: "facebook", label: "Facebook", placeholder: "https://facebook.com/yourpage" },
-            { key: "instagram", label: "Instagram", placeholder: "https://instagram.com/yourhandle" },
-            { key: "twitter", label: "Twitter / X", placeholder: "https://x.com/yourhandle" },
-            { key: "youtube", label: "YouTube", placeholder: "https://youtube.com/@yourchannel" },
+            { key: "facebook", label: t("businessProfile.social.platforms.facebook"), placeholder: "https://facebook.com/yourpage" },
+            { key: "instagram", label: t("businessProfile.social.platforms.instagram"), placeholder: "https://instagram.com/yourhandle" },
+            { key: "twitter", label: t("businessProfile.social.platforms.twitter"), placeholder: "https://x.com/yourhandle" },
+            { key: "youtube", label: t("businessProfile.social.platforms.youtube"), placeholder: "https://youtube.com/@yourchannel" },
           ] as const).map((item) => (
             <div key={item.key} className="space-y-2">
               <div className="flex items-center justify-between gap-3">
@@ -543,7 +642,7 @@ const BusinessProfile = () => {
                   disabled={connectingSocial === item.key}
                   className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-primary text-primary-foreground disabled:opacity-60"
                 >
-                  {connectingSocial === item.key ? "Connecting..." : "Connect"}
+                  {connectingSocial === item.key ? t("businessProfile.social.connecting") : t("businessProfile.social.connect")}
                 </button>
               </div>
               {form.socialMedia[item.key] ? (
@@ -556,7 +655,7 @@ const BusinessProfile = () => {
                   <ExternalLink className="w-3.5 h-3.5" /> {form.socialMedia[item.key]}
                 </a>
               ) : (
-                <p className="text-xs text-muted-foreground">Not connected</p>
+                <p className="text-xs text-muted-foreground">{t("businessProfile.social.notConnected")}</p>
               )}
             </div>
           ))}
@@ -570,7 +669,7 @@ const BusinessProfile = () => {
                   onClick={() => removeCustomSocial(idx)}
                   className="inline-flex items-center gap-1 text-xs text-destructive font-semibold"
                 >
-                  <Trash2 className="w-3.5 h-3.5" /> Remove
+                  <Trash2 className="w-3.5 h-3.5" /> {t("businessProfile.social.remove")}
                 </button>
               </div>
               <a
@@ -589,17 +688,17 @@ const BusinessProfile = () => {
       <Dialog open={customSocialDialogOpen} onOpenChange={setCustomSocialDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Add Social Media</DialogTitle>
+            <DialogTitle>{t("businessProfile.social.dialog.title")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <Field
-              label="Platform Name"
+              label={t("businessProfile.social.dialog.platformName")}
               value={customSocialForm.label}
               onChange={(v) => setCustomSocialForm((prev) => ({ ...prev, label: v }))}
-              placeholder="e.g. LinkedIn, Telegram"
+              placeholder={t("businessProfile.social.dialog.platformPlaceholder")}
             />
             <Field
-              label="Profile URL"
+              label={t("businessProfile.social.dialog.profileUrl")}
               value={customSocialForm.url}
               onChange={(v) => setCustomSocialForm((prev) => ({ ...prev, url: v }))}
               placeholder="https://..."
@@ -613,14 +712,14 @@ const BusinessProfile = () => {
                 }}
                 className="px-3 py-2 text-xs font-semibold rounded-lg border"
               >
-                Cancel
+                {t("businessProfile.actions.cancel")}
               </button>
               <button
                 type="button"
                 onClick={addCustomSocial}
                 className="px-3 py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground"
               >
-                Add Link
+                {t("businessProfile.social.dialog.addLink")}
               </button>
             </div>
           </div>
@@ -628,27 +727,27 @@ const BusinessProfile = () => {
       </Dialog>
 
       <div className="bg-card border rounded-xl p-4 space-y-4">
-        <h3 className="font-bold text-sm">Address</h3>
-        <Field label="Street Address" value={form.address.street} onChange={(v) => updateAddress("street", v)} />
+        <h3 className="font-bold text-sm">{t("businessProfile.address.title")}</h3>
+        <Field label={t("businessProfile.address.street")} value={form.address.street} onChange={(v) => updateAddress("street", v)} />
         <div className="grid grid-cols-2 gap-3">
-          <Field label="City" value={form.address.city} onChange={(v) => updateAddress("city", v)} />
-          <Field label="State" value={form.address.state} onChange={(v) => updateAddress("state", v)} />
+          <Field label={t("businessProfile.address.city")} value={form.address.city} onChange={(v) => updateAddress("city", v)} />
+          <Field label={t("businessProfile.address.state")} value={form.address.state} onChange={(v) => updateAddress("state", v)} />
         </div>
-        <Field label="Pincode" value={form.address.pincode} onChange={(v) => updateAddress("pincode", v)} />
+        <Field label={t("businessProfile.address.pincode")} value={form.address.pincode} onChange={(v) => updateAddress("pincode", v)} />
       </div>
 
       <div className="bg-card border rounded-xl p-4 space-y-4">
         <div className="flex items-center gap-2 mb-2">
           <Clock className="w-4 h-4 text-primary" />
-          <h3 className="font-bold text-sm">Working Hours</h3>
+          <h3 className="font-bold text-sm">{t("businessProfile.hours.title")}</h3>
         </div>
-        <p className="text-xs text-muted-foreground mb-3">Set your business hours for each day of the week</p>
+        <p className="text-xs text-muted-foreground mb-3">{t("businessProfile.hours.subtitle")}</p>
 
         <div className="bg-muted/40 border rounded-xl p-3 space-y-2">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold">Shop Open/Close</p>
-              <p className="text-xs text-muted-foreground">Auto uses working hours. Manual lets you force open/closed.</p>
+              <p className="text-sm font-semibold">{t("businessProfile.hours.openCloseTitle")}</p>
+              <p className="text-xs text-muted-foreground">{t("businessProfile.hours.openCloseDesc")}</p>
             </div>
             <label className="flex items-center gap-2 text-xs font-semibold">
               <input
@@ -657,7 +756,7 @@ const BusinessProfile = () => {
                 onChange={(e) => updateForm("openStatusMode", e.target.checked ? "open" : "auto")}
                 className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
               />
-              Manual
+              {t("businessProfile.hours.manual")}
             </label>
           </div>
 
@@ -672,7 +771,7 @@ const BusinessProfile = () => {
                     : "bg-background text-foreground border-border"
                 }`}
               >
-                Open
+                {t("businessProfile.hours.open")}
               </button>
               <button
                 type="button"
@@ -683,7 +782,7 @@ const BusinessProfile = () => {
                     : "bg-background text-foreground border-border"
                 }`}
               >
-                Closed
+                {t("businessProfile.hours.closed")}
               </button>
             </div>
           )}
@@ -699,7 +798,7 @@ const BusinessProfile = () => {
                   onChange={(e) => updateWorkingHours(day, "isOpen", e.target.checked)}
                   className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
                 />
-                <label className="text-sm font-medium capitalize">{DAY_LABELS[day]}</label>
+                <label className="text-sm font-medium capitalize">{t(`businessProfile.days.${day}`)}</label>
               </div>
               
               {workingHours[day].isOpen ? (
@@ -710,7 +809,7 @@ const BusinessProfile = () => {
                     onChange={(e) => updateWorkingHours(day, "open", e.target.value)}
                     className="flex-1 px-2 py-1.5 bg-muted border rounded text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
                   />
-                  <span className="text-xs text-muted-foreground">to</span>
+                  <span className="text-xs text-muted-foreground">{t("businessProfile.hours.to")}</span>
                   <input
                     type="time"
                     value={workingHours[day].close}
@@ -719,7 +818,7 @@ const BusinessProfile = () => {
                   />
                 </div>
               ) : (
-                <span className="text-xs text-muted-foreground italic">Closed</span>
+                <span className="text-xs text-muted-foreground italic">{t("businessProfile.hours.closed")}</span>
               )}
             </div>
           ))}
@@ -728,7 +827,7 @@ const BusinessProfile = () => {
 
       <div className="bg-card border rounded-xl p-4 space-y-4">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="font-bold text-sm">Why Choose Us</h3>
+          <h3 className="font-bold text-sm">{t("businessProfile.whyChoose.title")}</h3>
 
           {!isFreePlan && (
             <div className="flex items-center gap-2">
@@ -738,7 +837,7 @@ const BusinessProfile = () => {
                   onClick={() => setIsEditingWhyChooseUs(true)}
                   className="px-3 py-2 text-xs font-semibold rounded-lg bg-background text-foreground border border-border"
                 >
-                  Edit
+                  {t("businessProfile.actions.edit")}
                 </button>
               ) : (
                 <>
@@ -747,7 +846,7 @@ const BusinessProfile = () => {
                     onClick={addWhyChooseCard}
                     className="px-3 py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground"
                   >
-                    <span className="inline-flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> Add</span>
+                    <span className="inline-flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> {t("businessProfile.actions.add")}</span>
                   </button>
                   <button
                     type="button"
@@ -772,9 +871,20 @@ const BusinessProfile = () => {
                     }}
                     className="px-3 py-2 text-xs font-semibold rounded-lg bg-background text-foreground border border-border"
                   >
-                    Cancel
+                    {t("businessProfile.actions.cancel")}
                   </button>
                 </>
+              )}
+
+              {!isEditingWhyChooseUs && (
+                <button
+                  type="button"
+                  onClick={() => void generateWhyChooseUsAi()}
+                  disabled={saving || !aiToolsEnabled}
+                  className="px-3 py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground disabled:opacity-50"
+                >
+                  {t("businessProfile.ai.generateWhyChoose", { defaultValue: "AI Generate" })}
+                </button>
               )}
             </div>
           )}
@@ -782,8 +892,8 @@ const BusinessProfile = () => {
 
         <p className="text-xs text-muted-foreground">
           {isFreePlan
-            ? "Auto-filled from your Business Type. Free plan me edit nahi hoga."
-            : "Customize this section for your shop."}
+            ? t("businessProfile.whyChoose.freeHint")
+            : t("businessProfile.whyChoose.paidHint")}
         </p>
 
         {isEditingWhyChooseUs ? (
@@ -793,13 +903,13 @@ const BusinessProfile = () => {
               .map((item, idx) => (
                 <div key={idx} className="bg-muted/40 border rounded-xl p-3 space-y-2">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs font-semibold text-muted-foreground">Card {idx + 1}</p>
+                    <p className="text-xs font-semibold text-muted-foreground">{t("businessProfile.whyChoose.card", { number: idx + 1 })}</p>
                     {whyChooseDraft.length > 1 && (
                       <button
                         type="button"
                         onClick={() => removeWhyChooseCard(idx)}
                         className="p-1.5 rounded-md border border-border bg-background text-foreground"
-                        aria-label="Remove card"
+                        aria-label={t("businessProfile.whyChoose.removeCardAria")}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -813,7 +923,7 @@ const BusinessProfile = () => {
                       next[idx] = { ...next[idx], title: e.target.value };
                       setWhyChooseDraft(next);
                     }}
-                    placeholder="Title"
+                    placeholder={t("businessProfile.whyChoose.titlePlaceholder")}
                     className="w-full px-3 py-2 bg-background border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                   />
                   <textarea
@@ -823,7 +933,7 @@ const BusinessProfile = () => {
                       next[idx] = { ...next[idx], desc: e.target.value };
                       setWhyChooseDraft(next);
                     }}
-                    placeholder="Description"
+                    placeholder={t("businessProfile.whyChoose.descPlaceholder")}
                     rows={2}
                     className="w-full px-3 py-2 bg-background border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                   />
@@ -842,7 +952,7 @@ const BusinessProfile = () => {
               .slice(0, 12);
 
             if (!cards.length) {
-              return <p className="text-sm text-muted-foreground">No items set for this section.</p>;
+              return <p className="text-sm text-muted-foreground">{t("businessProfile.whyChoose.empty")}</p>;
             }
 
             return (
@@ -865,7 +975,7 @@ const BusinessProfile = () => {
         disabled={saving}
         className="w-full flex items-center justify-center gap-2 bg-primary text-primary-foreground py-3.5 rounded-xl font-semibold shadow-lg shadow-primary/20 disabled:opacity-50"
       >
-        <Save className="w-4 h-4" /> {saving ? "Saving..." : "Save Changes"}
+        <Save className="w-4 h-4" /> {saving ? t("businessProfile.actions.saving") : t("businessProfile.actions.saveChanges")}
       </motion.button>
     </div>
   );
