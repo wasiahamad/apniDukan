@@ -45,17 +45,58 @@ let server;
 app.use(helmet());
 
 // CORS configuration
-app.use(
-  cors({
-    origin: ['http://localhost:8080',
-      'http://localhost:8081',
-      'http://localhost:8082',
-      'http://localhost:8083',
-      'http://localhost:8084',
-    ],
-    credentials: true,
-  })
-);
+const DEFAULT_ALLOWED_ORIGINS = [
+  'http://localhost:8080',
+  'http://localhost:8081',
+  'http://localhost:8082',
+  'http://localhost:8083',
+  'http://localhost:8084',
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://publicdukan.com',
+  'https://www.publicdukan.com',
+];
+
+const parseCsv = (value) =>
+  String(value || '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+
+const EXTRA_ALLOWED_ORIGINS = parseCsv(process.env.CORS_ORIGINS);
+const ALLOWED_ORIGINS = new Set([...DEFAULT_ALLOWED_ORIGINS, ...EXTRA_ALLOWED_ORIGINS]);
+
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+
+  try {
+    const url = new URL(origin);
+    const hostname = url.hostname.toLowerCase();
+
+    if (ALLOWED_ORIGINS.has(origin)) return true;
+    if (hostname.endsWith('.pages.dev')) return true;
+    if (hostname.endsWith('.cloudflarepages.com')) return true;
+    if (hostname === 'publicdukan.com' || hostname === 'www.publicdukan.com') return true;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
+
+    return false;
+  } catch {
+    return false;
+  }
+};
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (isAllowedOrigin(origin)) return callback(null, true);
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language', 'x-session-id'],
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Body parser
 app.use(express.json({ limit: '10mb' }));
