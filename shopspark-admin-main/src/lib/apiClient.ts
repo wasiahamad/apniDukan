@@ -3,7 +3,26 @@
  * Centralized API client with auth token management
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const isLocalhostUrl = (value: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
+  try {
+    const u = new URL(withProtocol);
+    return u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+  } catch {
+    return /localhost|127\.0\.0\.1/i.test(raw);
+  }
+};
+
+const resolveApiBaseUrl = () => {
+  const env = String(import.meta.env.VITE_API_URL || '').trim();
+  if (env && !(import.meta.env.PROD && isLocalhostUrl(env))) return env;
+  if (import.meta.env.DEV) return 'http://localhost:5000/api';
+  return 'https://apnidukan-vlnw.onrender.com/api';
+};
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 export interface ApiResponse<T = unknown> {
   success: boolean;

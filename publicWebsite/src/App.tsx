@@ -12,6 +12,7 @@ import { looksLikeCitySlug } from "@/lib/publicShopsApi";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import LocationGate from "@/components/LocationGate";
 import AboutPage from "./pages/AboutPage";
 import AccountPage from "./pages/AccountPage";
 import AllShopsPage from "./pages/AllShopsPage";
@@ -52,6 +53,7 @@ const App = () => (
             <Sonner />
             <BrowserRouter>
               <ScrollToTop />
+              <LocationGate />
               <Routes>
                 <Route path="/" element={<Layout />}>
                   <Route index element={<Index />} />

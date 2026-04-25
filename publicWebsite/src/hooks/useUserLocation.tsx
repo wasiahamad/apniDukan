@@ -102,7 +102,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     if (typeof window === "undefined") return null;
     return readCachedLocation();
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [watching, setWatching] = useState(false);
@@ -184,7 +184,9 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    requestLocation();
+    // Start background watching only after we already have a location (cached or granted).
+    if (!userLocation) return;
+
     const id = startWatching();
     return () => {
       if (id != null) {
@@ -195,7 +197,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
         }
       }
     };
-  }, []);
+  }, [userLocation]);
 
   const persistVisit = async (meta?: { page?: string; shopSlug?: string }) => {
     if (!userLocation) return;
@@ -205,8 +207,8 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     if (lastPersistKey === key) return;
 
     try {
-      const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:5000/api';
-      await fetch(`${String(apiBase).replace(/\/+$/, '')}/maps/visit`, {
+      const apiBase = String(API_BASE_URL).replace(/\/+$/, "");
+      await fetch(`${apiBase}/maps/visit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

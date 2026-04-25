@@ -104,7 +104,8 @@ const isAllowedOrigin = (origin) => {
 const corsOptions = {
   origin: (origin, callback) => {
     if (isAllowedOrigin(origin)) return callback(null, true);
-    return callback(new Error(`CORS blocked for origin: ${origin}`));
+    // Do not throw (which becomes a 500). Just disable CORS for this request.
+    return callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
