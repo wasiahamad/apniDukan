@@ -1,4 +1,5 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from "react";
+import { API_BASE_URL } from "@/lib/publicShopsApi";
 
 interface UserLocation {
   latitude: number;
@@ -35,10 +36,7 @@ const writeCachedLocation = (loc: UserLocation) => {
   }
 };
 
-const getApiBase = () => {
-  const env = import.meta as any;
-  return env?.env?.VITE_API_URL || env?.env?.VITE_API_BASE_URL || env?.env?.VITE_BACKEND_URL || "http://localhost:5000/api";
-};
+const getApiBase = () => API_BASE_URL;
 
 const syncLocationToBackend = async (loc: UserLocation) => {
   let token: string | null = null;

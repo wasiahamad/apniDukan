@@ -66,7 +66,19 @@ const parseCsv = (value) =>
     .filter(Boolean);
 
 const EXTRA_ALLOWED_ORIGINS = parseCsv(process.env.CORS_ORIGINS);
-const ALLOWED_ORIGINS = new Set([...DEFAULT_ALLOWED_ORIGINS, ...EXTRA_ALLOWED_ORIGINS]);
+const CLIENT_URLS = parseCsv(process.env.CLIENT_URL);
+const APP_URLS = [
+  ...parseCsv(process.env.FRONTEND_URL),
+  ...parseCsv(process.env.DASHBOARD_URL),
+  ...parseCsv(process.env.ADMIN_URL),
+].filter(Boolean);
+
+const ALLOWED_ORIGINS = new Set([
+  ...DEFAULT_ALLOWED_ORIGINS,
+  ...EXTRA_ALLOWED_ORIGINS,
+  ...CLIENT_URLS,
+  ...APP_URLS,
+]);
 
 const isAllowedOrigin = (origin) => {
   if (!origin) return true;
@@ -78,6 +90,8 @@ const isAllowedOrigin = (origin) => {
     if (ALLOWED_ORIGINS.has(origin)) return true;
     if (hostname.endsWith('.pages.dev')) return true;
     if (hostname.endsWith('.cloudflarepages.com')) return true;
+    if (hostname.endsWith('.publicdukan.com')) return true;
+    if (hostname.endsWith('.apnidukan.com')) return true;
     if (hostname === 'publicdukan.com' || hostname === 'www.publicdukan.com') return true;
     if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
 
@@ -94,7 +108,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language', 'x-session-id'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language', 'x-session-id', 'X-Requested-With'],
 };
 
 app.use(cors(corsOptions));

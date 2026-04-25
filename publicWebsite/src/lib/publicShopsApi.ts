@@ -1,6 +1,70 @@
 import type { Shop } from "@/data/mockData";
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const ensureApiSuffix = (baseUrl: string) => {
+  const raw = String(baseUrl || '').trim();
+  if (!raw) return '';
+  const withoutTrailing = raw.replace(/\/+$/, '');
+
+  // Allow relative API base (rare, but useful for reverse-proxy setups)
+  if (withoutTrailing.startsWith('/')) {
+    return withoutTrailing === '/api' || withoutTrailing.startsWith('/api/')
+      ? withoutTrailing
+      : `${withoutTrailing}/api`;
+  }
+
+  const withProtocol = /^https?:\/\//i.test(withoutTrailing) ? withoutTrailing : `https://${withoutTrailing}`;
+  try {
+    const url = new URL(withProtocol);
+    const path = url.pathname.replace(/\/+$/, '');
+
+    if (!path || path === '/') {
+      url.pathname = '/api';
+    } else if (path === '/api' || path.startsWith('/api/')) {
+      url.pathname = path;
+    } else {
+      url.pathname = `${path}/api`;
+    }
+
+    return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+  } catch {
+    return withoutTrailing;
+  }
+};
+
+const isLocalhostUrl = (value: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+
+  // Relative paths are not localhost.
+  if (raw.startsWith('/')) return false;
+
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
+  try {
+    const u = new URL(withProtocol);
+    return u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+  } catch {
+    return /localhost|127\.0\.0\.1/i.test(raw);
+  }
+};
+
+const resolveApiBaseUrl = () => {
+  const envValue = String(
+    import.meta.env.VITE_API_URL ||
+      (import.meta as any).env?.VITE_API_BASE_URL ||
+      (import.meta as any).env?.VITE_BACKEND_URL ||
+      ''
+  ).trim();
+
+  if (envValue && !(import.meta.env.PROD && isLocalhostUrl(envValue))) return ensureApiSuffix(envValue);
+
+  // Dev fallback
+  if (import.meta.env.DEV) return 'http://localhost:5000/api';
+
+  // Prod fallback (can be overridden via VITE_API_URL at build time)
+  return 'https://apnidukan-vlnw.onrender.com/api';
+};
+
+export const API_BASE_URL = resolveApiBaseUrl();
 const VIEW_SESSION_KEY = "publicdukan_view_session_id";
 
 const getViewSessionId = () => {

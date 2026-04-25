@@ -278,15 +278,35 @@ export default function ShopPage() {
   const shopPublicUrl = useMemo(() => {
     if (!shopSlug) return "";
 
-    const fallbackBase = "http://localhost:8080";
     const rawBase = String(import.meta.env.VITE_STOREFRONT_URL || "").trim();
+    const prodFallback = "https://publicdukan.com";
+    const devFallback = "http://localhost:8080";
+    const fallbackBase = import.meta.env.DEV ? devFallback : prodFallback;
 
-    // If env is missing, or malformed like "slug/localhost:8080", fall back to localhost:8080.
-    const candidate = !rawBase || (!/^(https?:)?\/\//i.test(rawBase) && /[\\/]/.test(rawBase))
-      ? fallbackBase
-      : rawBase;
+    const isLocalhost = (v: string) => {
+      const s = String(v || '').trim();
+      if (!s) return false;
+      const withProtocol = /^(https?:)?\/\//i.test(s) ? s : `http://${s}`;
+      try {
+        const u = new URL(withProtocol);
+        return u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+      } catch {
+        return /localhost|127\.0\.0\.1/i.test(s);
+      }
+    };
 
-    const withProtocol = /^(https?:)?\/\//i.test(candidate) ? candidate : `http://${candidate}`;
+    const effectiveRawBase = import.meta.env.PROD && isLocalhost(rawBase) ? "" : rawBase;
+
+    // If env is missing, or malformed like "slug/localhost:8080", fall back.
+    const candidate =
+      !effectiveRawBase ||
+      (!/^(https?:)?\/\//i.test(effectiveRawBase) && /[\\/]/.test(effectiveRawBase))
+        ? fallbackBase
+        : effectiveRawBase;
+
+    const withProtocol = /^(https?:)?\/\//i.test(candidate)
+      ? candidate
+      : `${import.meta.env.DEV ? 'http' : 'https'}://${candidate}`;
 
     try {
       const parsed = new URL(withProtocol);
