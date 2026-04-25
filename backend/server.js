@@ -55,6 +55,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'https://publicdukan.com',
   'https://www.publicdukan.com',
+  'https://publicdukan.pages.dev',
+  'https://seller.publicdukan.com',
 ];
 
 const parseCsv = (value) =>
