@@ -939,6 +939,60 @@ const fallbackLogo = "https://images.unsplash.com/photo-1521572163474-6864f9cf17
 const fallbackProduct = "https://images.unsplash.com/photo-1604719312566-8912e9c8a213?w=400&h=400&fit=crop";
 const fallbackTypeIcon = "🏪";
 
+const getApiOrigin = () => {
+  const base = String(API_BASE_URL || '').trim();
+  if (!base) return '';
+
+  if (base.startsWith('/')) {
+    if (typeof window === 'undefined') return '';
+    return window.location.origin;
+  }
+
+  try {
+    return new URL(base).origin;
+  } catch {
+    return '';
+  }
+};
+
+const getStorefrontOrigin = () => {
+  if (typeof window === 'undefined') return '';
+  return String(window.location.origin || '').trim();
+};
+
+const toSafePublicImageUrl = (value: unknown, fallback: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return fallback;
+
+  // Never allow localhost-style URLs to leak into production storefront.
+  if (isLocalhostUrl(raw)) return fallback;
+
+  // Allow data/blob (used by some upload previews).
+  if (/^(data:|blob:)/i.test(raw)) return raw;
+
+  // Protocol-relative URLs inherit https on production.
+  if (raw.startsWith('//')) return raw;
+
+  // Backend might return relative paths; resolve them against backend origin.
+  if (raw.startsWith('/')) {
+    // Prefer storefront origin so assets like `/logo-removebg-preview.png` work on subdomains.
+    const origin = getStorefrontOrigin() || getApiOrigin();
+    return origin ? `${origin}${raw}` : fallback;
+  }
+
+  try {
+    const url = new URL(raw);
+    if (url.protocol === 'http:') {
+      // Avoid mixed content by best-effort upgrading to https.
+      url.protocol = 'https:';
+    }
+    const normalized = url.toString();
+    return isLocalhostUrl(normalized) ? fallback : normalized;
+  } catch {
+    return fallback;
+  }
+};
+
 const toTitle = (value: string) => {
   if (!value) return "General";
   return value
@@ -1011,8 +1065,8 @@ export const mapPublicShopToCardShop = (item: PublicShopItem): Shop => {
     description:
       resolvedDescription ||
       `${resolvedName} - ${categoryName} ${lang === "hi" ? "दुकान" : "store"}`,
-    coverImage: item.coverImage || fallbackCover,
-    logo: item.logo || fallbackLogo,
+    coverImage: toSafePublicImageUrl(item.coverImage, fallbackCover),
+    logo: toSafePublicImageUrl(item.logo, fallbackLogo),
     paymentMethods: lang === "hi" ? ["नकद", "UPI"] : ["Cash", "UPI"],
     products: [],
     latitude: item.address.latitude ?? 0,
@@ -1270,8 +1324,8 @@ export const fetchPublicShopBySlug = async (slug: string): Promise<Shop | null> 
     description:
       resolvedBusinessDescription ||
       `${resolvedBusinessName} ${lang === "hi" ? "स्थानीय दुकान" : "local store"}`,
-    coverImage: business.coverImage || fallbackCover,
-    logo: business.logo || fallbackLogo,
+    coverImage: toSafePublicImageUrl(business.coverImage, fallbackCover),
+    logo: toSafePublicImageUrl(business.logo, fallbackLogo),
     paymentMethods: lang === "hi" ? ["नकद", "UPI"] : ["Cash", "UPI"],
     products: [],
     latitude: hasCoords ? (coords?.[1] as number) : 0,
@@ -1345,8 +1399,8 @@ export const fetchPublicListingsForShop = async (businessId: string) => {
         const raw = Number((item as any)?.discountPercent);
         return Number.isFinite(raw) && raw > 0 ? raw : undefined;
       })(),
-      image: imageUrls[0] || fallbackProduct,
-      images: imageUrls.length > 0 ? imageUrls : undefined,
+      image: toSafePublicImageUrl(imageUrls[0], fallbackProduct),
+      images: imageUrls.length > 0 ? imageUrls.map((u) => toSafePublicImageUrl(u, fallbackProduct)) : undefined,
       pricingOptions: pricingOptions.length > 0 ? pricingOptions : undefined,
       description: resolvedDescription || "",
       type: item.listingType || "product",
