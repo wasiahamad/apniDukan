@@ -253,6 +253,14 @@ export const verifyRazorpayPaymentAndActivatePlan = async (req, res) => {
       });
     }
 
+    const razorpay = getRazorpayClient();
+    if (!razorpay) {
+      return res.status(501).json({
+        success: false,
+        message: 'Razorpay is not configured',
+      });
+    }
+
     const body = `${razorpay_order_id}|${razorpay_payment_id}`;
     const expectedSignature = crypto.createHmac('sha256', keySecret).update(body).digest('hex');
 
@@ -260,6 +268,45 @@ export const verifyRazorpayPaymentAndActivatePlan = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Invalid payment signature',
+      });
+    }
+
+    // Ensure the payment is captured (otherwise it may not settle to the merchant account)
+    const expectedAmountInPaise = Math.round(plan.price * 100);
+    let paymentDetails = await razorpay.payments.fetch(razorpay_payment_id);
+
+    if (paymentDetails?.order_id && paymentDetails.order_id !== razorpay_order_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment does not match order',
+      });
+    }
+
+    if (paymentDetails?.currency && paymentDetails.currency !== 'INR') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid payment currency',
+      });
+    }
+
+    if (typeof paymentDetails?.amount === 'number' && paymentDetails.amount !== expectedAmountInPaise) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid payment amount',
+      });
+    }
+
+    if (paymentDetails?.status === 'authorized') {
+      paymentDetails = await razorpay.payments.capture(razorpay_payment_id, expectedAmountInPaise, 'INR');
+    }
+
+    if (paymentDetails?.status !== 'captured') {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment not captured yet',
+        data: {
+          status: paymentDetails?.status,
+        },
       });
     }
 
@@ -283,16 +330,6 @@ export const verifyRazorpayPaymentAndActivatePlan = async (req, res) => {
       );
 
       const invoiceNumber = `INV-${year}-${String(counter.seq).padStart(4, '0')}`;
-
-      let paymentDetails = null;
-      try {
-        const razorpay = getRazorpayClient();
-        if (razorpay) {
-          paymentDetails = await razorpay.payments.fetch(razorpay_payment_id);
-        }
-      } catch (e) {
-        // Non-blocking: invoice can be created without extra gateway fields
-      }
 
       await Invoice.create({
         invoiceNumber,
