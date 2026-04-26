@@ -278,6 +278,11 @@ export default function ShopPage() {
   const shopPublicUrl = useMemo(() => {
     if (!shopSlug) return "";
 
+    // Production requirement: dukandar personal website should be on subdomain.
+    if (import.meta.env.PROD) {
+      return `https://${shopSlug}.publicdukan.com`;
+    }
+
     const rawBase = String(import.meta.env.VITE_STOREFRONT_URL || "").trim();
     const prodFallback = "https://publicdukan.com";
     const devFallback = "http://localhost:8080";

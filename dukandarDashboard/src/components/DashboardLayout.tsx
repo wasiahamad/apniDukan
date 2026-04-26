@@ -389,14 +389,15 @@ const DashboardLayout = () => {
           </DropdownMenu>
 
           {business?.slug && entitlements?.features?.publicShopEnabled === true && !supportOnlyMode ? (
-            <Link
-              to={`/shop/${business.slug}`}
+            <a
+              href={import.meta.env.PROD ? `https://${business.slug}.publicdukan.com` : `/shop/${business.slug}`}
               target="_blank"
+              rel="noreferrer"
               className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-muted-foreground hover:bg-muted ${collapsed ? "justify-center px-0" : ""}`}
             >
               <ExternalLink className="w-4 h-4 shrink-0" />
               {!collapsed && t('common.viewShop')}
-            </Link>
+            </a>
           ) : (
             <div className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-muted-foreground opacity-50 ${collapsed ? "justify-center px-0" : ""}`}>
               <ExternalLink className="w-4 h-4 shrink-0" />
@@ -415,14 +416,15 @@ const DashboardLayout = () => {
             {dark ? <Sun className="w-5 h-5 text-muted-foreground" /> : <Moon className="w-5 h-5 text-muted-foreground" />}
           </button>
           {business?.slug && entitlements?.features?.publicShopEnabled === true && !supportOnlyMode ? (
-            <Link
-              to={`/shop/${business.slug}`}
+            <a
+              href={import.meta.env.PROD ? `https://${business.slug}.publicdukan.com` : `/shop/${business.slug}`}
               target="_blank"
+              rel="noreferrer"
               aria-label="View shop"
               className="p-1.5 rounded-lg hover:bg-muted transition-colors"
             >
               <ExternalLink className="w-5 h-5 text-muted-foreground" />
-            </Link>
+            </a>
           ) : (
             <span className="p-1.5 rounded-lg opacity-50" aria-label="View shop (loading)">
               <ExternalLink className="w-5 h-5 text-muted-foreground" />
