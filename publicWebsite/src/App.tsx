@@ -11,7 +11,7 @@ import { getDashboardUrl } from "@/lib/dashboardUrl";
 import { looksLikeCitySlug } from "@/lib/publicShopsApi";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import LocationGate from "@/components/LocationGate";
 import AboutPage from "./pages/AboutPage";
 import AccountPage from "./pages/AccountPage";
@@ -52,6 +52,7 @@ const App = () => (
             <Toaster />
             <Sonner />
             <BrowserRouter>
+              <SubdomainShopRedirect />
               <ScrollToTop />
               <LocationGate />
               <Routes>
@@ -75,6 +76,7 @@ const App = () => (
                   </Route>
                   <Route path="shops/:category" element={<CityCategoryPage />} />
                   <Route path="dashboard/*" element={<DashboardRedirect />} />
+                  <Route path="shop/:shopSlug" element={<ShopPage />} />
                   <Route path=":shopSlug" element={<ShopOrCityPage />} />
                   <Route path="*" element={<NotFound />} />
                 </Route>
@@ -105,6 +107,41 @@ function ScrollToTop() {
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [pathname]);
+
+  return null;
+}
+
+function SubdomainShopRedirect() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const hostname = String(window.location.hostname || "").toLowerCase();
+    const suffix = ".publicdukan.com";
+    if (!hostname.endsWith(suffix)) return;
+
+    const sub = hostname.slice(0, -suffix.length);
+    const shopSlug = (sub.split(".")[0] || "").trim();
+    if (!shopSlug) return;
+
+    // Reserved subdomains
+    if (["www", "seller", "admin", "api"].includes(shopSlug)) return;
+
+    // On shop subdomain we always resolve to the shop page.
+    const targetPath = `/${shopSlug}`;
+    if (location.pathname === targetPath) return;
+
+    navigate(
+      {
+        pathname: targetPath,
+        search: location.search,
+        hash: location.hash,
+      },
+      { replace: true },
+    );
+  }, [location.hash, location.pathname, location.search, navigate]);
 
   return null;
 }

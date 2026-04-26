@@ -98,6 +98,31 @@ const LanguageScope = () => {
   return null;
 };
 
+const PublicShopSubdomainRedirect = () => {
+  const location = useLocation();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!import.meta.env.PROD) return;
+
+    const hostname = String(window.location.hostname || "").toLowerCase();
+    const isSellerHost = hostname === "seller.publicdukan.com";
+    if (!isSellerHost) return;
+
+    const match = /^\/shop\/([^/?#]+)(?:\/.*)?$/.exec(location.pathname);
+    const slug = (match?.[1] || "").trim();
+    if (!slug) return;
+
+    // Prevent accidental redirect loops for reserved subdomains.
+    if (["www", "seller", "admin", "api"].includes(slug.toLowerCase())) return;
+
+    const target = `https://${slug}.publicdukan.com`;
+    window.location.replace(`${target}${location.search || ""}${location.hash || ""}`);
+  }, [location.hash, location.pathname, location.search]);
+
+  return null;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -107,6 +132,7 @@ const App = () => (
         <BrowserRouter>
           <LanguageScope />
           <RouteThemeScope />
+          <PublicShopSubdomainRedirect />
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />

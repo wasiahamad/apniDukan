@@ -658,8 +658,14 @@ const PublicShop = () => {
 
   const shopPublicUrl = useMemo(() => {
     if (!slug) return "";
-    if (typeof window === "undefined") return `/shop/${slug}`;
-    return `${window.location.origin}/shop/${slug}`;
+    if (typeof window === "undefined") return `https://${slug}.publicdukan.com`;
+
+    const hostname = String(window.location.hostname || "").toLowerCase();
+    const isProdHost = hostname === "publicdukan.com" || hostname.endsWith(".publicdukan.com");
+    if (isProdHost) return `https://${slug}.publicdukan.com`;
+
+    // Local/dev fallback (publicWebsite supports /:shopSlug)
+    return `http://localhost:8080/${slug}`;
   }, [slug]);
 
   const displayAvgRating = reviewSummary?.avgRating ?? (slug?.toLowerCase() === DEMO_SHOP_SLUG ? shopData.rating : 0);

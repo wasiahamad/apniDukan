@@ -311,9 +311,21 @@ export default function ShopPage() {
     try {
       const parsed = new URL(withProtocol);
       const normalizedBase = `${parsed.protocol}//${parsed.host}`.replace(/\/\/+$/, "");
-      return `${normalizedBase}/shop/${shopSlug}`;
+      const hostname = String(parsed.hostname || "").toLowerCase();
+
+      // Preferred format in production: shopSlug.publicdukan.com
+      if (!import.meta.env.DEV && (hostname === "publicdukan.com" || hostname === "www.publicdukan.com")) {
+        return `${parsed.protocol}//${shopSlug}.publicdukan.com`;
+      }
+      if (!import.meta.env.DEV && hostname.endsWith(".publicdukan.com") && !hostname.startsWith("seller.") && !hostname.startsWith("admin.")) {
+        const root = hostname.replace(/^www\./, "");
+        return `${parsed.protocol}//${shopSlug}.${root}`;
+      }
+
+      // Fallback: same-host path route (publicWebsite supports /:shopSlug)
+      return `${normalizedBase}/${shopSlug}`;
     } catch {
-      return `${fallbackBase}/shop/${shopSlug}`;
+      return `${fallbackBase}/${shopSlug}`;
     }
   }, [shopSlug]);
 
