@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext, ReactNode } from "react";
+import { useState, useEffect, createContext, useContext, ReactNode, useCallback, useMemo, useRef } from "react";
 import { API_BASE_URL } from "@/lib/publicShopsApi";
 
 interface UserLocation {
@@ -106,18 +106,20 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [watching, setWatching] = useState(false);
-  const [lastWriteTs, setLastWriteTs] = useState<number>(0);
-  const [lastPersistKey, setLastPersistKey] = useState<string | null>(null);
-  const [lastLocationSyncTs, setLastLocationSyncTs] = useState<number>(0);
 
-  const maybeSyncLiveLocation = (loc: UserLocation) => {
+  // Use refs for throttles/dedup to avoid rerender-driven loops and unstable callbacks.
+  const lastWriteTsRef = useRef<number>(0);
+  const lastPersistKeyRef = useRef<string | null>(null);
+  const lastLocationSyncTsRef = useRef<number>(0);
+
+  const maybeSyncLiveLocation = useCallback((loc: UserLocation) => {
     const now = Date.now();
-    if (now - lastLocationSyncTs < LOCATION_SYNC_THROTTLE_MS) return;
+    if (now - lastLocationSyncTsRef.current < LOCATION_SYNC_THROTTLE_MS) return;
+    lastLocationSyncTsRef.current = now;
     syncLocationToBackend(loc);
-    setLastLocationSyncTs(now);
-  };
+  }, []);
 
-  const requestLocation = () => {
+  const requestLocation = useCallback(() => {
     if (!navigator.geolocation) {
       setError("Geolocation is not supported");
       setLoading(false);
@@ -143,7 +145,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
-  };
+  }, [maybeSyncLiveLocation]);
 
   const startWatching = (): number | null => {
     if (watching) return null;
@@ -162,9 +164,9 @@ export function LocationProvider({ children }: { children: ReactNode }) {
         });
         const now = Date.now();
         // throttle localStorage writes
-        if (now - lastWriteTs > 5000) {
+        if (now - lastWriteTsRef.current > 5000) {
           writeCachedLocation(loc);
-          setLastWriteTs(now);
+          lastWriteTsRef.current = now;
         }
         maybeSyncLiveLocation(loc);
         setLoading(false);
@@ -199,12 +201,12 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     };
   }, [userLocation]);
 
-  const persistVisit = async (meta?: { page?: string; shopSlug?: string }) => {
+  const persistVisit = useCallback(async (meta?: { page?: string; shopSlug?: string }) => {
     if (!userLocation) return;
     const page = meta?.page || 'unknown';
     const shopSlug = meta?.shopSlug || '';
     const key = `${page}::${shopSlug}`;
-    if (lastPersistKey === key) return;
+    if (lastPersistKeyRef.current === key) return;
 
     try {
       const apiBase = String(API_BASE_URL).replace(/\/+$/, "");
@@ -220,11 +222,11 @@ export function LocationProvider({ children }: { children: ReactNode }) {
           source: 'website',
         }),
       });
-      setLastPersistKey(key);
+      lastPersistKeyRef.current = key;
     } catch {
       // best-effort
     }
-  };
+  }, [userLocation]);
 
   return (
     <LocationContext.Provider value={{ userLocation, loading, error, permissionDenied, requestLocation, persistVisit }}>

@@ -17,6 +17,17 @@ export default function LocationGate() {
 
   const mustBlock = !userLocation;
 
+  const isShopSubdomainHost = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const hostname = String(window.location.hostname || "").toLowerCase();
+    const suffix = ".publicdukan.com";
+    if (!hostname.endsWith(suffix)) return false;
+    const sub = hostname.slice(0, -suffix.length);
+    const shopSlug = (sub.split(".")[0] || "").trim();
+    if (!shopSlug) return false;
+    return !["www", "seller", "admin", "api"].includes(shopSlug);
+  }, []);
+
   const description = useMemo(() => {
     if (loading) return "Location detect ho rahi hai…";
     if (permissionDenied) return "Location permission denied hai. Continue karne ke liye browser me Location Allow kijiye.";
@@ -25,7 +36,9 @@ export default function LocationGate() {
   }, [loading, permissionDenied, requestedOnce]);
 
   // Force everyone onto home until location is granted.
-  if (mustBlock && pathname !== "/") {
+  // NOTE: On shop subdomains, SubdomainShopRedirect forces /:shopSlug.
+  // If we also redirect to '/', it creates a navigation loop and spams API calls.
+  if (mustBlock && pathname !== "/" && !isShopSubdomainHost) {
     return <Navigate to="/" replace />;
   }
 

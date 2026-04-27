@@ -396,7 +396,7 @@ export default function StoriesPage() {
                   <Input
                     value={linkUrl}
                     onChange={(e) => setLinkUrl(e.target.value)}
-                    placeholder="Paste your shop/product link (https://... or /shop/...)"
+                    placeholder="Paste your shop/product link (https://... )"
                     maxLength={2048}
                   />
                 </div>

@@ -1084,14 +1084,14 @@ const Onboarding = () => {
                   <p className="text-xs text-muted-foreground mt-1">
                     {t("onboarding.demo.desc")}
                   </p>
-                  <Link
-                    to="/shop/ram-kirana-store"
+                  <a
+                    href="https://ram-kirana-store.publicdukan.com"
                     target="_blank"
                     rel="noreferrer"
                     className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
                   >
                     <Gift className="w-4 h-4" /> {t("onboarding.demo.cta")}
-                  </Link>
+                  </a>
                 </div>
               </div>
             )}

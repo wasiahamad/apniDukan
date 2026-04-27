@@ -390,7 +390,7 @@ const DashboardLayout = () => {
 
           {business?.slug && entitlements?.features?.publicShopEnabled === true && !supportOnlyMode ? (
             <a
-              href={import.meta.env.PROD ? `https://${business.slug}.publicdukan.com` : `/shop/${business.slug}`}
+              href={`https://${business.slug}.publicdukan.com`}
               target="_blank"
               rel="noreferrer"
               className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm text-muted-foreground hover:bg-muted ${collapsed ? "justify-center px-0" : ""}`}
@@ -417,7 +417,7 @@ const DashboardLayout = () => {
           </button>
           {business?.slug && entitlements?.features?.publicShopEnabled === true && !supportOnlyMode ? (
             <a
-              href={import.meta.env.PROD ? `https://${business.slug}.publicdukan.com` : `/shop/${business.slug}`}
+              href={`https://${business.slug}.publicdukan.com`}
               target="_blank"
               rel="noreferrer"
               aria-label="View shop"

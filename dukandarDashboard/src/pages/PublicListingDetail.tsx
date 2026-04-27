@@ -192,10 +192,19 @@ const priceLabelWithPrice = (listing: Listing, price: number) => {
   return `₹${price}`;
 };
 
-const PublicListingDetail = () => {
-  const { slug, listingId } = useParams();
+const PublicListingDetail = ({ shopSlug }: { shopSlug?: string }) => {
+  const params = useParams();
+  const listingId = (params as any)?.listingId as string | undefined;
+  const slug = useMemo(() => {
+    const fromProp = String(shopSlug || "").trim();
+    if (fromProp) return fromProp;
+    const fromRoute = String((params as any)?.slug || "").trim();
+    return fromRoute || undefined;
+  }, [params, shopSlug]);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  const isSubdomainMode = !!shopSlug;
 
   const [loading, setLoading] = useState(true);
   const [listing, setListing] = useState<Listing | null>(null);
@@ -297,7 +306,7 @@ const PublicListingDetail = () => {
       const demoListing = buildDemoListingById(listingId);
       if (!demoListing) {
         toast({ title: "Error", description: "Listing not found", variant: "destructive" });
-        navigate(`/shop/${slug}`);
+        navigate(isSubdomainMode ? "/" : `/shop/${slug}`);
         setLoading(false);
         return;
       }
@@ -342,7 +351,7 @@ const PublicListingDetail = () => {
           description: err.message || "Failed to load listing",
           variant: "destructive",
         });
-        navigate(`/shop/${slug}`);
+        navigate(isSubdomainMode ? "/" : `/shop/${slug}`);
       } finally {
         if (!cancelled) setLoading(false);
       }

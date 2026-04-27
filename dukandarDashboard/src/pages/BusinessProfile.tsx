@@ -535,7 +535,11 @@ const BusinessProfile = () => {
         <h1 className="text-xl font-bold">{t("businessProfile.title")}</h1>
         {business?.slug && entitlements?.features?.publicShopEnabled === true && (
           <button 
-            onClick={() => navigate(`/shop/${business.slug}`)} 
+            onClick={() => {
+              const slug = String(business.slug || "").trim();
+              if (!slug) return;
+              window.open(`https://${slug}.publicdukan.com`, "_blank", "noopener,noreferrer");
+            }}
             className="flex items-center gap-1 text-xs text-primary font-medium hover:underline"
           >
             <Eye className="w-3.5 h-3.5" /> {t("businessProfile.actions.previewShop")}

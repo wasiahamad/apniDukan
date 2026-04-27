@@ -271,13 +271,14 @@ const Dashboard = () => {
             </Link>
           )}
           {entitlements?.features?.publicShopEnabled === true && (
-            <Link
-              to={`/shop/${business.slug}`}
+            <a
+              href={`https://${business.slug}.publicdukan.com`}
               target="_blank"
+              rel="noreferrer"
               className="flex items-center gap-2 text-sm font-semibold text-primary border border-primary/30 bg-primary/5 px-4 py-2.5 rounded-xl hover:bg-primary/10 transition-colors"
             >
               <ExternalLink className="w-4 h-4" /> {t('common.viewShop')}
-            </Link>
+            </a>
           )}
         </div>
       </div>

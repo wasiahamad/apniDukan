@@ -241,10 +241,14 @@ const Index = () => {
     <section className="px-4 py-12 max-w-4xl mx-auto text-center">
       <h2 className="text-2xl font-bold text-foreground mb-2">{t('index.demoShop.title')}</h2>
       <p className="text-sm text-muted-foreground mb-6">{t('index.demoShop.subtitle')}</p>
-      <Link to="/shop/ram-kirana-store"
-        className="inline-flex items-center gap-2 bg-card border px-6 py-3 rounded-xl font-semibold text-primary hover:shadow-lg transition-shadow">
+      <a
+        href="https://ram-kirana-store.publicdukan.com"
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-2 bg-card border px-6 py-3 rounded-xl font-semibold text-primary hover:shadow-lg transition-shadow"
+      >
         <Star className="w-4 h-4" /> {t('index.demoShop.visitLabel')}
-      </Link>
+      </a>
     </section>
 
     {/* Pricing */}

@@ -351,10 +351,18 @@ const RevealSection = ({ children, className = "" }: { children: React.ReactNode
   );
 };
 
-const PublicShop = () => {
-  const { slug } = useParams();
+const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
+  const params = useParams();
+  const slug = useMemo(() => {
+    const fromProp = String(shopSlug || "").trim();
+    if (fromProp) return fromProp;
+    const fromRoute = String((params as any)?.slug || "").trim();
+    return fromRoute || undefined;
+  }, [params, shopSlug]);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  const isSubdomainMode = !!shopSlug;
 
   const trackAction = async (action: "whatsapp" | "call" | "map") => {
     try {
@@ -1039,6 +1047,10 @@ const PublicShop = () => {
 
   const openListing = (listingId: string) => {
     if (!slug) return;
+    if (isSubdomainMode) {
+      navigate(`/listing/${listingId}`);
+      return;
+    }
     navigate(`/shop/${slug}/listing/${listingId}`);
   };
 
