@@ -22,7 +22,7 @@ import { motion } from "framer-motion";
 import { type Product } from "@/data/mockData";
 import { useEffect } from "react";
 import { useUserLocation, getDistanceKm, formatDistance } from "@/hooks/useUserLocation";
-import { API_BASE_URL, fetchRoute, hasAuthSession, hasDevanagari } from "@/lib/publicShopsApi";
+import { API_BASE_URL, fetchRoute, hasAuthSession, hasDevanagari, toSafePublicImageUrl } from "@/lib/publicShopsApi";
 import { bookPublicSlotBySlug, fetchActiveStories, fetchBookingSlotsBySlug, fetchBusinessDistance, fetchPublicListingsForShop, fetchPublicOffersForBusiness, fetchPublicShopBySlug } from "@/lib/publicShopsApi";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -341,10 +341,6 @@ export default function ShopPage() {
     refetchInterval: 30_000,
     refetchIntervalInBackground: true,
   });
-
-  if (!hasAuthSession()) {
-    return <Navigate to="/login" replace state={{ from: location, authRequired: true }} />;
-  }
 
   const websiteLink = useMemo(() => {
     const canOpen = !!shopQuery.data?.subdomainActive;
@@ -1274,6 +1270,7 @@ export default function ShopPage() {
                     const desc = i18n.language === "hi"
                       ? String(o?.descriptionHi || o?.description || "").trim()
                       : String(o?.description || "").trim();
+                    const bannerSrc = o?.banner?.imageUrl ? toSafePublicImageUrl(o.banner.imageUrl, "") : "";
                     const href = (() => {
                       const direct = String(o?.banner?.linkUrl || "").trim();
                       if (direct) return direct;
@@ -1291,9 +1288,9 @@ export default function ShopPage() {
                         rel={href && isExternal ? "noreferrer" : undefined}
                         className="shrink-0 w-full sm:w-[420px] rounded-xl border border-border bg-card overflow-hidden"
                       >
-                        {o?.banner?.imageUrl ? (
+                        {bannerSrc ? (
                           <img
-                            src={String(o.banner.imageUrl)}
+                            src={bannerSrc}
                             alt={title || shop.name}
                             className="h-44 w-full object-cover"
                             loading="lazy"

@@ -752,7 +752,29 @@ export async function fetchActiveStories(kind: 'story' | 'reel' = 'story', busin
   if (!response.ok) {
     throw new Error(json?.message || 'Failed to load stories');
   }
-  return (json?.data || []) as PublicStoryItem[];
+  const rows = (json?.data || []) as PublicStoryItem[];
+
+  // Sanitize user-provided media URLs to prevent mixed-content + localhost leaks.
+  return rows
+    .map((s) => {
+      const safeMediaUrl = toSafePublicImageUrl(s.mediaUrl, '');
+      const business = s.business;
+      const safeBusinessLogo = business?.logo
+        ? (toSafePublicImageUrl(business.logo, '') || null)
+        : business?.logo ?? null;
+
+      return {
+        ...s,
+        mediaUrl: safeMediaUrl,
+        business: business
+          ? {
+              ...business,
+              logo: safeBusinessLogo,
+            }
+          : business,
+      };
+    })
+    .filter((s) => Boolean(String(s.mediaUrl || '').trim()));
 }
 
 export async function markStoryViewed(storyId: string): Promise<void> {
@@ -960,7 +982,7 @@ const getStorefrontOrigin = () => {
   return String(window.location.origin || '').trim();
 };
 
-const toSafePublicImageUrl = (value: unknown, fallback: string) => {
+export function toSafePublicImageUrl(value: unknown, fallback: string) {
   const raw = String(value || '').trim();
   if (!raw) return fallback;
 
@@ -991,7 +1013,7 @@ const toSafePublicImageUrl = (value: unknown, fallback: string) => {
   } catch {
     return fallback;
   }
-};
+}
 
 const toTitle = (value: string) => {
   if (!value) return "General";
