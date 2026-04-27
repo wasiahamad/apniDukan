@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,17 +17,17 @@ export default function LocationGate() {
 
   const mustBlock = !userLocation;
 
-  // Force everyone onto home until location is granted.
-  if (mustBlock && pathname !== "/") {
-    return <Navigate to="/" replace />;
-  }
-
   const description = useMemo(() => {
     if (loading) return "Location detect ho rahi hai…";
     if (permissionDenied) return "Location permission denied hai. Continue karne ke liye browser me Location Allow kijiye.";
     if (requestedOnce) return "Continue karne ke liye location access allow kijiye.";
     return "Continue karne ke liye location access allow karna zaroori hai.";
   }, [loading, permissionDenied, requestedOnce]);
+
+  // Force everyone onto home until location is granted.
+  if (mustBlock && pathname !== "/") {
+    return <Navigate to="/" replace />;
+  }
 
   // Keep dialog open until location is available.
   return (
