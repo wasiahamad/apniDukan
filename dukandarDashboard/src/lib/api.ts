@@ -83,12 +83,12 @@ class ApiClient {
     return headers;
   }
 
-  private async handleResponse<T>(response: Response): Promise<ApiResponse<T>> {
+  private async handleResponse<T>(response: Response, includeAuth: boolean): Promise<ApiResponse<T>> {
     const data = await response.json();
 
     if (!response.ok) {
-      // Handle 401 Unauthorized - token expired
-      if (response.status === 401) {
+      // Handle 401 Unauthorized - only auto-logout/redirect for authenticated flows.
+      if (response.status === 401 && includeAuth) {
         // Do not force logout for deactivated-account responses.
         if (data?.code === 'ACCOUNT_DEACTIVATED' || data?.message === 'Account is deactivated') {
           throw new Error(data.message || 'Account is deactivated');
@@ -117,7 +117,7 @@ class ApiClient {
       headers: this.getHeaders(includeAuth, extraHeaders),
       cache: 'no-store',
     });
-    return this.handleResponse<T>(response);
+    return this.handleResponse<T>(response, includeAuth);
   }
 
   async post<T>(endpoint: string, body: any, includeAuth = true, extraHeaders?: HeadersInit): Promise<ApiResponse<T>> {
@@ -127,7 +127,7 @@ class ApiClient {
       headers: this.getHeaders(includeAuth, extraHeaders),
       body: JSON.stringify(body),
     });
-    return this.handleResponse<T>(response);
+    return this.handleResponse<T>(response, includeAuth);
   }
 
   async postForm<T>(endpoint: string, formData: FormData, includeAuth = true, extraHeaders?: HeadersInit): Promise<ApiResponse<T>> {
@@ -137,7 +137,7 @@ class ApiClient {
       headers: this.getAuthOnlyHeaders(includeAuth, extraHeaders),
       body: formData,
     });
-    return this.handleResponse<T>(response);
+    return this.handleResponse<T>(response, includeAuth);
   }
 
   async put<T>(endpoint: string, body: any, includeAuth = true, extraHeaders?: HeadersInit): Promise<ApiResponse<T>> {
@@ -147,7 +147,7 @@ class ApiClient {
       headers: this.getHeaders(includeAuth, extraHeaders),
       body: JSON.stringify(body),
     });
-    return this.handleResponse<T>(response);
+    return this.handleResponse<T>(response, includeAuth);
   }
 
   async patch<T>(endpoint: string, body: any, includeAuth = true, extraHeaders?: HeadersInit): Promise<ApiResponse<T>> {
@@ -157,7 +157,7 @@ class ApiClient {
       headers: this.getHeaders(includeAuth, extraHeaders),
       body: JSON.stringify(body),
     });
-    return this.handleResponse<T>(response);
+    return this.handleResponse<T>(response, includeAuth);
   }
 
   async delete<T>(endpoint: string, includeAuth = true, extraHeaders?: HeadersInit): Promise<ApiResponse<T>> {
@@ -166,7 +166,7 @@ class ApiClient {
       method: 'DELETE',
       headers: this.getHeaders(includeAuth, extraHeaders),
     });
-    return this.handleResponse<T>(response);
+    return this.handleResponse<T>(response, includeAuth);
   }
 
   async uploadImage(file: File): Promise<string> {

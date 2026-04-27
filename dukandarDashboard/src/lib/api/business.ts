@@ -316,9 +316,9 @@ export const businessApi = {
   async getBusinessBySlug(slug: string): Promise<ApiResponse<Business>> {
     const sid = getViewSessionId();
     const endpoint = sid
-      ? `/business/slug/${slug}?sid=${encodeURIComponent(sid)}`
-      : `/business/slug/${slug}`;
-    return apiClient.get<Business>(endpoint);
+      ? `/business/directory/${slug}?sid=${encodeURIComponent(sid)}`
+      : `/business/directory/${slug}`;
+    return apiClient.get<Business>(endpoint, false);
   },
 
   /**
