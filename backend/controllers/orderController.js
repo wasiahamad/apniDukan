@@ -220,6 +220,31 @@ export const createPublicOrder = async (req, res) => {
   }
 };
 
+// @desc    Public: Get order count for a business
+// @route   GET /api/orders/public/business/:businessId/count
+// @access  Public
+export const getPublicOrderCountByBusiness = async (req, res) => {
+  try {
+    const { businessId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(businessId)) {
+      return res.status(400).json({ success: false, message: 'Invalid businessId' });
+    }
+
+    const count = await Order.countDocuments({
+      business: new mongoose.Types.ObjectId(businessId),
+      status: { $ne: 'cancelled' },
+    });
+
+    return res.status(200).json({ success: true, data: { count } });
+  } catch (error) {
+    console.error('Get public order count error:', error);
+    return res
+      .status(500)
+      .json({ success: false, message: error.message || 'Error fetching order count' });
+  }
+};
+
 // @desc    Customer: Get my orders
 // @route   GET /api/orders/me
 // @access  Private (customer)

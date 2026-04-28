@@ -8,6 +8,9 @@ const router = express.Router();
 // Public storefront order create
 router.post('/public', optionalAuth, orderController.createPublicOrder);
 
+// Public storefront: order count for a business (for public shop pages)
+router.get('/public/business/:businessId/count', orderController.getPublicOrderCountByBusiness);
+
 // Customer orders
 router.get('/me', protect, authorize('customer'), orderController.getMyCustomerOrders);
 

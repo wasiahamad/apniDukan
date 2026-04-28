@@ -40,6 +40,12 @@ export const orderApi = {
     return apiClient.post<Order>('/orders/public', input, false);
   },
 
+  async getPublicOrderCountByBusiness(
+    businessId: string
+  ): Promise<ApiResponse<{ count: number }>> {
+    return apiClient.get<{ count: number }>(`/orders/public/business/${businessId}/count`, false);
+  },
+
   async getMyOrders(): Promise<ApiResponse<Order[]>> {
     return apiClient.get<Order[]>('/orders/my', true);
   },

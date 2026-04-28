@@ -8,7 +8,7 @@ import {
   Facebook, Instagram, Twitter, Youtube, ArrowUp, ChevronLeft
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
-import { shopData, mockProducts } from "@/data/mockData";
+import { shopData, mockOrders, mockProducts } from "@/data/mockData";
 import { businessApi, type Business } from "@/lib/api/business";
 import { listingApi, type Listing } from "@/lib/api/listing";
 import { categoryApi, type Category } from "@/lib/api/category";
@@ -264,21 +264,15 @@ const formatTime = (time: string) => {
 
 
 const getWorkingHoursText = (business?: Business | null) => {
-  if (!business?.workingHours) return "9:00 AM – 8:00 PM";
-  
+  if (!business?.workingHours) return "";
+
   const hours = business.workingHours;
   const openDays = DAYS.filter((day) => hours[day as keyof typeof hours]?.isOpen !== false);
-  const closedDays = DAYS.filter((day) => hours[day as keyof typeof hours]?.isOpen === false);
-  
-  if (openDays.length === 0) return "Closed";
-  if (closedDays.length === 0) return "Open everyday";
-  
-  // Get typical hours from first open day
+  if (openDays.length === 0) return "";
+
   const firstOpenDay = openDays[0];
   const dayHours = hours[firstOpenDay as keyof typeof hours];
-  const timeText = dayHours ? `${formatTime(dayHours.open)} – ${formatTime(dayHours.close)}` : "";
-  
-  return timeText;
+  return dayHours ? `${formatTime(dayHours.open)} – ${formatTime(dayHours.close)}` : "";
 };
 
 const getClosedDaysText = (business?: Business | null) => {
@@ -409,6 +403,8 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
   const [loadingReviews, setLoadingReviews] = useState(false);
   const [showAllReviews, setShowAllReviews] = useState(false);
 
+  const [trustedFamiliesCount, setTrustedFamiliesCount] = useState<number | null>(null);
+
   const [newRating, setNewRating] = useState(0);
   const [newReviewName, setNewReviewName] = useState("");
   const [newReviewComment, setNewReviewComment] = useState("");
@@ -422,6 +418,35 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
   useEffect(() => {
     setShowAllReviews(false);
   }, [slug]);
+
+  useEffect(() => {
+    setTrustedFamiliesCount(null);
+  }, [slug]);
+
+  useEffect(() => {
+    if (!business?._id) return;
+
+    if (slug?.toLowerCase() === DEMO_SHOP_SLUG) {
+      setTrustedFamiliesCount(mockOrders.filter((o) => o.status !== 'cancelled').length);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await orderApi.getPublicOrderCountByBusiness(business._id);
+        const count = res.success ? Number(res.data?.count ?? 0) : 0;
+        if (cancelled) return;
+        setTrustedFamiliesCount(Number.isFinite(count) && count > 0 ? Math.floor(count) : 0);
+      } catch {
+        if (!cancelled) setTrustedFamiliesCount(0);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [business?._id, slug]);
 
   const whyChooseUsCards = useMemo(() => {
     const icons = [Truck, BadgeIndianRupee, Leaf, Award] as const;
@@ -655,6 +680,19 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
   const shopAddressText = business?.address
     ? `${business.address.street}, ${business.address.city}, ${business.address.state} - ${business.address.pincode}`
     : `${shopData.address}, ${shopData.area}, ${shopData.city} - ${shopData.pincode}`;
+
+  const footerAddressText = slug?.toLowerCase() === DEMO_SHOP_SLUG
+    ? shopAddressText
+    : (business?.address ? shopAddressText : "");
+
+  const footerPhoneText = slug?.toLowerCase() === DEMO_SHOP_SLUG
+    ? shopCall
+    : (business?.phone || ownerProfile.phone || business?.whatsapp || "");
+
+  const trustedCity = (business?.address?.city || "").trim();
+  const trustedFamiliesLine = trustedCity
+    ? `Trusted by ${trustedFamiliesCount ?? 0} families in ${trustedCity}`
+    : `Trusted by ${trustedFamiliesCount ?? 0} families`;
 
   const whatsappOrderMessageTemplate = business?.whatsappOrderMessageTemplate || "Hello {{business_name}}, I want to order {{product_name}}.";
   const whatsappAutoGreetingEnabled = business?.whatsappAutoGreetingEnabled ?? true;
@@ -1171,8 +1209,8 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
         }`}
       >
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <div className="w-12 h-12 rounded-lg flex items-center justify-center overflow-hidden ">
+          <div className="flex items-center">
+            <div className="w-14 h-14 rounded-lg flex items-center justify-center overflow-hidden ">
               <img src={effectiveShopLogo} alt="Logo" className="h-full w-full object-contain" />
             </div>
             <span className="font-bold text-lg text-foreground">{shopName}</span>
@@ -1418,7 +1456,7 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
         <div className="max-w-6xl mx-auto px-4">
           <RevealSection>
             <h2 className="text-2xl md:text-3xl font-extrabold text-foreground text-center mb-3">Why Choose Us</h2>
-            <p className="text-muted-foreground text-center mb-12 max-w-md mx-auto">Trusted by 500+ families in {shopData.city}</p>
+            <p className="text-muted-foreground text-center mb-12 max-w-md mx-auto">{trustedFamiliesLine}</p>
           </RevealSection>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
             {whyChooseUsCards.map((item, i) => (
@@ -1847,8 +1885,8 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
         <div className="max-w-6xl mx-auto px-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8 mb-12">
             <div className="col-span-1 sm:col-span-2 md:col-span-1">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-12 h-12 rounded-lg flex items-center justify-center overflow-hidden">
+              <div className="flex items-center mb-4">
+                <div className="w-14 h-14 rounded-lg flex items-center justify-center overflow-hidden">
                   <img src={effectiveShopLogo} alt="Logo" className="h-full w-full object-contain" />
                 </div>
                 <span className="font-bold text-lg">{shopName}</span>
@@ -1871,9 +1909,21 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
             <div>
               <h4 className="font-bold mb-4 text-sm uppercase tracking-wider text-background/80">Contact Info</h4>
               <ul className="space-y-3 text-sm text-background/60">
-                <li className="flex items-start gap-2"><MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />{shopData.address}, {shopData.city}</li>
-                <li className="flex items-center gap-2"><Phone className="w-4 h-4 flex-shrink-0" />{shopCall}</li>
-                <li className="flex items-center gap-2"><Clock className="w-4 h-4 flex-shrink-0" />{shopData.opening_time} – {shopData.closing_time}</li>
+                {footerAddressText ? (
+                  <li className="flex items-start gap-2"><MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />{footerAddressText}</li>
+                ) : null}
+                {footerPhoneText ? (
+                  <li className="flex items-center gap-2"><Phone className="w-4 h-4 flex-shrink-0" />{footerPhoneText}</li>
+                ) : null}
+                {getWorkingHoursText(business) ? (
+                  <li className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 flex-shrink-0" />
+                    {getWorkingHoursText(business)}
+                    {getClosedDaysText(business) ? (
+                      <span className="ml-2">· Closed: {getClosedDaysText(business)}</span>
+                    ) : null}
+                  </li>
+                ) : null}
               </ul>
             </div>
 
@@ -1929,8 +1979,8 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
           </div>
 
           <div className="border-t border-white/10 pt-6 flex flex-col md:flex-row items-center justify-between gap-4">
-            <p className="text-xs text-background/40">© 2026 {shopName}. All rights reserved.</p>
-            <p className="text-xs text-background/40">Powered by <span className="text-primary font-semibold">PublicShop</span></p>
+            <p className="text-xs text-background/40">© {new Date().getFullYear()} {shopName}. All rights reserved.</p>
+            <p className="text-xs text-background/40">Powered by <span className="text-primary font-semibold">PublicDukan</span></p>
           </div>
         </div>
       </footer>
