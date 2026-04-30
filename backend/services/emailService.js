@@ -1,18 +1,57 @@
 import nodemailer from 'nodemailer';
 import { EmailEventLog } from '../models/index.js';
+import dns from 'dns';
 
 let cachedTransporter = null;
+
+const safeTrim = (v) => String(v || '').trim();
+const normalizeSmtpPassword = (v) => String(v || '').replace(/[\s\r\n]+/g, '');
+
+const redactEmail = (email) => {
+  const e = safeTrim(email);
+  const at = e.indexOf('@');
+  if (at <= 1) return e ? '***' : '';
+  return `${e.slice(0, 1)}***${e.slice(at)}`;
+};
+
+const formatSmtpError = (err) => {
+  if (!err) return 'unknown_error';
+  const e = err;
+  const details = {
+    message: safeTrim(e?.message || e),
+    code: e?.code,
+    command: e?.command,
+    responseCode: e?.responseCode,
+    response: safeTrim(e?.response),
+  };
+  return JSON.stringify(details);
+};
 
 const getTransporter = () => {
   if (cachedTransporter) return cachedTransporter;
 
-  const host = process.env.EMAIL_HOST;
-  const port = Number(process.env.EMAIL_PORT || 587);
-  const user = process.env.EMAIL_USER;
-  const pass = process.env.EMAIL_PASS;
+  const host = safeTrim(process.env.EMAIL_HOST);
+  const port = Number(safeTrim(process.env.EMAIL_PORT || 587));
+  const user = safeTrim(process.env.EMAIL_USER);
+  const pass = normalizeSmtpPassword(process.env.EMAIL_PASS);
+  const debug = String(process.env.EMAIL_DEBUG || '').toLowerCase() === 'true';
+  const connectionTimeoutMs = Number(safeTrim(process.env.EMAIL_CONNECTION_TIMEOUT_MS || 15000));
+  const greetingTimeoutMs = Number(safeTrim(process.env.EMAIL_GREETING_TIMEOUT_MS || 15000));
+  const socketTimeoutMs = Number(safeTrim(process.env.EMAIL_SOCKET_TIMEOUT_MS || 30000));
 
   if (!host || !user || !pass) {
     return null;
+  }
+
+  // Some hosts have partial/broken IPv6 egress; prefer IPv4.
+  try {
+    dns.setDefaultResultOrder('ipv4first');
+  } catch {
+    // ignore
+  }
+
+  if (debug || process.env.NODE_ENV !== 'production') {
+    console.log(`[SMTP] init host=${host} port=${port} user=${redactEmail(user)} secure=${port === 465}`);
   }
 
   cachedTransporter = nodemailer.createTransport({
@@ -20,13 +59,21 @@ const getTransporter = () => {
     port,
     secure: port === 465,
     auth: { user, pass },
+    ...(port === 587 ? { requireTLS: true } : {}),
+    ...(debug ? { logger: true, debug: true } : {}),
+    connectionTimeout: connectionTimeoutMs,
+    greetingTimeout: greetingTimeoutMs,
+    socketTimeout: socketTimeoutMs,
+    tls: { minVersion: 'TLSv1.2' },
   });
 
   return cachedTransporter;
 };
 
 export const sendEmail = async ({ to, subject, text, html }) => {
-  const from = process.env.EMAIL_FROM || process.env.EMAIL_USER;
+  const smtpUser = safeTrim(process.env.EMAIL_USER);
+  const configuredFrom = safeTrim(process.env.EMAIL_FROM);
+  const from = configuredFrom || smtpUser;
   const transporter = getTransporter();
 
   if (!transporter) {
@@ -35,15 +82,35 @@ export const sendEmail = async ({ to, subject, text, html }) => {
     return { sent: false, fallback: true };
   }
 
-  await transporter.sendMail({
+  const mail = {
     from,
     to,
     subject,
     text,
     html,
-  });
+  };
 
-  return { sent: true, fallback: false };
+  // Gmail commonly rejects spoofed From headers; use replyTo for branding.
+  if (
+    smtpUser &&
+    configuredFrom &&
+    configuredFrom.toLowerCase() !== smtpUser.toLowerCase() &&
+    /@gmail\.com$/i.test(smtpUser)
+  ) {
+    mail.from = smtpUser;
+    mail.replyTo = configuredFrom;
+  }
+
+  try {
+    const info = await transporter.sendMail(mail);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[Email] sent to=${redactEmail(to)} messageId=${safeTrim(info?.messageId)}`);
+    }
+    return { sent: true, fallback: false, messageId: safeTrim(info?.messageId) };
+  } catch (e) {
+    console.error(`[Email] send failed to=${redactEmail(to)} err=${formatSmtpError(e)}`);
+    throw e;
+  }
 };
 
 const safeKey = (v) => String(v || '').replace(/[\s\r\n]+/g, ' ').trim();

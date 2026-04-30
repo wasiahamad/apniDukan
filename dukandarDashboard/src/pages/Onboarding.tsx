@@ -232,7 +232,7 @@ const Onboarding = () => {
         // Fallback business types if API fails
         setBusinessTypes([
           { 
-            _id: "1", 
+            _id: "kirana-store", 
             name: "Kirana Store", 
             slug: "kirana-store", 
             description: "General grocery and daily essentials store",
@@ -244,7 +244,7 @@ const Onboarding = () => {
             updatedAt: "" 
           },
           { 
-            _id: "2", 
+            _id: "restaurant", 
             name: "Restaurant", 
             slug: "restaurant", 
             description: "Food service and dining establishment",
@@ -256,7 +256,7 @@ const Onboarding = () => {
             updatedAt: "" 
           },
           { 
-            _id: "3", 
+            _id: "coaching-center", 
             name: "Coaching Center", 
             slug: "coaching-center", 
             description: "Educational and training institute",
@@ -268,7 +268,7 @@ const Onboarding = () => {
             updatedAt: "" 
           },
           { 
-            _id: "4", 
+            _id: "salon-spa", 
             name: "Salon & Spa", 
             slug: "salon-spa", 
             description: "Beauty and wellness services",
@@ -289,6 +289,36 @@ const Onboarding = () => {
       fetchBusinessTypes();
     }
   }, [step]);
+
+  // If we resumed from sessionStorage or fallback IDs, ensure businessType points to a real backend BusinessType.
+  // - When businessType is invalid, try to map from offering -> suggestedListingType.
+  // - Otherwise, clear it so user is forced to select again.
+  useEffect(() => {
+    if (loadingBusinessTypes) return;
+    if (!businessTypes.length) return;
+    if (!data.businessType) return;
+
+    const hasExact = businessTypes.some((bt) => bt._id === data.businessType);
+    if (hasExact) return;
+
+    const bySlug = businessTypes.find((bt) => String(bt.slug || '').toLowerCase() === String(data.businessType).toLowerCase());
+    if (bySlug) {
+      setData((prev) => ({ ...prev, businessType: bySlug._id }));
+      return;
+    }
+
+    const offering = String(data.offering || '').toLowerCase();
+    const isSupported = (SUPPORTED_OFFERING_VALUES as readonly string[]).includes(offering);
+    if (isSupported) {
+      const match = businessTypes.find((bt) => bt.suggestedListingType === offering);
+      if (match) {
+        setData((prev) => ({ ...prev, businessType: match._id }));
+        return;
+      }
+    }
+
+    setData((prev) => ({ ...prev, businessType: '' }));
+  }, [loadingBusinessTypes, businessTypes, data.businessType, data.offering]);
 
   // Auto-select offering based on selected business type.
   // This keeps onboarding consistent with BusinessType.suggestedListingType.
@@ -1232,7 +1262,15 @@ const Onboarding = () => {
                   <motion.button
                     key={o.value}
                     whileTap={{ scale: 0.97 }}
-                    onClick={() => update("offering", o.value)}
+                    onClick={() => {
+                      update("offering", o.value);
+                      // If businessType is missing/invalid (common on resume), infer from offering.
+                      const hasValid = !!data.businessType && businessTypes.some((bt) => bt._id === data.businessType);
+                      if (!hasValid) {
+                        const match = businessTypes.find((bt) => bt.suggestedListingType === o.value);
+                        if (match) update("businessType", match._id);
+                      }
+                    }}
                     className={`w-full px-4 py-4 rounded-xl text-left font-medium border transition-all flex items-center justify-between ${
                       data.offering === o.value
                         ? "bg-primary text-primary-foreground border-primary"

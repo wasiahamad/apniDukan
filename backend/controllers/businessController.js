@@ -686,9 +686,24 @@ export const createBusiness = async (req, res) => {
       }
     }
 
-    // Validate businessType exists
+    // Validate businessType exists (accept id OR slug OR suggestedListingType)
     const { BusinessType } = await import('../models/index.js');
-    const businessTypeDoc = await BusinessType.findById(businessType);
+    const btInput = String(businessType || '').trim();
+    const isObjectIdLike = /^[0-9a-fA-F]{24}$/.test(btInput);
+
+    let businessTypeDoc = null;
+    if (isObjectIdLike) {
+      businessTypeDoc = await BusinessType.findById(btInput);
+    }
+
+    if (!businessTypeDoc && btInput) {
+      const normalized = btInput.toLowerCase();
+      businessTypeDoc =
+        (await BusinessType.findOne({ slug: normalized })) ||
+        (await BusinessType.findOne({ name: new RegExp(`^${escapeRegExp(btInput)}$`, 'i') })) ||
+        (await BusinessType.findOne({ suggestedListingType: normalized }));
+    }
+
     if (!businessTypeDoc) {
       return res.status(400).json({
         success: false,
@@ -701,7 +716,7 @@ export const createBusiness = async (req, res) => {
       owner: req.user._id,
       name,
       slug,
-      businessType,
+      businessType: businessTypeDoc._id,
       phone,
       whatsapp: whatsapp || phone,
       email,
@@ -804,9 +819,24 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
       });
     }
 
-    // Validate businessType exists
+    // Validate businessType exists (accept id OR slug OR suggestedListingType)
     const { BusinessType } = await import('../models/index.js');
-    const businessTypeDoc = await BusinessType.findById(businessType);
+    const btInput = String(businessType || '').trim();
+    const isObjectIdLike = /^[0-9a-fA-F]{24}$/.test(btInput);
+
+    let businessTypeDoc = null;
+    if (isObjectIdLike) {
+      businessTypeDoc = await BusinessType.findById(btInput);
+    }
+
+    if (!businessTypeDoc && btInput) {
+      const normalized = btInput.toLowerCase();
+      businessTypeDoc =
+        (await BusinessType.findOne({ slug: normalized })) ||
+        (await BusinessType.findOne({ name: new RegExp(`^${escapeRegExp(btInput)}$`, 'i') })) ||
+        (await BusinessType.findOne({ suggestedListingType: normalized }));
+    }
+
     if (!businessTypeDoc) {
       return res.status(400).json({
         success: false,
@@ -829,7 +859,7 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
       owner: user._id,
       name: businessName,
       slug,
-      businessType,
+      businessType: businessTypeDoc._id,
       phone: businessPhone,
       whatsapp: whatsapp || businessPhone,
       email: businessEmail,

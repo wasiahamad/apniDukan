@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { BookingSlot, Business, Inquiry, Order, User } from '../models/index.js';
+import { BookingSlot, Business, Inquiry, Order, PendingRegistration, User } from '../models/index.js';
 import { sendOtpEmail } from '../services/emailService.js';
 import { createReferralForSignup, ensureReferralCodeForUser } from '../services/referralService.js';
 import { createCustomerReferralForSignup } from '../services/customerReferralEarningsService.js';
@@ -20,33 +20,52 @@ const OTP_TTL_MINUTES = Number(process.env.AUTH_OTP_TTL_MINUTES || 10);
 const RESET_OTP_TTL_MINUTES = Number(process.env.AUTH_RESET_OTP_TTL_MINUTES || 10);
 const OTP_MAX_ATTEMPTS = Number(process.env.AUTH_OTP_MAX_ATTEMPTS || 5);
 
+// In production, OTP emails are typically required; otherwise users get stuck.
+// Can be overridden with AUTH_REQUIRE_OTP_EMAIL=false for emergency bypass.
+const REQUIRE_OTP_EMAIL =
+  String(process.env.AUTH_REQUIRE_OTP_EMAIL || (process.env.NODE_ENV === 'production' ? 'true' : 'false')).toLowerCase() ===
+  'true';
+
 // NOTE:
 // We intentionally do NOT create a User document for dukandar until OTP verification succeeds.
-// Pending registrations live in-memory (dev-friendly). In production, consider Redis or a DB-backed TTL collection.
+// Pending registrations are stored in MongoDB with TTL so the flow survives restarts / multiple instances.
 const shouldLogOtp = String(process.env.AUTH_LOG_OTP || '').toLowerCase() === 'true' || process.env.NODE_ENV !== 'production';
 
-const pendingRegistrationsByEmail = new Map();
-
-const getPendingRegistration = (email) => {
+const getPendingRegistration = async (email) => {
   const key = normalizeEmail(email);
   if (!key) return null;
-  const rec = pendingRegistrationsByEmail.get(key);
+  const rec = await PendingRegistration.findOne({ email: key }).lean();
   if (!rec) return null;
-  if (rec.expiresAt && rec.expiresAt.getTime() < Date.now()) {
-    pendingRegistrationsByEmail.delete(key);
+  if (rec.expiresAt && new Date(rec.expiresAt).getTime() < Date.now()) {
+    await PendingRegistration.deleteOne({ email: key });
     return null;
   }
   return rec;
 };
 
-const setPendingRegistration = (email, rec) => {
+const setPendingRegistration = async (email, rec) => {
   const key = normalizeEmail(email);
-  pendingRegistrationsByEmail.set(key, rec);
+  if (!key) return null;
+  await PendingRegistration.updateOne(
+    { email: key },
+    {
+      $set: {
+        ...rec,
+        email: key,
+      },
+      $setOnInsert: {
+        createdAt: rec?.createdAt || new Date(),
+      },
+    },
+    { upsert: true }
+  );
+  return PendingRegistration.findOne({ email: key }).lean();
 };
 
-const clearPendingRegistration = (email) => {
+const clearPendingRegistration = async (email) => {
   const key = normalizeEmail(email);
-  pendingRegistrationsByEmail.delete(key);
+  if (!key) return;
+  await PendingRegistration.deleteOne({ email: key });
 };
 
 const normalizeEmail = (email = '') => String(email).trim().toLowerCase();
@@ -254,7 +273,7 @@ export const register = async (req, res) => {
 
     // Dukandar flow: do not save user until OTP is verified.
     if (requiresVerification) {
-      const existingPending = getPendingRegistration(normalizedEmail);
+      const existingPending = await getPendingRegistration(normalizedEmail);
       const otp = generateOtp();
 
       const pending = {
@@ -275,15 +294,16 @@ export const register = async (req, res) => {
         createdAt: existingPending?.createdAt || new Date(),
       };
 
-      setPendingRegistration(normalizedEmail, pending);
+      await setPendingRegistration(normalizedEmail, pending);
 
       if (shouldLogOtp) {
         console.log(`[AUTH OTP] verification email=${normalizedEmail} otp=${otp} ttlMin=${OTP_TTL_MINUTES}`);
       }
 
       // Best-effort email send (dev can use terminal OTP).
+      let emailResult = null;
       try {
-        await sendOtpEmail({
+        emailResult = await sendOtpEmail({
           to: pending.email,
           name: pending.name,
           otp,
@@ -292,6 +312,21 @@ export const register = async (req, res) => {
         });
       } catch (e) {
         console.warn('Send verification OTP email failed:', e?.message || e);
+        if (REQUIRE_OTP_EMAIL) {
+          await clearPendingRegistration(normalizedEmail);
+          return res.status(503).json({
+            success: false,
+            message: 'Unable to send OTP email right now. Please try again in a minute.',
+          });
+        }
+      }
+
+      if (REQUIRE_OTP_EMAIL && emailResult?.sent !== true) {
+        await clearPendingRegistration(normalizedEmail);
+        return res.status(503).json({
+          success: false,
+          message: 'Unable to send OTP email right now. Please try again in a minute.',
+        });
       }
 
       return res.status(201).json({
@@ -420,7 +455,7 @@ export const verifyEmailOtp = async (req, res) => {
     }
 
     // New flow: pending registration must exist.
-    const pending = getPendingRegistration(normalizedEmail);
+    const pending = await getPendingRegistration(normalizedEmail);
     if (!pending) {
       return res.status(404).json({ success: false, message: 'Account not found' });
     }
@@ -430,7 +465,7 @@ export const verifyEmailOtp = async (req, res) => {
     if (pending.phone) duplicateFilters.push({ phone: pending.phone });
     const duplicate = await User.findOne({ $or: duplicateFilters });
     if (duplicate) {
-      clearPendingRegistration(normalizedEmail);
+      await clearPendingRegistration(normalizedEmail);
       return res.status(400).json({
         success: false,
         message: 'User with this email or phone already exists',
@@ -442,13 +477,13 @@ export const verifyEmailOtp = async (req, res) => {
     }
 
     if (pending.expiresAt.getTime() < Date.now()) {
-      clearPendingRegistration(normalizedEmail);
+      await clearPendingRegistration(normalizedEmail);
       return res.status(400).json({ success: false, message: 'OTP expired. Please resend OTP.' });
     }
 
     if (pending.otpHash !== hashOtp(otp)) {
       pending.attempts += 1;
-      setPendingRegistration(normalizedEmail, pending);
+      await setPendingRegistration(normalizedEmail, pending);
       return res.status(400).json({ success: false, message: 'Invalid OTP' });
     }
 
@@ -498,7 +533,7 @@ export const verifyEmailOtp = async (req, res) => {
       }
     }
 
-    clearPendingRegistration(normalizedEmail);
+    await clearPendingRegistration(normalizedEmail);
 
     if (user.role === 'customer') {
       sendCustomerNearbyShopEmails({ userId: user._id, trigger: 'otp_verified' }).catch(() => null);
@@ -544,6 +579,12 @@ export const resendEmailOtp = async (req, res) => {
         await sendVerificationOtp(user, otp);
       } catch (e) {
         console.warn('Send verification OTP email failed:', e?.message || e);
+        if (REQUIRE_OTP_EMAIL) {
+          return res.status(503).json({
+            success: false,
+            message: 'Unable to send OTP email right now. Please try again in a minute.',
+          });
+        }
       }
 
       return res.status(200).json({
@@ -554,7 +595,7 @@ export const resendEmailOtp = async (req, res) => {
     }
 
     // New flow: resend for pending registration
-    const pending = getPendingRegistration(normalizedEmail);
+    const pending = await getPendingRegistration(normalizedEmail);
     if (!pending) {
       return res.status(404).json({ success: false, message: 'Account not found' });
     }
@@ -563,7 +604,7 @@ export const resendEmailOtp = async (req, res) => {
     pending.otpHash = hashOtp(otp);
     pending.expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
     pending.attempts = 0;
-    setPendingRegistration(normalizedEmail, pending);
+    await setPendingRegistration(normalizedEmail, pending);
 
     if (shouldLogOtp) {
       console.log(`[AUTH OTP] resend email=${normalizedEmail} otp=${otp} ttlMin=${OTP_TTL_MINUTES}`);
@@ -579,6 +620,12 @@ export const resendEmailOtp = async (req, res) => {
       });
     } catch (e) {
       console.warn('Send verification OTP email failed:', e?.message || e);
+      if (REQUIRE_OTP_EMAIL) {
+        return res.status(503).json({
+          success: false,
+          message: 'Unable to send OTP email right now. Please try again in a minute.',
+        });
+      }
     }
 
     return res.status(200).json({

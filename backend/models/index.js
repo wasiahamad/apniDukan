@@ -36,6 +36,9 @@ export { default as Story } from './Story.js';
 export { default as StoryView } from './StoryView.js';
 export { default as ShopOffer } from './ShopOffer.js';
 
+// Auth / OTP flows
+export { default as PendingRegistration } from './PendingRegistration.js';
+
 // Email / notifications
 export { default as EmailEventLog } from './EmailEventLog.js';
 
