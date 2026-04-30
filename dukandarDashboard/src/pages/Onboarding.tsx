@@ -601,6 +601,46 @@ const Onboarding = () => {
         throw new Error(t("onboarding.errors.verifyEmailFirst"));
       }
 
+      // Resolve a safe BusinessType ID for backend.
+      // On resume/cached flows, `data.businessType` can sometimes be a slug or become empty.
+      const resolveBusinessTypeId = () => {
+        const raw = String((data as any).businessType || '').trim();
+        if (!raw) return '';
+        const exact = businessTypes.find((bt) => bt._id === raw);
+        if (exact) return exact._id;
+
+        const bySlug = businessTypes.find((bt) => String(bt.slug || '').toLowerCase() === raw.toLowerCase());
+        if (bySlug) return bySlug._id;
+
+        const normalized = raw.toLowerCase();
+        const supported = (SUPPORTED_OFFERING_VALUES as readonly string[]).includes(normalized);
+        if (supported) {
+          const byOffering = businessTypes.find((bt) => bt.suggestedListingType === normalized);
+          if (byOffering) return byOffering._id;
+        }
+
+        return '';
+      };
+
+      let resolvedBusinessTypeId = resolveBusinessTypeId();
+      if (!resolvedBusinessTypeId) {
+        // Best-effort: infer from offering (common when businessType was cleared after resume).
+        const offering = String(data.offering || '').toLowerCase();
+        const supported = (SUPPORTED_OFFERING_VALUES as readonly string[]).includes(offering);
+        if (supported) {
+          const match = businessTypes.find((bt) => bt.suggestedListingType === offering);
+          if (match) {
+            resolvedBusinessTypeId = match._id;
+            setData((prev) => ({ ...prev, businessType: match._id }));
+          }
+        }
+      }
+
+      if (!resolvedBusinessTypeId) {
+        setStep(1);
+        throw new Error(t("onboarding.shop.selectBusinessType"));
+      }
+
       const storedLat = Number(data.locationLat);
       const storedLng = Number(data.locationLng);
       const effectiveLat = liveLocation?.lat ?? (Number.isFinite(storedLat) ? storedLat : null);
@@ -613,7 +653,7 @@ const Onboarding = () => {
 
       const businessData = {
         name: data.shop_name,
-        businessType: data.businessType, // BusinessType ID
+        businessType: resolvedBusinessTypeId, // BusinessType ID
         phone: data.phone,
         whatsapp: data.phone,
         email: data.email,
