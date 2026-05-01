@@ -23,6 +23,32 @@ type CustomSocialLink = {
   url: string;
 };
 
+// Field component moved outside to prevent re-mounting on parent render
+const Field = ({ 
+  label, 
+  value, 
+  onChange, 
+  type = "text", 
+  placeholder = "" 
+}: { 
+  label: string; 
+  value: string; 
+  onChange: (v: string) => void; 
+  type?: string; 
+  placeholder?: string;
+}) => (
+  <div>
+    <label className="text-xs font-medium text-muted-foreground mb-1 block">{label}</label>
+    <input 
+      type={type} 
+      value={value} 
+      onChange={(e) => onChange(e.target.value)} 
+      placeholder={placeholder}
+      className="w-full px-3 py-2.5 bg-muted border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" 
+    />
+  </div>
+);
+
 const BusinessProfile = () => {
   const [business, setBusiness] = useState<Business | null>(null);
   const [loading, setLoading] = useState(true);
@@ -485,31 +511,6 @@ const BusinessProfile = () => {
       [day]: { ...prev[day], [field]: value },
     }));
   };
-
-  const Field = ({ 
-    label, 
-    value, 
-    onChange, 
-    type = "text", 
-    placeholder = "" 
-  }: { 
-    label: string; 
-    value: string; 
-    onChange: (v: string) => void; 
-    type?: string; 
-    placeholder?: string;
-  }) => (
-    <div>
-      <label className="text-xs font-medium text-muted-foreground mb-1 block">{label}</label>
-      <input 
-        type={type} 
-        value={value} 
-        onChange={(e) => onChange(e.target.value)} 
-        placeholder={placeholder}
-        className="w-full px-3 py-2.5 bg-muted border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" 
-      />
-    </div>
-  );
 
   if (loading) {
     return (
