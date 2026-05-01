@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { Business, Listing, Order, OrderCounter } from '../models/index.js';
 import { getEffectiveEntitlementsForBusiness } from '../services/entitlementsService.js';
+import { sendOrderConfirmationEmail } from '../services/emailService.js';
 
 const padOrder = (n) => String(n).padStart(3, '0');
 
@@ -41,6 +42,13 @@ const optionMatch = (a, b) => {
 // @access  Public
 export const createPublicOrder = async (req, res) => {
   try {
+    if (!req.user || req.user.role !== 'customer') {
+      return res.status(401).json({
+        success: false,
+        message: 'Login required to place order',
+      });
+    }
+
     const { businessId, items, source, origin, customer } = req.body || {};
 
     if (!businessId) {
@@ -212,6 +220,28 @@ export const createPublicOrder = async (req, res) => {
     const populated = await Order.findById(order._id)
       .populate('business', 'name slug whatsapp')
       .lean();
+
+    const customerEmail = String(customer?.email || req.user?.email || '').trim().toLowerCase();
+    if (customerEmail && customerEmail.includes('@')) {
+      await sendOrderConfirmationEmail({
+        to: customerEmail,
+        orderId: order.orderId,
+        customerName,
+        items: builtItems.map((it) => ({
+          name: it.title,
+          quantity: it.quantity,
+          price: it.unitPrice,
+        })),
+        totalPrice: total,
+        deliveryDate: order.createdAt,
+        deliveryAddress: customerAddress || 'Address will be confirmed by seller',
+        orderDate: order.createdAt,
+        userId: authedCustomerId || undefined,
+        businessId,
+      }).catch((err) => {
+        console.warn('Order confirmation email failed:', err?.message || err);
+      });
+    }
 
     res.status(201).json({ success: true, message: 'Order created', data: populated });
   } catch (error) {

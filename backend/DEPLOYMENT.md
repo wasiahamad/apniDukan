@@ -276,11 +276,35 @@ railway up
 
 #### Render
 
-1. Go to [render.com](https://render.com)
-2. Connect GitHub repository
-3. Create Web Service
-4. Set environment variables in dashboard
-5. Deploy automatically on push
+Connect the GitHub repository to Render, then create a new **Web Service** using the `backend` folder as the root.
+
+Use these settings:
+
+- Environment: Node
+- Build Command: `npm install`
+- Start Command: `npm start`
+- Node Version: 18 or newer
+
+Set the production environment variables in the Render dashboard:
+
+- `NODE_ENV=production`
+- `PORT` is auto-managed by Render; do not hardcode it
+- `MONGO_URI` pointing to the Apnidukan Atlas database
+- `JWT_SECRET` and `JWT_REFRESH_SECRET`
+- `CLIENT_URL`, `FRONTEND_URL`, `DASHBOARD_URL`, `ADMIN_URL` if you have separate frontends
+- `CORS_ORIGINS` with all allowed frontend origins separated by commas
+- `RESEND_API_KEY`, `EMAIL_FROM`, `ADMIN_SUPPORT_EMAIL`
+- `CLOUDINARY_*`, `RAZORPAY_*`, and any other service keys you use in production
+
+Save and deploy. Render will redeploy automatically on every push to the selected branch.
+
+After deploy, hit `https://<your-render-service>/api/health` to confirm the app is live.
+
+### Render Notes
+
+- This backend already reads the Render proxy correctly because `trust proxy` is enabled in `server.js`.
+- Keep MongoDB connection strings and email keys only in Render environment variables, not in the source repo.
+- If you use a custom frontend domain, add it to `CORS_ORIGINS` so browser requests are accepted.
 
 ---
 

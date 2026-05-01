@@ -12,8 +12,8 @@ const mustEnv = (key) => {
   return v;
 };
 
-const apiPublicUrl = () => process.env.API_PUBLIC_URL || `http://localhost:${process.env.PORT || 5000}/api`;
-const clientUrl = () => process.env.CLIENT_URL || 'http://localhost:8080';
+const apiPublicUrl = () => process.env.API_PUBLIC_URL || 'https://apnidukan-vlnw.onrender.com/api';
+const clientUrl = () => process.env.CLIENT_URL || process.env.PUBLIC_WEBSITE_URL || 'https://publicdukan.com';
 
 const signState = (payload) => {
   const secret = mustEnv('JWT_SECRET');

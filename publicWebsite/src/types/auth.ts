@@ -17,7 +17,7 @@ export type AuthUser = {
 };
 
 export type LoginPayload = {
-  email: string;
+  identifier: string;
   password: string;
 };
 

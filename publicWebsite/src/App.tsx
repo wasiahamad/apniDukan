@@ -8,10 +8,10 @@ import { AuthProvider } from "@/context/AuthContext";
 import { PlanProvider } from "@/context/PlanContext";
 import { LocationProvider } from "@/hooks/useUserLocation";
 import { getDashboardUrl } from "@/lib/dashboardUrl";
-import { looksLikeCitySlug } from "@/lib/publicShopsApi";
+import { hasAuthSession, looksLikeCitySlug } from "@/lib/publicShopsApi";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import LocationGate from "@/components/LocationGate";
 import AboutPage from "./pages/AboutPage";
 import AccountPage from "./pages/AccountPage";
@@ -76,7 +76,7 @@ const App = () => (
                   </Route>
                   <Route path="shops/:category" element={<CityCategoryPage />} />
                   <Route path="dashboard/*" element={<DashboardRedirect />} />
-                  <Route path="shop/:shopSlug" element={<ShopPage />} />
+                  <Route path="shop/:shopSlug" element={<ShopDetailGate><ShopPage /></ShopDetailGate>} />
                   <Route path=":shopSlug" element={<ShopOrCityPage />} />
                   <Route path="*" element={<NotFound />} />
                 </Route>
@@ -146,11 +146,21 @@ function SubdomainShopRedirect() {
   return null;
 }
 
+function ShopDetailGate({ children }: { children: React.ReactElement }) {
+  const location = useLocation();
+
+  if (!hasAuthSession()) {
+    return <Navigate to="/login" replace state={{ from: location, authRequired: true }} />;
+  }
+
+  return children;
+}
+
 // Smart resolver: check if param is a city slug or shop slug
-import { useParams } from "react-router-dom";
 
 function ShopOrCityPage() {
   const { shopSlug } = useParams<{ shopSlug: string }>();
+  const location = useLocation();
   const detectQuery = useQuery({
     queryKey: ["resolve-city-or-shop", shopSlug],
     queryFn: () => looksLikeCitySlug(shopSlug || ""),
@@ -172,6 +182,9 @@ function ShopOrCityPage() {
     );
   }
   if (detectQuery.data) return <CityPage />;
+  if (!hasAuthSession()) {
+    return <Navigate to="/login" replace state={{ from: location, authRequired: true }} />;
+  }
   return <ShopPage />;
 }
 

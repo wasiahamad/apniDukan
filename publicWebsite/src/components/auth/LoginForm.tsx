@@ -8,31 +8,32 @@ import { useTranslation } from "react-i18next";
 
 type LoginFormProps = {
   isLoading: boolean;
-  onSubmit: (payload: { email: string; password: string; rememberMe: boolean }) => Promise<void>;
+  onSubmit: (payload: { identifier: string; password: string; rememberMe: boolean }) => Promise<void>;
   onForgotPassword: () => void;
-  defaultEmail?: string;
+  defaultIdentifier?: string;
 };
 
-export default function LoginForm({ isLoading, onSubmit, onForgotPassword, defaultEmail = "" }: LoginFormProps) {
+export default function LoginForm({ isLoading, onSubmit, onForgotPassword, defaultIdentifier = "" }: LoginFormProps) {
   const { t } = useTranslation();
   const emailRef = useRef<HTMLInputElement | null>(null);
   const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState(defaultEmail);
+  const [identifier, setIdentifier] = useState(defaultIdentifier);
   const [password, setPassword] = useState("");
-  const [rememberMe, setRememberMe] = useState(Boolean(defaultEmail));
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [rememberMe, setRememberMe] = useState(Boolean(defaultIdentifier));
+  const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
 
   useEffect(() => {
     emailRef.current?.focus();
   }, []);
 
   const validate = () => {
-    const nextErrors: { email?: string; password?: string } = {};
+    const nextErrors: { identifier?: string; password?: string } = {};
+    const trimmedIdentifier = identifier.trim();
 
-    if (!email.trim()) {
-      nextErrors.email = t("auth.validation.emailRequired");
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      nextErrors.email = t("auth.validation.emailInvalid");
+    if (!trimmedIdentifier) {
+      nextErrors.identifier = "Email or phone number is required";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedIdentifier) && !/^\d{10}$/.test(trimmedIdentifier)) {
+      nextErrors.identifier = "Enter a valid email address or 10-digit phone number";
     }
 
     if (!password) {
@@ -48,7 +49,7 @@ export default function LoginForm({ isLoading, onSubmit, onForgotPassword, defau
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
-    await onSubmit({ email: email.trim(), password, rememberMe });
+    await onSubmit({ identifier: identifier.trim(), password, rememberMe });
   };
 
   return (
@@ -56,20 +57,21 @@ export default function LoginForm({ isLoading, onSubmit, onForgotPassword, defau
       <div className="relative">
         <Input
           ref={emailRef}
-          id="login-email"
-          type="email"
+          id="login-identifier"
+          type="text"
           placeholder=" "
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
           className="peer h-12 rounded-2xl bg-white/80"
+          autoComplete="username"
         />
         <label
-          htmlFor="login-email"
+          htmlFor="login-identifier"
           className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm transition-all peer-placeholder-shown:top-1/2 peer-focus:top-0 peer-focus:text-xs peer-focus:bg-white peer-focus:px-1 peer-focus:text-[rgb(30,190,118)] peer-[:not(:placeholder-shown)]:top-0 peer-[:not(:placeholder-shown)]:text-xs peer-[:not(:placeholder-shown)]:bg-white peer-[:not(:placeholder-shown)]:px-1"
         >
-          {t("auth.login.email")}
+          Email or phone
         </label>
-        {errors.email ? <p className="mt-1 text-xs text-red-600">{errors.email}</p> : null}
+        {errors.identifier ? <p className="mt-1 text-xs text-red-600">{errors.identifier}</p> : null}
       </div>
 
       <div className="relative">

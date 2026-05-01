@@ -10,7 +10,9 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { autoHindiText, hasDevanagari } from "@/lib/publicShopsApi";
+import { hasAuthSession } from "@/lib/publicShopsApi";
 import { createPublicOrder } from "@/lib/ordersApi";
+import { useToast } from "@/hooks/use-toast";
 import type { Product } from "@/data/mockData";
 
 interface ProductDetailDialogProps {
@@ -24,6 +26,7 @@ interface ProductDetailDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onBook?: (product: Product) => void;
+  onRequireLogin?: (product: Product) => void;
 }
 
 export default function ProductDetailDialog({
@@ -37,8 +40,10 @@ export default function ProductDetailDialog({
   open,
   onOpenChange,
   onBook,
+  onRequireLogin,
 }: ProductDetailDialogProps) {
   const { t, i18n } = useTranslation();
+  const { toast } = useToast();
 
   // Important: do NOT early-return before hooks below; otherwise React will throw
   // "Rendered more hooks than during the previous render" when product becomes non-null.
@@ -75,6 +80,7 @@ export default function ProductDetailDialog({
   }, [safeProduct.image, product]);
 
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
+  const [placingOrder, setPlacingOrder] = useState(false);
 
   useEffect(() => {
     setSelectedImageIndex(0);
@@ -193,14 +199,16 @@ export default function ProductDetailDialog({
     }
   };
 
-  const saveOrderBestEffort = () => {
+  const createOrderRecord = async () => {
     const bid = String(businessId || '').trim();
     const listingId = String(safeProduct.id || '').trim();
-    if (!bid || !listingId) return;
+    if (!bid || !listingId) {
+      throw new Error("Missing order details");
+    }
 
     const origin = getLastMapOrigin();
 
-    createPublicOrder({
+    return createPublicOrder({
       businessId: bid,
       source: 'whatsapp',
       origin,
@@ -215,7 +223,7 @@ export default function ProductDetailDialog({
         name: String(customerName || '').trim() || undefined,
         phone: String(customerPhone || '').trim() || undefined,
       },
-    }).catch(() => null);
+    });
   };
 
   const rawDescription = String(safeProduct.description || "");
@@ -371,20 +379,45 @@ export default function ProductDetailDialog({
             </div>
           )}
 
-          <Button className="w-full gap-2" asChild disabled={!canOrder}>
-            <a
-              href={whatsappHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-disabled={!canOrder}
-              onClick={() => {
+          <Button
+            className="w-full gap-2"
+            type="button"
+            disabled={!canOrder || placingOrder}
+            onClick={async () => {
+              if (!canOrder || placingOrder) return;
+
+              if (!hasAuthSession()) {
+                toast({
+                  title: t("shopPage.auth.loginRequiredTitle"),
+                  description: t("shopPage.booking.loginRequiredDesc"),
+                  variant: "destructive",
+                });
+                onOpenChange(false);
+                onRequireLogin?.(safeProduct);
+                return;
+              }
+
+              setPlacingOrder(true);
+              try {
+                await createOrderRecord();
                 trackAction("whatsapp");
-                // Create order record (best-effort) so dukandar/admin can see WhatsApp orders.
-                saveOrderBestEffort();
-              }}
-            >
+                window.open(whatsappHref, "_blank", "noopener,noreferrer");
+              } catch (err: any) {
+                const msg =
+                  i18n.language === "en"
+                    ? String(err?.message || t("shopPage.generic.tryAgain"))
+                    : t("shopPage.generic.tryAgain");
+                toast({
+                  title: t("shopPage.booking.failedTitle"),
+                  description: msg,
+                  variant: "destructive",
+                });
+              } finally {
+                setPlacingOrder(false);
+              }
+            }}
+          >
               <MessageCircle className="h-4 w-4" /> {t("shopPage.productDialog.orderOnWhatsApp")}
-            </a>
           </Button>
 
           {canBook ? (

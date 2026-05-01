@@ -21,7 +21,7 @@ interface AuthState {
 }
 
 interface AuthContextType extends AuthState {
-  login: (email: string, password: string) => Promise<AuthUser>;
+  login: (identifier: string, password: string) => Promise<AuthUser>;
   register: (data: RegisterData) => Promise<{ verificationRequired: boolean; email?: string; otpExpiresInMinutes?: number }>;
   verifyEmailOtp: (email: string, otp: string) => Promise<AuthUser>;
   resendEmailOtp: (email: string) => Promise<{ otpExpiresInMinutes?: number }>;
@@ -121,11 +121,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setState({ user, accessToken: token, isLoading: false });
   }
 
-  async function login(email: string, password: string): Promise<AuthUser> {
+  async function login(identifier: string, password: string): Promise<AuthUser> {
     try {
       const data = await apiRequest<LoginResponse>("/auth/login/customer", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ identifier, password }),
       });
       const user = normalizeUser(data.user);
       await storeAuth(data.accessToken, data.refreshToken, user);
@@ -145,7 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (msg.toLowerCase().includes("only customer")) {
           const data = await apiRequest<LoginResponse>("/auth/login", {
             method: "POST",
-            body: JSON.stringify({ email, password }),
+            body: JSON.stringify({ identifier, password }),
           });
           const user = normalizeUser(data.user);
           await storeAuth(data.accessToken, data.refreshToken, user);

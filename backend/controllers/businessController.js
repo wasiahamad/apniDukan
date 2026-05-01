@@ -28,6 +28,27 @@ const getRequestedLang = (req) => {
 const escapeRegExp = (input) => String(input ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const hasDevanagari = (value) => /[\u0900-\u097F]/.test(String(value || ''));
 
+const normalizeBusinessTypeInput = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    const s = value.trim();
+    if (!s) return '';
+    const match = s.match(/[0-9a-fA-F]{24}/);
+    if (match) return match[0];
+    return s;
+  }
+  if (typeof value === 'number') return String(value);
+  if (Array.isArray(value)) {
+    const first = value[0];
+    return normalizeBusinessTypeInput(first);
+  }
+  if (typeof value === 'object') {
+    const v = value;
+    return String(v?._id || v?.id || v?.value || v?.$oid || v?.slug || v?.name || '').trim();
+  }
+  return '';
+};
+
 // Best-effort: helps Hindi/English search behave similarly even when Hindi DB fields aren't populated yet.
 const DEVANAGARI_SEARCH_MAP = {
   // common terms
@@ -688,7 +709,7 @@ export const createBusiness = async (req, res) => {
 
     // Validate businessType exists (accept id OR slug OR suggestedListingType)
     const { BusinessType } = await import('../models/index.js');
-    const btInput = String(businessType || '').trim();
+    const btInput = normalizeBusinessTypeInput(businessType);
     const isObjectIdLike = /^[0-9a-fA-F]{24}$/.test(btInput);
 
     let businessTypeDoc = null;
@@ -704,10 +725,20 @@ export const createBusiness = async (req, res) => {
         (await BusinessType.findOne({ suggestedListingType: normalized }));
     }
 
-    if (!businessTypeDoc) {
+if (!businessTypeDoc) {
+      console.warn('[createBusiness] invalid businessType:', {
+        received: businessType,
+        normalized: btInput,
+        isObjectIdLike,
+      });
       return res.status(400).json({
         success: false,
         message: 'Invalid business type. Please select a valid business type.',
+        debug: {
+          received: businessType,
+          normalized: btInput,
+          isObjectIdLike,
+        },
       });
     }
 
@@ -821,7 +852,7 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
 
     // Validate businessType exists (accept id OR slug OR suggestedListingType)
     const { BusinessType } = await import('../models/index.js');
-    const btInput = String(businessType || '').trim();
+    const btInput = normalizeBusinessTypeInput(businessType);
     const isObjectIdLike = /^[0-9a-fA-F]{24}$/.test(btInput);
 
     let businessTypeDoc = null;
@@ -838,9 +869,25 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
     }
 
     if (!businessTypeDoc) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[adminCreateBusinessWithOwner] invalid businessType', {
+          received: businessType,
+          normalized: btInput,
+          isObjectIdLike,
+        });
+      }
       return res.status(400).json({
         success: false,
         message: 'Invalid business type. Please select a valid business type.',
+        ...(process.env.NODE_ENV !== 'production'
+          ? {
+              debug: {
+                received: businessType,
+                normalized: btInput,
+                isObjectIdLike,
+              },
+            }
+          : {}),
       });
     }
 

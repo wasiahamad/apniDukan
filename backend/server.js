@@ -35,6 +35,10 @@ import {
 // Initialize Express app
 const app = express();
 
+// Render and other reverse-proxy hosts need this so secure cookies, IP-based
+// rate limiting, and request metadata behave correctly in production.
+app.set('trust proxy', 1);
+
 let server;
 
 // ========================================
@@ -222,6 +226,12 @@ const startServer = async () => {
     console.log(`⚡ Server running in ${process.env.NODE_ENV} mode`);
     console.log(`🌐 Server URL: http://localhost:${PORT}`);
     console.log(`📡 API Base: http://localhost:${PORT}/api`);
+    if (process.env.RENDER === 'true' || process.env.RENDER_SERVICE_ID || process.env.RENDER_EXTERNAL_URL) {
+      console.log('☁️  Render deployment detected');
+      if (process.env.RENDER_EXTERNAL_URL) {
+        console.log(`🔗 External URL: ${process.env.RENDER_EXTERNAL_URL}`);
+      }
+    }
     console.log('');
     console.log('📚 Available Routes:');
     console.log('   - Auth:       /api/auth');

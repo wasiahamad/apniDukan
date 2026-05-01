@@ -200,14 +200,14 @@ const Login = () => {
     setError("");
     
     if (!email || !password) {
-      setError(t('login.missingEmailPassword'));
+      setError('Please enter email or phone and password');
       return;
     }
 
     setIsLoading(true);
 
     try {
-      await login(email, password);
+      await login(email.trim(), password);
       toast({
         title: t('auth.loginSuccessful'),
         description: t('login.welcomeBackToast'),
@@ -276,8 +276,9 @@ const Login = () => {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-                placeholder={t('login.emailPlaceholder')}
+                placeholder={'Email or phone'}
               disabled={isLoading}
+                type="text"
               className="w-full pl-11 pr-4 py-3.5 bg-muted border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
             />
           </div>

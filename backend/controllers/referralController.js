@@ -1,5 +1,6 @@
 import { Referral, ReferralCode, ReferralOffer, ReferralRewardRequest, User, Business } from '../models/index.js';
 import { validateBusinessOwnerReferralEligibility } from '../services/referralEligibilityService.js';
+import { sendReferralRewardEmail, sendReferralWelcomeEmail } from '../services/emailService.js';
 
 const addMonths = (date, months) => {
   const d = new Date(date);
@@ -453,6 +454,34 @@ export const createReferral = async (req, res) => {
 
     // Increment offer stats
     await offer.incrementStat('totalReferrals');
+
+    const referredEmail = String(req.user?.email || '').trim().toLowerCase();
+    const referrerEmail = String(referrer?.email || '').trim().toLowerCase();
+    const referralLink = `${String(process.env.PUBLIC_WEBSITE_URL || 'https://publicdukan.com').replace(/\/+$/, '')}?ref=${encodeURIComponent(code)}`;
+
+    if (referredEmail && referredEmail.includes('@')) {
+      await sendReferralWelcomeEmail({
+        to: referredEmail,
+        referredName: req.user?.name || 'User',
+        referrerName: referrer?.name || 'Your friend',
+        referralLink,
+      }).catch((err) => {
+        console.warn('Referral welcome email failed:', err?.message || err);
+      });
+    }
+
+    if (referrerEmail && referrerEmail.includes('@')) {
+      await sendReferralRewardEmail({
+        to: referrerEmail,
+        referrerName: referrer?.name || 'Referrer',
+        referredName: req.user?.name || 'New user',
+        referralCode: code,
+        referralLink,
+        rewardAmount: Number(offer?.rewardAmount || 0),
+      }).catch((err) => {
+        console.warn('Referral confirmation email failed:', err?.message || err);
+      });
+    }
 
     res.status(201).json({
       success: true,

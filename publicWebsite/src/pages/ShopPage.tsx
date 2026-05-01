@@ -231,6 +231,26 @@ export default function ShopPage() {
     );
   };
 
+  const redirectToLoginForProduct = (product: Product) => {
+    const listingId = String(product?.id || "").trim();
+    const params = new URLSearchParams(location.search || "");
+    if (listingId) params.set("listing", listingId);
+
+    navigate(
+      "/login",
+      {
+        replace: true,
+        state: {
+          from: {
+            pathname: location.pathname,
+            search: params.toString() ? `?${params.toString()}` : "",
+          },
+          authRequired: true,
+        },
+      }
+    );
+  };
+
   const [logoStoriesOpen, setLogoStoriesOpen] = useState(false);
 
   const [bookingOpen, setBookingOpen] = useState(false);
@@ -1728,7 +1748,21 @@ export default function ShopPage() {
         shopName={shop.name}
         open={!!selectedProduct}
         onOpenChange={(open) => !open && closeSelectedProduct()}
+        onRequireLogin={(product) => {
+          closeSelectedProduct();
+          redirectToLoginForProduct(product);
+        }}
         onBook={(product) => {
+          if (!hasAuthSession()) {
+            toast({
+              title: t("shopPage.auth.loginRequiredTitle"),
+              description: t("shopPage.booking.loginRequiredDesc"),
+              variant: "destructive",
+            });
+            closeSelectedProduct();
+            redirectToLoginForProduct(product);
+            return;
+          }
           closeSelectedProduct();
           setBookingListingId(String(product.id));
           setBookingOpen(true);

@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -7,11 +7,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const backendRoot = path.resolve(__dirname, '..');
 
-// Load backend/.env for local runs; do not override Render env vars.
+// Load backend/.env for local runs; do not override deployment env vars.
 dotenv.config({ path: path.join(backendRoot, '.env'), override: false });
 
 const safeTrim = (v) => String(v || '').trim();
-const normalizeSmtpPassword = (v) => String(v || '').replace(/[\s\r\n]+/g, '');
 
 const args = process.argv.slice(2);
 const getArg = (name) => {
@@ -20,62 +19,40 @@ const getArg = (name) => {
   return args[i + 1] || null;
 };
 
-const host = safeTrim(process.env.EMAIL_HOST);
-const port = Number(safeTrim(process.env.EMAIL_PORT || 587));
-const user = safeTrim(process.env.EMAIL_USER);
-const pass = normalizeSmtpPassword(process.env.EMAIL_PASS);
-const configuredFrom = safeTrim(process.env.EMAIL_FROM);
+const apiKey = safeTrim(process.env.RESEND_API_KEY);
+const from = safeTrim(process.env.EMAIL_FROM || 'PublicDukan <noreply@publicdukan.com>');
 const to = safeTrim(getArg('--to'));
-const debug = args.includes('--debug') || String(process.env.EMAIL_DEBUG || '').toLowerCase() === 'true';
 
-if (!host || !user || !pass) {
-  console.error('Missing EMAIL_* env. Need EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASS');
+if (!apiKey) {
+  console.error('Missing RESEND_API_KEY in environment');
   process.exit(2);
 }
 
-const transporter = nodemailer.createTransport({
-  host,
-  port,
-  secure: port === 465,
-  auth: { user, pass },
-  ...(port === 587 ? { requireTLS: true } : {}),
-  ...(debug ? { logger: true, debug: true } : {}),
-});
+if (!to) {
+  console.error('Usage: node scripts/verifySmtp.js --to someone@example.com');
+  process.exit(2);
+}
+
+const resend = new Resend(apiKey);
 
 try {
-  console.log(`[SMTP] host=${host} port=${port} user=${user}`);
-  if (configuredFrom) console.log(`[SMTP] EMAIL_FROM=${configuredFrom}`);
+  const { data, error } = await resend.emails.send({
+    from,
+    to,
+    subject: 'PublicDukan Resend test',
+    text: `Resend test email sent at ${new Date().toISOString()}`,
+    html: `<h2>PublicDukan</h2><p>Resend test email sent at ${new Date().toISOString()}</p>`,
+  });
 
-  await transporter.verify();
-  console.log('[SMTP] verify OK');
-
-  if (to) {
-    const mail = {
-      from: configuredFrom || user,
-      to,
-      subject: 'PublicDukan SMTP test',
-      text: `SMTP test from ${host}:${port} at ${new Date().toISOString()}`,
-    };
-
-    if (configuredFrom && configuredFrom.toLowerCase() !== user.toLowerCase() && /@gmail\.com$/i.test(user)) {
-      mail.from = user;
-      mail.replyTo = configuredFrom;
-    }
-
-    const info = await transporter.sendMail(mail);
-    console.log(`[SMTP] test email sent messageId=${safeTrim(info?.messageId)}`);
-  } else {
-    console.log('[SMTP] No --to provided; skipping sendMail test');
+  if (error) {
+    throw new Error(error.message || 'Resend API returned an error');
   }
 
+  console.log(`[Resend] test email sent id=${safeTrim(data?.id)} to=${to}`);
   process.exit(0);
 } catch (e) {
-  console.error('[SMTP] FAILED', {
+  console.error('[Resend] FAILED', {
     message: safeTrim(e?.message || e),
-    code: e?.code,
-    command: e?.command,
-    responseCode: e?.responseCode,
-    response: safeTrim(e?.response),
   });
   process.exit(1);
 }

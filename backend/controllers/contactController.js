@@ -1,4 +1,5 @@
 import { ContactMessage, ContactSettings } from '../models/index.js';
+import { sendContactFormEmail } from '../services/emailService.js';
 
 const DEFAULT_SETTINGS = {
   whatsappNumber: '919876543210',
@@ -67,6 +68,11 @@ export const createContactMessage = async (req, res) => {
         ipAddress: req.ip || undefined,
         source: 'publicWebsite',
       },
+    });
+
+    // Best-effort notification emails (admin + user confirmation)
+    await sendContactFormEmail({ name, email, message }).catch((err) => {
+      console.warn('Contact email send failed:', err?.message || err);
     });
 
     res.status(201).json({

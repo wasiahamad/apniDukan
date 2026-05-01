@@ -79,7 +79,8 @@ export default function LoginScreen() {
       if (err instanceof ApiError) {
         const code = (err.details as any)?.code;
         if (code === "EMAIL_NOT_VERIFIED") {
-          router.push({ pathname: "/(auth)/verify-email", params: { email: email.trim().toLowerCase() } });
+          const verificationEmail = String((err.details as any)?.data?.email || email.trim().toLowerCase());
+          router.push({ pathname: "/(auth)/verify-email", params: { email: verificationEmail } });
           return;
         }
       }
@@ -129,16 +130,16 @@ export default function LoginScreen() {
 
       <Animated.View entering={FadeInDown.delay(200).duration(500)} style={styles.form}>
         <View style={styles.field}>
-          <Text style={styles.label}>Email</Text>
+          <Text style={styles.label}>Email or phone</Text>
           <View style={styles.inputWrap}>
             <Feather name="mail" size={18} color={Colors.light.textSecondary} style={styles.inputIcon} />
             <TextInput
               style={styles.input}
-              placeholder="you@example.com"
+              placeholder="you@example.com or 10-digit phone"
               placeholderTextColor={Colors.light.textTertiary}
               value={email}
               onChangeText={setEmail}
-              keyboardType="email-address"
+              keyboardType="default"
               autoCapitalize="none"
               autoCorrect={false}
             />

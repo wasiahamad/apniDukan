@@ -16,7 +16,7 @@ const getPublicWebsiteBaseUrl = () => {
     if (first) return first.replace(/\/+$/, '');
   }
 
-  return 'http://localhost:5173';
+  return 'https://publicdukan.com';
 };
 
 const getDashboardBaseUrl = () => {
@@ -29,7 +29,7 @@ const getDashboardBaseUrl = () => {
     if (first) return first.replace(/\/+$/, '');
   }
 
-  return 'http://localhost:8080';
+  return 'https://seller.publicdukan.com';
 };
 
 const formatDate = (d) => {
@@ -324,7 +324,62 @@ export const sendPlanExpiryReminders = async ({ daysBefore = 5 } = {}) => {
     }).catch(() => null);
   }
 
-  return { ok: true, sentCount, checked: businesses.length, dateKey };
+  // Also notify recently expired plans once per day.
+  const expiredSince = new Date(now.getTime() - 7 * MS_DAY);
+  const expiredBusinesses = await Business.find({
+    isActive: true,
+    plan: { $ne: null },
+    planExpiresAt: { $ne: null, $lt: now, $gte: expiredSince },
+  })
+    .select('_id name slug owner plan planExpiresAt')
+    .populate('owner', 'name email isActive role')
+    .populate('plan', 'name slug')
+    .lean();
+
+  let expiredSent = 0;
+
+  for (const b of expiredBusinesses) {
+    const owner = b?.owner;
+    if (!owner || owner.isActive === false || owner.role !== 'business_owner') continue;
+    if (!owner.email) continue;
+
+    const expLabel = formatDate(b.planExpiresAt);
+    const shopUrl = b.slug ? `${publicBase}/${encodeURIComponent(String(b.slug))}` : publicBase;
+    const key = `plan_expired_notice:${String(b._id)}:${dateKey}`;
+
+    await sendEmailOnce({
+      dedupeKey: key,
+      type: 'plan_expired_notice',
+      to: owner.email,
+      userId: owner._id,
+      businessId: b._id,
+      subject: 'Your plan has expired',
+      text: `Hi ${owner.name || 'Dukandar'},\n\nYour plan for ${b.name} expired on ${expLabel}.\nRenew now from your dashboard: ${dashboardBase}\nShop link: ${shopUrl}\n`,
+      html: `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827;">
+          <h2 style="margin:0 0 12px;">Plan expired</h2>
+          <p>Your plan for <strong>${b.name}</strong> expired on <strong>${expLabel}</strong>.</p>
+          <p>
+            <a href="${dashboardBase}" target="_blank" rel="noreferrer">Renew from Dashboard</a>
+            &nbsp;|&nbsp;
+            <a href="${shopUrl}" target="_blank" rel="noreferrer">View Shop</a>
+          </p>
+        </div>
+      `,
+      meta: { dateKey, expiresAt: b.planExpiresAt },
+    }).then((r) => {
+      if (r?.sent) expiredSent += 1;
+    }).catch(() => null);
+  }
+
+  return {
+    ok: true,
+    sentCount,
+    expiredSent,
+    checked: businesses.length,
+    expiredChecked: expiredBusinesses.length,
+    dateKey,
+  };
 };
 
 export const startPlanExpiryReminderLoop = () => {

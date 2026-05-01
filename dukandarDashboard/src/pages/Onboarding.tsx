@@ -12,6 +12,58 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { buildPlanFeatureSummary } from "@/lib/planFeatures";
 
 const SUPPORTED_OFFERING_VALUES = ["product", "service", "food", "course", "rental"] as const;
+const OFFERING_LABEL_TO_ENUM: Record<string, (typeof SUPPORTED_OFFERING_VALUES)[number]> = {
+  product: "product",
+  products: "product",
+  service: "service",
+  services: "service",
+  food: "food",
+  foods: "food",
+  course: "course",
+  courses: "course",
+  rental: "rental",
+  rentals: "rental",
+};
+
+const normalizeOfferingValue = (value: string) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if ((SUPPORTED_OFFERING_VALUES as readonly string[]).includes(normalized)) {
+    return normalized as (typeof SUPPORTED_OFFERING_VALUES)[number];
+  }
+  return OFFERING_LABEL_TO_ENUM[normalized] || "";
+};
+
+const resolveBusinessTypeForSubmission = (
+  selectedBusinessType: string,
+  offering: string,
+  businessTypes: BusinessType[]
+) => {
+  const rawSelection = String(selectedBusinessType || "").trim();
+  if (!rawSelection) return "";
+
+  const exactMatch = businessTypes.find((bt) => bt._id === rawSelection);
+  if (exactMatch) return exactMatch._id;
+
+  const slugMatch = businessTypes.find(
+    (bt) => String(bt.slug || "").toLowerCase() === rawSelection.toLowerCase()
+  );
+  if (slugMatch) return slugMatch._id;
+
+  const nameMatch = businessTypes.find(
+    (bt) => String(bt.name || "").trim().toLowerCase() === rawSelection.toLowerCase()
+  );
+  if (nameMatch) return nameMatch._id;
+
+  const normalizedOffering = normalizeOfferingValue(offering);
+  if (normalizedOffering) {
+    const offeringMatch = businessTypes.find(
+      (bt) => normalizeOfferingValue(bt.suggestedListingType || "") === normalizedOffering
+    );
+    if (offeringMatch) return offeringMatch._id;
+  }
+
+  return "";
+};
 
 const GoogleColorIcon = () => (
   <svg viewBox="0 0 24 24" className="w-4 h-4" aria-hidden="true">
@@ -592,7 +644,7 @@ const Onboarding = () => {
     }
   };
 
-  const handleCreateBusinessAndContinue = async () => {
+const handleCreateBusinessAndContinue = async () => {
     setError("");
     setIsLoading(true);
 
@@ -601,46 +653,25 @@ const Onboarding = () => {
         throw new Error(t("onboarding.errors.verifyEmailFirst"));
       }
 
-      // Resolve a safe BusinessType ID for backend.
-      // On resume/cached flows, `data.businessType` can sometimes be a slug or become empty.
-      const resolveBusinessTypeId = () => {
-        const raw = String((data as any).businessType || '').trim();
-        if (!raw) return '';
-        const exact = businessTypes.find((bt) => bt._id === raw);
-        if (exact) return exact._id;
+      const selectedBusinessType = data.businessType;
+      const resolvedBusinessType = resolveBusinessTypeForSubmission(
+        selectedBusinessType,
+        data.offering,
+        businessTypes
+      );
 
-        const bySlug = businessTypes.find((bt) => String(bt.slug || '').toLowerCase() === raw.toLowerCase());
-        if (bySlug) return bySlug._id;
-
-        const normalized = raw.toLowerCase();
-        const supported = (SUPPORTED_OFFERING_VALUES as readonly string[]).includes(normalized);
-        if (supported) {
-          const byOffering = businessTypes.find((bt) => bt.suggestedListingType === normalized);
-          if (byOffering) return byOffering._id;
-        }
-
-        return '';
-      };
-
-      let resolvedBusinessTypeId = resolveBusinessTypeId();
-      if (!resolvedBusinessTypeId) {
-        // Best-effort: infer from offering (common when businessType was cleared after resume).
-        const offering = String(data.offering || '').toLowerCase();
-        const supported = (SUPPORTED_OFFERING_VALUES as readonly string[]).includes(offering);
-        if (supported) {
-          const match = businessTypes.find((bt) => bt.suggestedListingType === offering);
-          if (match) {
-            resolvedBusinessTypeId = match._id;
-            setData((prev) => ({ ...prev, businessType: match._id }));
-          }
-        }
+      if (!resolvedBusinessType) {
+        throw new Error(
+          t("onboarding.errors.invalidBusinessType") ||
+            "Invalid business type. Please select a valid business type."
+        );
       }
 
-      if (!resolvedBusinessTypeId) {
-        setStep(1);
-        throw new Error(t("onboarding.shop.selectBusinessType"));
+      if (resolvedBusinessType !== selectedBusinessType) {
+        setData((prev) => ({ ...prev, businessType: resolvedBusinessType }));
       }
 
+      // Debug logging for request payload
       const storedLat = Number(data.locationLat);
       const storedLng = Number(data.locationLng);
       const effectiveLat = liveLocation?.lat ?? (Number.isFinite(storedLat) ? storedLat : null);
@@ -651,9 +682,18 @@ const Onboarding = () => {
         Number.isFinite(effectiveLat) &&
         Number.isFinite(effectiveLng);
 
+      const finalBusinessType = resolvedBusinessType;
+      console.log("[Onboarding] Creating business with payload:", {
+        name: data.shop_name,
+        rawBusinessType: selectedBusinessType,
+        resolvedBusinessType: finalBusinessType,
+        offering: data.offering,
+        hasEffectiveCoords,
+      });
+
       const businessData = {
         name: data.shop_name,
-        businessType: resolvedBusinessTypeId, // BusinessType ID
+        businessType: finalBusinessType, // BusinessType ID (validated)
         phone: data.phone,
         whatsapp: data.phone,
         email: data.email,
@@ -672,6 +712,9 @@ const Onboarding = () => {
             : {}),
         },
       };
+
+      // Console logging the full request payload for debugging
+      console.log("[Onboarding] API Request Payload:", JSON.stringify(businessData, null, 2));
 
       const businessResponse = await businessApi.createBusiness(businessData);
 

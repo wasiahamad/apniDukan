@@ -52,7 +52,14 @@ router.post(
 router.post(
 	'/login',
 	validate([
-		body('email').isEmail().withMessage('Valid email is required'),
+		oneOf(
+			[
+				body('identifier').trim().notEmpty().withMessage('Email or phone is required'),
+				body('email').isEmail().withMessage('Valid email is required'),
+				body('phone').matches(/^[0-9]{10}$/).withMessage('Valid 10-digit phone number is required'),
+			],
+			'Email or phone is required'
+		),
 		body('password').notEmpty().withMessage('Password is required'),
 	]),
 	authController.login
@@ -60,7 +67,14 @@ router.post(
 router.post(
 	'/login/customer',
 	validate([
-		body('email').isEmail().withMessage('Valid email is required'),
+		oneOf(
+			[
+				body('identifier').trim().notEmpty().withMessage('Email or phone is required'),
+				body('email').isEmail().withMessage('Valid email is required'),
+				body('phone').matches(/^[0-9]{10}$/).withMessage('Valid 10-digit phone number is required'),
+			],
+			'Email or phone is required'
+		),
 		body('password').notEmpty().withMessage('Password is required'),
 	]),
 	authController.loginCustomer

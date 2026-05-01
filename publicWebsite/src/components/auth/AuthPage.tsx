@@ -17,6 +17,8 @@ type AuthPageProps = {
 type LocationState = {
   from?: {
     pathname?: string;
+    search?: string;
+    hash?: string;
   };
 };
 
@@ -33,6 +35,13 @@ export default function AuthPage({ initialMode = "login" }: AuthPageProps) {
 
   const state = location.state as LocationState | null;
 
+  const getRedirectTo = () => {
+    const pathname = state?.from?.pathname || "/account";
+    const search = state?.from?.search || "";
+    const hash = state?.from?.hash || "";
+    return `${pathname}${search}${hash}`;
+  };
+
   const handleForgotPassword = () => {
     toast({
       title: "Forgot password",
@@ -40,17 +49,17 @@ export default function AuthPage({ initialMode = "login" }: AuthPageProps) {
     });
   };
 
-  const handleLogin = async (payload: { email: string; password: string; rememberMe: boolean }) => {
+  const handleLogin = async (payload: { identifier: string; password: string; rememberMe: boolean }) => {
     setIsSubmitting(true);
     try {
-      await login({ email: payload.email, password: payload.password });
+      await login({ identifier: payload.identifier, password: payload.password });
       if (payload.rememberMe) {
-        localStorage.setItem("publicdukan-remember-email", payload.email);
+        localStorage.setItem("publicdukan-remember-email", payload.identifier);
       } else {
         localStorage.removeItem("publicdukan-remember-email");
       }
       toast({ title: "Welcome back", description: "You are now logged in." });
-      navigate(state?.from?.pathname || "/account", { replace: true });
+      navigate(getRedirectTo(), { replace: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to login right now";
       toast({ title: "Login failed", description: message, variant: "destructive" });
@@ -83,7 +92,7 @@ export default function AuthPage({ initialMode = "login" }: AuthPageProps) {
     try {
       await socialLogin(provider);
       toast({ title: "Success", description: `Signed in with ${provider}.` });
-      navigate("/account", { replace: true });
+      navigate(getRedirectTo(), { replace: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : `Unable to continue with ${provider}`;
       toast({ title: "Social login failed", description: message, variant: "destructive" });
@@ -125,7 +134,7 @@ export default function AuthPage({ initialMode = "login" }: AuthPageProps) {
                 isLoading={isSubmitting}
                 onSubmit={handleLogin}
                 onForgotPassword={handleForgotPassword}
-                defaultEmail={rememberedEmail}
+                defaultIdentifier={rememberedEmail}
               />
             ) : (
               <SignupForm isLoading={isSubmitting} onSubmit={handleSignup} />

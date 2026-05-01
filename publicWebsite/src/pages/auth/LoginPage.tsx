@@ -14,6 +14,8 @@ import { useTranslation } from "react-i18next";
 type LocationState = {
   from?: {
     pathname?: string;
+    search?: string;
+    hash?: string;
   };
   authRequired?: boolean;
 };
@@ -42,6 +44,13 @@ export default function LoginPage() {
 
   const state = location.state as LocationState | null;
 
+  const getRedirectTo = () => {
+    const pathname = state?.from?.pathname || "/account";
+    const search = state?.from?.search || "";
+    const hash = state?.from?.hash || "";
+    return `${pathname}${search}${hash}`;
+  };
+
   useEffect(() => {
     if (!state?.authRequired) return;
     toast({
@@ -56,9 +65,9 @@ export default function LoginPage() {
     const trimmedEmail = email.trim();
 
     if (!trimmedEmail) {
-      nextErrors.email = t("auth.validation.emailRequired");
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-      nextErrors.email = t("auth.validation.emailInvalid");
+      nextErrors.email = "Email or phone number is required";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail) && !/^\d{10}$/.test(trimmedEmail)) {
+      nextErrors.email = "Enter a valid email address or 10-digit phone number";
     }
 
     if (!password) {
@@ -76,15 +85,17 @@ export default function LoginPage() {
 
     setIsSubmitting(true);
     try {
-      await login({ email: email.trim(), password });
+      await login({ identifier: email.trim(), password });
       toast({ title: t("auth.login.toast.welcomeTitle"), description: t("auth.login.toast.welcomeDesc") });
-      const redirectTo = state?.from?.pathname || "/account";
+      const redirectTo = getRedirectTo();
       navigate(redirectTo, { replace: true });
     } catch (error) {
       const anyErr: any = error;
       if (anyErr?.code === "EMAIL_NOT_VERIFIED") {
         setMode("verify");
         setVerifyOtp("");
+        const verificationEmail = anyErr?.details?.data?.email || email.trim();
+        setEmail(verificationEmail);
         toast({
           title: t("auth.login.toast.verifyEmailTitle"),
           description: t("auth.login.toast.verifyEmailDesc"),
@@ -123,7 +134,7 @@ export default function LoginPage() {
     try {
       await verifyEmailOtp({ email: trimmedEmail, otp: verifyOtp });
       toast({ title: t("auth.login.toast.verifiedTitle"), description: t("auth.login.toast.verifiedDesc") });
-      const redirectTo = state?.from?.pathname || "/account";
+      const redirectTo = getRedirectTo();
       navigate(redirectTo, { replace: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "OTP verification failed";
@@ -245,7 +256,7 @@ export default function LoginPage() {
     try {
       await socialLogin(provider);
       toast({ title: t("auth.toast.successTitle"), description: t("auth.toast.socialSuccessDesc", { provider }) });
-      const redirectTo = state?.from?.pathname || "/account";
+      const redirectTo = getRedirectTo();
       navigate(redirectTo, { replace: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : `Unable to login with ${provider}`;
@@ -275,16 +286,17 @@ export default function LoginPage() {
             {mode !== "forgot" ? (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="login-email">{t("auth.login.email")}</Label>
+                  <Label htmlFor="login-email">Email or phone</Label>
                   <div className="relative">
                     <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       id="login-email"
-                      type="email"
+                      type="text"
                       className="h-12 pl-10"
-                      placeholder="you@example.com"
+                      placeholder="you@example.com or 10-digit phone"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
+                      autoComplete="username"
                     />
                   </div>
                   {errors.email ? <p className="text-xs text-red-600">{errors.email}</p> : null}
@@ -361,7 +373,7 @@ export default function LoginPage() {
             ) : (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="forgot-email">{t("auth.login.email")}</Label>
+                  <Label htmlFor="forgot-email">Email</Label>
                   <Input
                     id="forgot-email"
                     type="email"

@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { BookingSlot, BookingSlotTemplate, Business, BusinessType, Listing } from '../models/index.js';
 import { getEffectiveEntitlementsForBusiness } from '../services/entitlementsService.js';
+import { sendBookingConfirmationEmail } from '../services/emailService.js';
 
 /**
  * BOOKING CONTROLLER - Appointment/slot management
@@ -636,6 +637,22 @@ export const bookSlotBySlug = async (req, res) => {
     );
 
     if (updated) {
+      if (resolvedCustomerEmail && resolvedCustomerEmail.includes('@')) {
+        await sendBookingConfirmationEmail({
+          to: resolvedCustomerEmail,
+          bookingId: String(updated._id),
+          customerName: resolvedCustomerName,
+          serviceName: business.name || 'Service Booking',
+          bookingDate: updated.date,
+          bookingTime: `${updated.startTime}-${updated.endTime}`,
+          location: business?.address?.city || business.name || 'At business location',
+          amount: Number(updated.price || 0),
+          userId: req.user?._id,
+          businessId: business._id,
+        }).catch((err) => {
+          console.warn('Booking confirmation email failed:', err?.message || err);
+        });
+      }
       return res.status(200).json({ success: true, message: 'Slot booked successfully', data: updated });
     }
 
@@ -660,6 +677,23 @@ export const bookSlotBySlug = async (req, res) => {
       price: match.price,
       notes: match.notes,
     });
+
+    if (resolvedCustomerEmail && resolvedCustomerEmail.includes('@')) {
+      await sendBookingConfirmationEmail({
+        to: resolvedCustomerEmail,
+        bookingId: String(created._id),
+        customerName: resolvedCustomerName,
+        serviceName: business.name || 'Service Booking',
+        bookingDate: created.date,
+        bookingTime: `${created.startTime}-${created.endTime}`,
+        location: business?.address?.city || business.name || 'At business location',
+        amount: Number(created.price || 0),
+        userId: req.user?._id,
+        businessId: business._id,
+      }).catch((err) => {
+        console.warn('Booking confirmation email failed:', err?.message || err);
+      });
+    }
 
     return res.status(200).json({ success: true, message: 'Slot booked successfully', data: created });
   } catch (error) {
@@ -752,6 +786,23 @@ export const bookSlot = async (req, res) => {
       return res.status(409).json({
         success: false,
         message: 'This slot has already been booked',
+      });
+    }
+
+    if (resolvedCustomerEmail && resolvedCustomerEmail.includes('@')) {
+      await sendBookingConfirmationEmail({
+        to: resolvedCustomerEmail,
+        bookingId: String(bookedSlot._id),
+        customerName: resolvedCustomerName,
+        serviceName: bookedSlot?.business?.name || 'Service Booking',
+        bookingDate: bookedSlot.date,
+        bookingTime: `${bookedSlot.startTime}-${bookedSlot.endTime}`,
+        location: bookedSlot?.business?.name || 'At business location',
+        amount: Number(bookedSlot.price || 0),
+        userId: req.user?._id,
+        businessId: bookedSlot?.business?._id || slot.business,
+      }).catch((err) => {
+        console.warn('Booking confirmation email failed:', err?.message || err);
       });
     }
 

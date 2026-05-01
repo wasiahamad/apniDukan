@@ -69,6 +69,24 @@ const clearPendingRegistration = async (email) => {
 };
 
 const normalizeEmail = (email = '') => String(email).trim().toLowerCase();
+const normalizePhone = (phone = '') => String(phone).replace(/\D/g, '').slice(-10);
+
+const resolveLoginIdentifier = (body = {}) => {
+  const raw = body.identifier ?? body.email ?? body.phone;
+  const value = String(raw || '').trim();
+  if (!value) return null;
+
+  if (value.includes('@')) {
+    return { email: normalizeEmail(value), phone: null };
+  }
+
+  const phone = normalizePhone(value);
+  if (phone.length === 10) {
+    return { email: null, phone };
+  }
+
+  return null;
+};
 
 const generateTokens = (userId) => {
   const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET, {
@@ -644,9 +662,18 @@ export const resendEmailOtp = async (req, res) => {
 // @access  Public
 export const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { password } = req.body;
+    const loginIdentifier = resolveLoginIdentifier(req.body);
 
-    const user = await User.findOne({ email: normalizeEmail(email) }).select('+password');
+    if (!loginIdentifier) {
+      return res.status(400).json({ success: false, message: 'Email or phone is required' });
+    }
+
+    const user = await User.findOne(
+      loginIdentifier.email
+        ? { email: loginIdentifier.email }
+        : { phone: loginIdentifier.phone }
+    ).select('+password');
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
@@ -661,6 +688,7 @@ export const login = async (req, res) => {
         success: false,
         message: 'Email not verified. Please verify OTP first.',
         code: 'EMAIL_NOT_VERIFIED',
+        data: { email: user.email },
       });
     }
 
@@ -693,9 +721,18 @@ export const login = async (req, res) => {
 // @access  Public
 export const loginCustomer = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { password } = req.body;
+    const loginIdentifier = resolveLoginIdentifier(req.body);
 
-    const user = await User.findOne({ email: normalizeEmail(email) }).select('+password');
+    if (!loginIdentifier) {
+      return res.status(400).json({ success: false, message: 'Email or phone is required' });
+    }
+
+    const user = await User.findOne(
+      loginIdentifier.email
+        ? { email: loginIdentifier.email }
+        : { phone: loginIdentifier.phone }
+    ).select('+password');
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
@@ -717,6 +754,7 @@ export const loginCustomer = async (req, res) => {
         success: false,
         message: 'Email not verified. Please verify OTP first.',
         code: 'EMAIL_NOT_VERIFIED',
+        data: { email: user.email },
       });
     }
 
