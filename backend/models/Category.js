@@ -88,6 +88,11 @@ categorySchema.pre('save', async function (next) {
     return next();
   }
 
+  // If name is not a string, skip slug generation
+  if (typeof this.name !== 'string' || !this.name.trim()) {
+    return next();
+  }
+
   try {
     let baseSlug = slugify(this.name, {
       lower: true,

@@ -313,6 +313,11 @@ businessSchema.pre('save', async function (next) {
     return next();
   }
 
+  // If name is not a string, skip slug generation
+  if (typeof this.name !== 'string' || !this.name.trim()) {
+    return next();
+  }
+
   try {
     // Generate base slug
     let baseSlug = slugify(this.name, {
