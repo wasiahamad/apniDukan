@@ -135,10 +135,6 @@ async function requestSocialAuth(provider: SocialProvider): Promise<{ accessToke
   const facebookAppId = (import.meta.env.VITE_FACEBOOK_APP_ID as string | undefined)?.trim();
 
   if (provider === "google") {
-    if (!googleClientId) {
-      throw new Error("Google login is not configured (VITE_GOOGLE_CLIENT_ID missing)");
-    }
-
     // Use server-side OAuth redirect to avoid origin_mismatch for subdomains.
     // Build a redirect back to our current origin (including path/search/hash)
     const currentUrl = window.location.href;

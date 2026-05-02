@@ -628,7 +628,6 @@ export default function AccountPage() {
     const locationMarkerRef = useRef<any>(null);
     const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
-    const googleClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim();
     const facebookAppId = (import.meta.env.VITE_FACEBOOK_APP_ID as string | undefined)?.trim();
     const mapsKey = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined)?.trim();
 
