@@ -254,7 +254,8 @@ export default function LoginPage() {
   const onSocialLogin = async (provider: "google" | "facebook") => {
     setSocialLoading(provider);
     try {
-      await socialLogin(provider);
+      const completed = await socialLogin(provider);
+      if (!completed) return;
       toast({ title: t("auth.toast.successTitle"), description: t("auth.toast.socialSuccessDesc", { provider }) });
       const redirectTo = getRedirectTo();
       navigate(redirectTo, { replace: true });

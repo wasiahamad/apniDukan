@@ -111,6 +111,9 @@ router.post(
 	]),
 	authController.googleLogin
 );
+// Server-side OAuth endpoints for multi-tenant flow
+router.get('/oauth/google/start', authController.oauthGoogleStart);
+router.get('/oauth/google/callback', authController.oauthGoogleCallback);
 router.post(
 	'/social/facebook',
 	validate([body('accessToken').notEmpty().withMessage('Facebook accessToken is required')]),

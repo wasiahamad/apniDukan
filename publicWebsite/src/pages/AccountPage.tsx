@@ -1058,7 +1058,8 @@ export default function AccountPage() {
         setError("");
         setSocialLoading(true);
         try {
-            await socialLogin("google");
+            const completed = await socialLogin("google");
+            if (!completed) return;
             setCurrentUser(getStoredUser());
             toast({ title: t("account.toasts.successTitle"), description: t("account.auth.social.signedInWith", { provider: "Google" }) });
         } catch (e: any) {
@@ -1074,7 +1075,8 @@ export default function AccountPage() {
         setError("");
         setSocialLoading(true);
         try {
-            await socialLogin("facebook");
+            const completed = await socialLogin("facebook");
+            if (!completed) return;
             setCurrentUser(getStoredUser());
             toast({ title: t("account.toasts.successTitle"), description: t("account.auth.social.signedInWith", { provider: "Facebook" }) });
         } catch (e: any) {

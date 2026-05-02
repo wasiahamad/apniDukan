@@ -1,6 +1,6 @@
 import { API_BASE_URL } from "@/lib/publicShopsApi";
 import type { AuthUser, LoginPayload, SignupPayload, SocialProvider } from "@/types/auth";
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 type AuthContextValue = {
   user: AuthUser | null;
@@ -11,7 +11,7 @@ type AuthContextValue = {
   signup: (payload: SignupPayload) => Promise<{ verificationRequired: boolean; email?: string; otpExpiresInMinutes?: number }>;
   verifyEmailOtp: (payload: { email: string; otp: string }) => Promise<void>;
   resendEmailOtp: (payload: { email: string }) => Promise<{ otpExpiresInMinutes?: number }>;
-  socialLogin: (provider: SocialProvider) => Promise<void>;
+  socialLogin: (provider: SocialProvider) => Promise<boolean>;
   updateUser: (fields: Partial<AuthUser>) => void;
   logout: () => void;
 };
@@ -131,8 +131,7 @@ async function loadFacebookScript() {
   });
 }
 
-async function requestSocialAuth(provider: SocialProvider) {
-  const googleClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim();
+async function requestSocialAuth(provider: SocialProvider): Promise<{ accessToken: string; refreshToken?: string; user: AuthUser } | null> {
   const facebookAppId = (import.meta.env.VITE_FACEBOOK_APP_ID as string | undefined)?.trim();
 
   if (provider === "google") {
@@ -140,109 +139,12 @@ async function requestSocialAuth(provider: SocialProvider) {
       throw new Error("Google login is not configured (VITE_GOOGLE_CLIENT_ID missing)");
     }
 
-    await loadGoogleScript();
-    const google = (window as any).google;
-    // Prefer Sign-In with Google ID token (no redirect_uri issues), fallback to OAuth access token.
-    const tryIdToken = async (): Promise<{ idToken: string } | null> => {
-      if (!google?.accounts?.id?.initialize || !google?.accounts?.id?.prompt) return null;
-
-      try {
-        const idToken = await new Promise<string>((resolve, reject) => {
-          let settled = false;
-
-          google.accounts.id.initialize({
-            client_id: googleClientId,
-            auto_select: false,
-            cancel_on_tap_outside: false,
-            callback: (response: any) => {
-              settled = true;
-              const credential = response?.credential;
-              if (!credential) {
-                reject(new Error("Google credential not received"));
-                return;
-              }
-              resolve(String(credential));
-            },
-          });
-
-          google.accounts.id.prompt((notification: any) => {
-            if (notification?.isNotDisplayed?.() || notification?.isSkippedMoment?.()) {
-              if (!settled) {
-                settled = true;
-                reject(new Error("Google prompt not available"));
-              }
-            }
-          });
-
-          window.setTimeout(() => {
-            if (!settled) reject(new Error("Google login timed out or cancelled"));
-          }, 20000);
-        });
-
-        return { idToken };
-      } catch {
-        return null;
-      }
-    };
-
-    const idTokenPayload = await tryIdToken();
-    let response: Response;
-
-    if (idTokenPayload) {
-      response = await fetch(`${API_BASE_URL}/auth/social/google/customer`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(idTokenPayload),
-      });
-    } else {
-      if (!google?.accounts?.oauth2?.initTokenClient) {
-        throw new Error("Google SDK unavailable");
-      }
-
-      const accessToken = await new Promise<string>((resolve, reject) => {
-        let settled = false;
-        const tokenClient = google.accounts.oauth2.initTokenClient({
-          client_id: googleClientId,
-          scope: "openid email profile",
-          callback: (tokenResponse: any) => {
-            settled = true;
-            if (tokenResponse?.error) {
-              reject(new Error(tokenResponse.error_description || tokenResponse.error || "Google auth failed"));
-              return;
-            }
-            if (!tokenResponse?.access_token) {
-              reject(new Error("Google access token not received"));
-              return;
-            }
-            resolve(tokenResponse.access_token);
-          },
-        });
-
-        tokenClient.requestAccessToken({ prompt: "consent" });
-        window.setTimeout(() => {
-          if (!settled) reject(new Error("Google login timed out or cancelled"));
-        }, 20000);
-      });
-
-      response = await fetch(`${API_BASE_URL}/auth/social/google/customer`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessToken }),
-      });
-    }
-
-    const json = await response.json();
-    const authData = json?.data;
-
-    if (!response.ok || !json?.success || !authData?.accessToken || !authData?.user) {
-      throw new Error(json?.message || "Google authentication failed");
-    }
-
-    if (authData.user.role !== "customer") {
-      throw new Error("Only customer login is allowed in PublicDukan website");
-    }
-
-    return authData as { accessToken: string; refreshToken?: string; user: AuthUser };
+    // Use server-side OAuth redirect to avoid origin_mismatch for subdomains.
+    // Build a redirect back to our current origin (including path/search/hash)
+    const currentUrl = window.location.href;
+    const redirectParam = encodeURIComponent(currentUrl);
+    window.location.href = `${API_BASE_URL}/auth/oauth/google/start?redirect=${redirectParam}`;
+    return null;
   }
 
   if (!facebookAppId) {
@@ -306,6 +208,21 @@ function persistAuthSession(authData: { accessToken: string; refreshToken?: stri
   window.dispatchEvent(new Event(AUTH_EVENT));
 }
 
+async function fetchCurrentUser(accessToken: string) {
+  const response = await fetch(`${API_BASE_URL}/auth/me`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  const json = await response.json();
+  if (!response.ok || !json?.success || !json?.data) {
+    throw new Error(json?.message || "Failed to load authenticated user");
+  }
+
+  return normalizeUser(json.data);
+}
+
 function clearAuthSession() {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
@@ -350,6 +267,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(readStoredUser());
     setToken(localStorage.getItem(ACCESS_TOKEN_KEY));
   }, []);
+
+  useEffect(() => {
+    const hash = window.location.hash.replace(/^#/, "");
+    if (!hash) return;
+
+    const params = new URLSearchParams(hash);
+    const accessToken = params.get("accessToken");
+    const refreshToken = params.get("refreshToken") || "";
+    if (!accessToken) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
+        localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+        const loadedUser = await fetchCurrentUser(accessToken);
+        if (cancelled || !loadedUser) return;
+
+        localStorage.setItem(USER_KEY, JSON.stringify(loadedUser));
+        window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
+        syncFromStorage();
+      } catch {
+        if (cancelled) return;
+        window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
+        syncFromStorage();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [syncFromStorage]);
 
   const login = useCallback(async (payload: LoginPayload) => {
     const useMockAuth = (import.meta.env.VITE_USE_MOCK_AUTH as string | undefined) === "true";
@@ -434,8 +384,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       authData = await requestSocialAuth(provider);
     }
 
+    if (!authData) return false;
+
     persistAuthSession(authData);
     syncFromStorage();
+    return true;
   }, [syncFromStorage]);
 
   const updateUser = useCallback((fields: Partial<AuthUser>) => {

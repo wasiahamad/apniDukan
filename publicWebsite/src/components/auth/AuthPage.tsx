@@ -90,7 +90,8 @@ export default function AuthPage({ initialMode = "login" }: AuthPageProps) {
   const handleSocial = async (provider: "google" | "facebook") => {
     setSocialLoading(provider);
     try {
-      await socialLogin(provider);
+      const completed = await socialLogin(provider);
+      if (!completed) return;
       toast({ title: "Success", description: `Signed in with ${provider}.` });
       navigate(getRedirectTo(), { replace: true });
     } catch (error) {

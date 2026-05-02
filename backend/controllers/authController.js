@@ -928,6 +928,116 @@ export const resendResetOtp = async (req, res) => {
   }
 };
 
+// ====== OAuth server-side flow (for multi-tenant subdomains) ======
+// Start Google OAuth: redirects to Google with a server-side redirect_uri
+export const oauthGoogleStart = async (req, res) => {
+  try {
+    const redirect = String(req.query.redirect || '').trim();
+    if (!redirect) return res.status(400).json({ success: false, message: 'redirect is required' });
+
+    // Only allow redirects to our public website domain (and its subdomains)
+    const allowedHost = new URL(process.env.PUBLIC_WEBSITE_URL || 'https://publicdukan.com').host;
+    let parsed;
+    try {
+      parsed = new URL(redirect);
+    } catch (e) {
+      return res.status(400).json({ success: false, message: 'Invalid redirect URL' });
+    }
+    const isAllowedHost = parsed.host === allowedHost || parsed.host.endsWith(`.${allowedHost}`);
+    if (!isAllowedHost) {
+      return res.status(400).json({ success: false, message: 'Redirect host not allowed' });
+    }
+
+    const state = jwt.sign({ redirect }, process.env.JWT_SECRET, { expiresIn: '10m' });
+
+    const redirectUri = `${(process.env.PUBLIC_WEBSITE_URL || 'https://publicdukan.com').replace(/\/$/, '')}/auth/google/callback`;
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      redirect_uri: redirectUri,
+      scope: ['openid', 'email', 'profile'].join(' '),
+      access_type: 'offline',
+      prompt: 'consent',
+      state,
+    });
+
+    return res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+  } catch (e) {
+    console.error('oauthGoogleStart error:', e);
+    return res.status(500).json({ success: false, message: e.message || 'OAuth start failed' });
+  }
+};
+
+// OAuth callback: exchange code, create/find user, then redirect back to original subdomain with tokens in hash
+export const oauthGoogleCallback = async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    if (!code || !state) return res.status(400).send('Missing code/state');
+
+    let decoded;
+    try {
+      decoded = jwt.verify(String(state), process.env.JWT_SECRET);
+    } catch (e) {
+      console.error('Invalid OAuth state', e);
+      return res.status(400).send('Invalid state');
+    }
+
+    const redirect = decoded?.redirect;
+    if (!redirect) return res.status(400).send('Missing redirect in state');
+
+    // Exchange code for tokens
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: String(code),
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: `${(process.env.PUBLIC_WEBSITE_URL || 'https://publicdukan.com').replace(/\/$/, '')}/auth/google/callback`,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    const tokenJson = await tokenRes.json();
+    if (!tokenRes.ok) {
+      console.error('Google token exchange failed', tokenJson);
+      return res.status(400).send('Google token exchange failed');
+    }
+
+    const idToken = tokenJson.id_token;
+    if (!idToken) return res.status(400).send('No id_token from Google');
+
+    // Verify id_token and map to internal identity
+    const identity = await verifyGoogleIdToken(idToken);
+    if (!identity || !identity.email) return res.status(400).send('Invalid Google identity');
+
+    // Create or find user and issue application tokens
+    const user = await socialLoginOrSignup({
+      provider: 'google',
+      providerId: identity.providerId,
+      email: identity.email,
+      name: identity.name,
+      profileImage: identity.profileImage,
+      desiredRole: 'customer',
+    });
+
+    const authData = loginResponse(user);
+
+    // Redirect back to original URL with tokens in hash (so they are not sent to server)
+    const dest = new URL(redirect);
+    // Attach tokens as fragment
+    const fragment = new URLSearchParams({ accessToken: authData.accessToken, refreshToken: authData.refreshToken || '' }).toString();
+    // Preserve any existing hash by prefixing
+    const hashSeparator = dest.hash ? '&' : '';
+    const finalUrl = `${dest.origin}${dest.pathname}${dest.search}#${fragment}${hashSeparator}${dest.hash.replace(/^#/, '')}`;
+
+    return res.redirect(finalUrl);
+  } catch (e) {
+    console.error('oauthGoogleCallback error:', e);
+    return res.status(500).send('OAuth callback failed');
+  }
+};
+
 // @desc    Reset password using OTP
 // @route   POST /api/auth/reset-password
 // @access  Public
