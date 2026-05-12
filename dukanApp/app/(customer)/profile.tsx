@@ -123,6 +123,14 @@ export default function ProfileScreen() {
         <View style={styles.card}>
           <MenuItem icon="calendar" label="My Bookings" onPress={() => router.push("/(customer)/bookings")} color={Colors.primary} />
           <View style={styles.divider} />
+          <MenuItem icon="map-pin" label="Browse Cities" onPress={() => router.push("/cities" as any)} color="#0284C7" />
+          <View style={styles.divider} />
+          <MenuItem icon="play-circle" label="Stories & Reels" onPress={() => router.push("/stories" as any)} color="#7C3AED" />
+          <View style={styles.divider} />
+          <MenuItem icon="gift" label="Referral Program" onPress={() => router.push("/referrals" as any)} color="#059669" />
+          <View style={styles.divider} />
+          <MenuItem icon="dollar-sign" label="Plans & Pricing" onPress={() => router.push("/pricing" as any)} color="#D97706" />
+          <View style={styles.divider} />
           <MenuItem icon="bell" label="Notifications" onPress={() => {}} color="#7C3AED" />
           <View style={styles.divider} />
           <MenuItem icon="lock" label="Change Password" onPress={() => router.push("/(customer)/change-password")} color={Colors.primary} />
@@ -139,6 +147,16 @@ export default function ProfileScreen() {
           </View>
         </View>
       )}
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>PUBLIC APP FEATURES</Text>
+        <View style={styles.featureBox}>
+          <View style={styles.featureRow}><Feather name="map-pin" size={16} color={Colors.primary} /><Text style={styles.featureText}>City-wise browsing with landmark images</Text></View>
+          <View style={styles.featureRow}><Feather name="search" size={16} color={Colors.primary} /><Text style={styles.featureText}>Search shops, categories and live listings</Text></View>
+          <View style={styles.featureRow}><Feather name="gift" size={16} color={Colors.primary} /><Text style={styles.featureText}>Referral code, earnings and wallet screens</Text></View>
+          <View style={styles.featureRow}><Feather name="play-circle" size={16} color={Colors.primary} /><Text style={styles.featureText}>Stories, reels and featured updates</Text></View>
+        </View>
+      </View>
 
       <View style={styles.section}>
         <View style={styles.card}>
@@ -254,6 +272,17 @@ const styles = StyleSheet.create({
   menuIcon: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   menuLabel: { flex: 1, fontFamily: "Manrope_500Medium", fontSize: 15, color: Colors.light.text },
   divider: { height: 1, backgroundColor: Colors.light.borderLight, marginLeft: 66 },
+  featureBox: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: Colors.light.borderLight,
+    padding: 16,
+    gap: 10,
+  },
+  featureRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  featureText: { flex: 1, fontFamily: "Manrope_500Medium", fontSize: 14, color: Colors.light.textSecondary },
 
   // Modal
   modalOverlay: {

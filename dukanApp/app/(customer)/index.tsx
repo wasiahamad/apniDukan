@@ -1,36 +1,18 @@
-import React, { useEffect, useState, useCallback } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TextInput,
-  Pressable,
-  RefreshControl,
-  Platform,
-  ScrollView,
-} from "react-native";
+import React, { useCallback } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform, FlatList } from "react-native";
 import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, { FadeIn } from "react-native-reanimated";
+import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import * as Location from "expo-location";
+import { SvgXml } from "react-native-svg";
+
 import Colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { BusinessCard, BusinessCardSkeleton } from "@/components/BusinessCard";
 import { apiRequest } from "@/utils/apiClient";
-
-const CATEGORIES = [
-  { id: "all", label: "All", icon: "grid" },
-  { id: "kirana", label: "Kirana", icon: "shopping-bag" },
-  { id: "restaurant", label: "Food", icon: "coffee" },
-  { id: "coaching", label: "Coaching", icon: "book-open" },
-  { id: "rental", label: "Rental", icon: "home" },
-  { id: "salon", label: "Salon", icon: "scissors" },
-  { id: "pharmacy", label: "Pharmacy", icon: "plus-circle" },
-];
+import { FEATURED_CATEGORIES, FEATURED_CITIES, FEATURE_STORIES, PUBLIC_FEATURES, getCityArtwork } from "@/utils/publicCatalog";
 
 type PublicShop = {
   _id: string;
@@ -75,29 +57,60 @@ function mapShopToCard(shop: PublicShop) {
   };
 }
 
-async function fetchBusinesses(category?: string, search?: string, coords?: { lat: number; lng: number } | null) {
+async function fetchBusinesses(category?: string, search?: string) {
   const params = new URLSearchParams();
   if (category && category !== "all") params.set("category", category);
   if (search && search.trim()) params.set("search", search.trim());
-  params.set("limit", "30");
+  params.set("limit", "16");
 
-  if (coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) {
-    params.set("lat", String(coords.lat));
-    params.set("lng", String(coords.lng));
+  try {
+    const data = await apiRequest<PublicShopList>(`/business/public/shops?${params.toString()}`);
+    return { data: data.shops.map(mapShopToCard) };
+  } catch {
+    return { data: [] };
   }
-
-  const data = await apiRequest<PublicShopList>(`/business/public/shops?${params.toString()}`);
-  return { data: data.shops.map(mapShopToCard) };
 }
 
-function CategoryPill({ item, selected, onPress }: { item: typeof CATEGORIES[0]; selected: boolean; onPress: () => void }) {
+function QuickAction({ icon, label, color, onPress }: { icon: string; label: string; color: string; onPress: () => void }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.pill, selected && styles.pillActive]}
-    >
-      <Feather name={item.icon as any} size={14} color={selected ? "#fff" : Colors.light.textSecondary} />
-      <Text style={[styles.pillText, selected && styles.pillTextActive]}>{item.label}</Text>
+    <Pressable onPress={onPress} style={styles.quickAction}>
+      <View style={[styles.quickIcon, { backgroundColor: `${color}18` }]}>
+        <Feather name={icon as any} size={18} color={color} />
+      </View>
+      <Text style={styles.quickLabel}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function SectionTitle({ title, subtitle, onPress, actionLabel }: { title: string; subtitle?: string; onPress?: () => void; actionLabel?: string }) {
+  return (
+    <View style={styles.sectionHeader}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.sectionTitle}>{title}</Text>
+        {subtitle ? <Text style={styles.sectionSubtitle}>{subtitle}</Text> : null}
+      </View>
+      {onPress && actionLabel ? (
+        <Pressable onPress={onPress}>
+          <Text style={styles.sectionAction}>{actionLabel}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function CityCard({ city }: { city: (typeof FEATURED_CITIES)[number] }) {
+  const xml = getCityArtwork(city.name);
+  return (
+    <Pressable onPress={() => router.push({ pathname: "/cities" as any, params: { city: city.slug } } as any)} style={styles.cityCard}>
+      <SvgXml xml={xml} width="100%" height="100%" style={StyleSheet.absoluteFillObject as any} />
+      <View style={styles.cityOverlay} />
+      <View style={styles.cityMeta}>
+        <Text style={styles.cityName}>{city.name}</Text>
+        <Text style={styles.cityText}>{city.shops} shops</Text>
+      </View>
+      <View style={[styles.cityPill, { backgroundColor: `${city.accent}22` }]}>
+        <Text style={[styles.cityPillText, { color: city.accent }]}>{city.landmark}</Text>
+      </View>
     </Pressable>
   );
 }
@@ -105,48 +118,15 @@ function CategoryPill({ item, selected, onPress }: { item: typeof CATEGORIES[0];
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const [selectedCat, setSelectedCat] = useState("all");
-  const [search, setSearch] = useState("");
-  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== "granted") return;
-
-        const pos = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-
-        if (cancelled) return;
-        const lat = pos?.coords?.latitude;
-        const lng = pos?.coords?.longitude;
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-
-        // Reduce refetch churn (GPS jitter) by rounding.
-        setCoords({ lat: Number(lat.toFixed(4)), lng: Number(lng.toFixed(4)) });
-      } catch {
-        // Ignore location errors; fall back to default listing.
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const { data, isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: ["businesses", selectedCat, search, coords?.lat ?? null, coords?.lng ?? null],
-    queryFn: () => fetchBusinesses(selectedCat, search, coords),
+  const { data, isLoading, refetch, isFetching } = useQuery({
+    queryKey: ["businesses", "home"],
+    queryFn: () => fetchBusinesses("all"),
     staleTime: 30000,
   });
 
-  const filtered = data?.data || [];
+  const featured = data?.data || [];
 
   const renderItem = useCallback(({ item }: any) => (
     <BusinessCard
@@ -157,163 +137,247 @@ export default function HomeScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: Colors.light.background }}>
-      {/* Header */}
-      <LinearGradient
-        colors={[Colors.primary, Colors.primaryDark]}
-        style={[styles.header, { paddingTop: topPad + 8 }]}
-      >
-        <View style={styles.headerTop}>
-          <View>
-            <Text style={styles.greeting}>Namaste, {user?.name?.split(" ")[0] || "Guest"}</Text>
-            <Text style={styles.headerSubtitle}>Discover local businesses</Text>
-          </View>
-          <Pressable
-            onPress={() => router.push("/(customer)/profile")}
-            style={styles.avatarBtn}
-          >
-            <Feather name="user" size={20} color={Colors.primary} />
-          </Pressable>
-        </View>
-
-        {/* Search Bar */}
-        <View style={styles.searchBar}>
-          <Feather name="search" size={18} color={Colors.light.textSecondary} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search shops, services..."
-            placeholderTextColor={Colors.light.textTertiary}
-            value={search}
-            onChangeText={setSearch}
-          />
-          {search.length > 0 && (
-            <Pressable onPress={() => setSearch("")}>
-              <Feather name="x" size={16} color={Colors.light.textSecondary} />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 110 }}>
+        <LinearGradient colors={[Colors.primary, Colors.primaryDark]} style={[styles.hero, { paddingTop: topPad + 10 }]}>
+          <View style={styles.heroTop}>
+            <View>
+              <Text style={styles.kicker}>PublicDukan</Text>
+              <Text style={styles.heroTitle}>Discover local shops, bookings and offers</Text>
+              <Text style={styles.heroSubtitle}>Namaste, {user?.name?.split(" ")[0] || "Guest"}. Explore everything publicWebsite has, inside the app.</Text>
+            </View>
+            <Pressable onPress={() => router.push("/(customer)/profile")} style={styles.avatarBtn}>
+              <Feather name="user" size={20} color={Colors.primary} />
             </Pressable>
+          </View>
+
+          <View style={styles.searchBarWrap}>
+            <Pressable onPress={() => router.push("/(customer)/search")} style={styles.searchBar}>
+              <Feather name="search" size={18} color={Colors.light.textSecondary} />
+              <Text style={styles.searchText}>Search shops, categories or cities</Text>
+            </Pressable>
+          </View>
+        </LinearGradient>
+
+        <View style={styles.body}>
+          <View style={styles.quickGrid}>
+            <QuickAction icon="map-pin" label="Cities" color={Colors.primary} onPress={() => router.push("/cities" as any)} />
+            <QuickAction icon="play-circle" label="Stories" color="#7C3AED" onPress={() => router.push("/stories" as any)} />
+            <QuickAction icon="gift" label="Referrals" color="#059669" onPress={() => router.push("/referrals" as any)} />
+            <QuickAction icon="dollar-sign" label="Pricing" color="#0284C7" onPress={() => router.push("/pricing" as any)} />
+          </View>
+
+          <SectionTitle title="Browse by City" subtitle="Landmark images, verified shops and nearby services." actionLabel="View all" onPress={() => router.push("/cities" as any)} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cityRow}>
+            {FEATURED_CITIES.map((city) => (
+              <CityCard key={city.slug} city={city} />
+            ))}
+          </ScrollView>
+
+          <SectionTitle title="Browse by Category" subtitle="The same categories you see on publicWebsite." />
+          <View style={styles.categoryGrid}>
+            {FEATURED_CATEGORIES.map((category) => (
+              <Pressable key={category.slug} onPress={() => router.push({ pathname: "/(customer)/search", params: { q: category.slug } })} style={styles.categoryCard}>
+                <View style={[styles.categoryIcon, { backgroundColor: `${category.accent}18` }]}>
+                  <Feather name={category.icon as any} size={18} color={category.accent} />
+                </View>
+                <Text style={styles.categoryName}>{category.name}</Text>
+                <Text style={styles.categoryHint}>{category.hint}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <SectionTitle title="Public Features" subtitle="Everything the web app exposes, now surfaced in mobile." />
+          <View style={styles.featureList}>
+            {PUBLIC_FEATURES.map((feature) => (
+              <View key={feature.title} style={styles.featureCard}>
+                <View style={styles.featureIcon}>
+                  <Feather name={feature.icon as any} size={18} color={Colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.featureTitle}>{feature.title}</Text>
+                  <Text style={styles.featureSubtitle}>{feature.subtitle}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          <SectionTitle title="Featured businesses" subtitle="Live data from the backend, if available." onPress={() => router.push("/(customer)/search")} actionLabel="Search" />
+          {isLoading ? (
+            <View style={{ gap: 12 }}>
+              {[1, 2, 3].map((i) => <BusinessCardSkeleton key={i} />)}
+            </View>
+          ) : featured.length === 0 ? (
+            <Animated.View entering={FadeIn} style={styles.emptyState}>
+              <Feather name="briefcase" size={32} color={Colors.light.textTertiary} />
+              <Text style={styles.emptyTitle}>No live businesses found</Text>
+              <Text style={styles.emptySubtitle}>The app still includes cities, stories, pricing and referral screens.</Text>
+            </Animated.View>
+          ) : (
+            <FlatList
+              data={featured}
+              renderItem={renderItem}
+              keyExtractor={(item: any) => item.id}
+              scrollEnabled={false}
+              contentContainerStyle={{ gap: 12 }}
+            />
           )}
         </View>
+      </ScrollView>
 
-        {/* Category Pills */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.pills}
-        >
-          {CATEGORIES.map(cat => (
-            <CategoryPill
-              key={cat.id}
-              item={cat}
-              selected={selectedCat === cat.id}
-              onPress={() => setSelectedCat(cat.id)}
-            />
-          ))}
-        </ScrollView>
-      </LinearGradient>
-
-      {/* Content */}
-      {isLoading ? (
-        <ScrollView contentContainerStyle={styles.listContent}>
-          {[1, 2, 3].map(i => <BusinessCardSkeleton key={i} />)}
-        </ScrollView>
-      ) : isError ? (
-        <Animated.View entering={FadeIn} style={styles.center}>
-          <Feather name="wifi-off" size={40} color={Colors.light.textTertiary} />
-          <Text style={styles.errorText}>Failed to load businesses</Text>
-          <Pressable onPress={() => refetch()} style={styles.retryBtn}>
-            <Text style={styles.retryText}>Try Again</Text>
-          </Pressable>
+      {!isLoading && isFetching ? (
+        <Animated.View entering={FadeInDown} style={styles.floatingRefresh}>
+          <Feather name="refresh-cw" size={14} color="#fff" />
+          <Text style={styles.floatingRefreshText}>Refreshing live shops…</Text>
         </Animated.View>
-      ) : filtered.length === 0 ? (
-        <Animated.View entering={FadeIn} style={styles.center}>
-          <Feather name="inbox" size={40} color={Colors.light.textTertiary} />
-          <Text style={styles.emptyText}>No businesses found</Text>
-          <Text style={styles.emptySubText}>Try a different category or search</Text>
-        </Animated.View>
-      ) : (
-        <FlatList
-          data={filtered}
-          renderItem={renderItem}
-          keyExtractor={(item: any) => item.id}
-          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 80 }]}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={isFetching && !isLoading}
-              onRefresh={refetch}
-              tintColor={Colors.primary}
-            />
-          }
-        />
-      )}
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
+  hero: {
     paddingHorizontal: 20,
-    paddingBottom: 16,
-    gap: 14,
+    paddingBottom: 24,
+    gap: 16,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
   },
-  headerTop: {
+  heroTop: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
+    gap: 16,
   },
-  greeting: { fontFamily: "Sora_700Bold", fontSize: 22, color: "#fff" },
-  headerSubtitle: { fontFamily: "Manrope_400Regular", fontSize: 14, color: "rgba(255,255,255,0.75)", marginTop: 2 },
+  kicker: {
+    fontFamily: "Manrope_600SemiBold",
+    fontSize: 12,
+    color: "rgba(255,255,255,0.8)",
+    textTransform: "uppercase",
+    letterSpacing: 1.2,
+    marginBottom: 6,
+  },
+  heroTitle: {
+    fontFamily: "Sora_700Bold",
+    fontSize: 27,
+    lineHeight: 34,
+    color: "#fff",
+    maxWidth: 260,
+  },
+  heroSubtitle: {
+    marginTop: 10,
+    fontFamily: "Manrope_400Regular",
+    fontSize: 14,
+    lineHeight: 21,
+    color: "rgba(255,255,255,0.82)",
+    maxWidth: 320,
+  },
   avatarBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#fff",
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "rgba(255,255,255,0.92)",
     alignItems: "center",
     justifyContent: "center",
   },
+  searchBarWrap: { marginTop: 6 },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    paddingHorizontal: 14,
+    gap: 10,
     height: 50,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    backgroundColor: "rgba(255,255,255,0.95)",
+  },
+  searchText: { fontFamily: "Manrope_500Medium", fontSize: 14, color: Colors.light.textSecondary },
+  body: { paddingHorizontal: 16, paddingTop: 18, gap: 18 },
+  quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  quickAction: {
+    width: "48.2%",
+    borderRadius: 18,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: Colors.light.borderLight,
+    padding: 14,
     gap: 10,
   },
-  searchInput: {
-    flex: 1,
-    fontFamily: "Manrope_500Medium",
-    fontSize: 15,
-    color: Colors.light.text,
-    height: "100%",
+  quickIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  quickLabel: { fontFamily: "Manrope_600SemiBold", fontSize: 14, color: Colors.light.text },
+  sectionHeader: { flexDirection: "row", alignItems: "flex-end", gap: 12 },
+  sectionTitle: { fontFamily: "Sora_700Bold", fontSize: 18, color: Colors.light.text },
+  sectionSubtitle: { marginTop: 4, fontFamily: "Manrope_400Regular", fontSize: 13, color: Colors.light.textSecondary },
+  sectionAction: { fontFamily: "Manrope_600SemiBold", fontSize: 13, color: Colors.primary },
+  cityRow: { gap: 12, paddingRight: 12 },
+  cityCard: {
+    width: 230,
+    height: 180,
+    borderRadius: 22,
+    overflow: "hidden",
+    backgroundColor: Colors.light.surface,
+    borderWidth: 1,
+    borderColor: Colors.light.borderLight,
+    justifyContent: "flex-end",
   },
-  pills: { gap: 8, paddingRight: 4 },
-  pill: {
+  cityOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15, 23, 42, 0.18)" },
+  cityMeta: { position: "absolute", left: 14, bottom: 18, right: 14 },
+  cityName: { fontFamily: "Sora_700Bold", fontSize: 18, color: "#fff" },
+  cityText: { fontFamily: "Manrope_400Regular", fontSize: 13, color: "rgba(255,255,255,0.88)", marginTop: 2 },
+  cityPill: {
+    position: "absolute",
+    top: 14,
+    left: 14,
+    right: 14,
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    alignSelf: "flex-start",
+  },
+  cityPillText: { fontFamily: "Manrope_600SemiBold", fontSize: 11 },
+  categoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  categoryCard: {
+    width: "48.2%",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: Colors.light.borderLight,
+    borderRadius: 18,
+    padding: 14,
+    gap: 8,
+  },
+  categoryIcon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  categoryName: { fontFamily: "Sora_600SemiBold", fontSize: 15, color: Colors.light.text },
+  categoryHint: { fontFamily: "Manrope_400Regular", fontSize: 12, color: Colors.light.textSecondary, lineHeight: 17 },
+  featureList: { gap: 10 },
+  featureCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)",
-  },
-  pillActive: {
+    gap: 12,
     backgroundColor: "#fff",
-    borderColor: "#fff",
+    borderWidth: 1,
+    borderColor: Colors.light.borderLight,
+    borderRadius: 18,
+    padding: 14,
   },
-  pillText: { fontFamily: "Manrope_600SemiBold", fontSize: 13, color: "rgba(255,255,255,0.85)" },
-  pillTextActive: { color: Colors.primary },
-  listContent: { paddingHorizontal: 16, paddingTop: 16 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
-  errorText: { fontFamily: "Manrope_600SemiBold", fontSize: 16, color: Colors.light.textSecondary },
-  emptyText: { fontFamily: "Sora_600SemiBold", fontSize: 18, color: Colors.light.text },
-  emptySubText: { fontFamily: "Manrope_400Regular", fontSize: 14, color: Colors.light.textSecondary },
-  retryBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+  featureIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: `${Colors.primary}18`, alignItems: "center", justifyContent: "center" },
+  featureTitle: { fontFamily: "Manrope_700Bold", fontSize: 14, color: Colors.light.text },
+  featureSubtitle: { fontFamily: "Manrope_400Regular", fontSize: 12, color: Colors.light.textSecondary, marginTop: 2, lineHeight: 17 },
+  emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: 24, paddingHorizontal: 20, gap: 8 },
+  emptyTitle: { fontFamily: "Sora_600SemiBold", fontSize: 16, color: Colors.light.text },
+  emptySubtitle: { fontFamily: "Manrope_400Regular", fontSize: 13, color: Colors.light.textSecondary, textAlign: "center" },
+  floatingRefresh: {
+    position: "absolute",
+    right: 16,
+    bottom: 16,
+    flexDirection: "row",
+    gap: 6,
+    alignItems: "center",
     backgroundColor: Colors.primary,
-    borderRadius: 10,
-    marginTop: 4,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 4,
   },
-  retryText: { fontFamily: "Manrope_600SemiBold", fontSize: 14, color: "#fff" },
+  floatingRefreshText: { color: "#fff", fontFamily: "Manrope_600SemiBold", fontSize: 12 },
 });

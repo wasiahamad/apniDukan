@@ -12,58 +12,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { buildPlanFeatureSummary } from "@/lib/planFeatures";
 
 const SUPPORTED_OFFERING_VALUES = ["product", "service", "food", "course", "rental"] as const;
-const OFFERING_LABEL_TO_ENUM: Record<string, (typeof SUPPORTED_OFFERING_VALUES)[number]> = {
-  product: "product",
-  products: "product",
-  service: "service",
-  services: "service",
-  food: "food",
-  foods: "food",
-  course: "course",
-  courses: "course",
-  rental: "rental",
-  rentals: "rental",
-};
-
-const normalizeOfferingValue = (value: string) => {
-  const normalized = String(value || "").trim().toLowerCase();
-  if ((SUPPORTED_OFFERING_VALUES as readonly string[]).includes(normalized)) {
-    return normalized as (typeof SUPPORTED_OFFERING_VALUES)[number];
-  }
-  return OFFERING_LABEL_TO_ENUM[normalized] || "";
-};
-
-const resolveBusinessTypeForSubmission = (
-  selectedBusinessType: string,
-  offering: string,
-  businessTypes: BusinessType[]
-) => {
-  const rawSelection = String(selectedBusinessType || "").trim();
-  if (!rawSelection) return "";
-
-  const exactMatch = businessTypes.find((bt) => bt._id === rawSelection);
-  if (exactMatch) return exactMatch._id;
-
-  const slugMatch = businessTypes.find(
-    (bt) => String(bt.slug || "").toLowerCase() === rawSelection.toLowerCase()
-  );
-  if (slugMatch) return slugMatch._id;
-
-  const nameMatch = businessTypes.find(
-    (bt) => String(bt.name || "").trim().toLowerCase() === rawSelection.toLowerCase()
-  );
-  if (nameMatch) return nameMatch._id;
-
-  const normalizedOffering = normalizeOfferingValue(offering);
-  if (normalizedOffering) {
-    const offeringMatch = businessTypes.find(
-      (bt) => normalizeOfferingValue(bt.suggestedListingType || "") === normalizedOffering
-    );
-    if (offeringMatch) return offeringMatch._id;
-  }
-
-  return "";
-};
 
 const GoogleColorIcon = () => (
   <svg viewBox="0 0 24 24" className="w-4 h-4" aria-hidden="true">
@@ -284,7 +232,7 @@ const Onboarding = () => {
         // Fallback business types if API fails
         setBusinessTypes([
           { 
-            _id: "kirana-store", 
+            _id: "1", 
             name: "Kirana Store", 
             slug: "kirana-store", 
             description: "General grocery and daily essentials store",
@@ -296,7 +244,7 @@ const Onboarding = () => {
             updatedAt: "" 
           },
           { 
-            _id: "restaurant", 
+            _id: "2", 
             name: "Restaurant", 
             slug: "restaurant", 
             description: "Food service and dining establishment",
@@ -308,7 +256,7 @@ const Onboarding = () => {
             updatedAt: "" 
           },
           { 
-            _id: "coaching-center", 
+            _id: "3", 
             name: "Coaching Center", 
             slug: "coaching-center", 
             description: "Educational and training institute",
@@ -320,7 +268,7 @@ const Onboarding = () => {
             updatedAt: "" 
           },
           { 
-            _id: "salon-spa", 
+            _id: "4", 
             name: "Salon & Spa", 
             slug: "salon-spa", 
             description: "Beauty and wellness services",
@@ -341,36 +289,6 @@ const Onboarding = () => {
       fetchBusinessTypes();
     }
   }, [step]);
-
-  // If we resumed from sessionStorage or fallback IDs, ensure businessType points to a real backend BusinessType.
-  // - When businessType is invalid, try to map from offering -> suggestedListingType.
-  // - Otherwise, clear it so user is forced to select again.
-  useEffect(() => {
-    if (loadingBusinessTypes) return;
-    if (!businessTypes.length) return;
-    if (!data.businessType) return;
-
-    const hasExact = businessTypes.some((bt) => bt._id === data.businessType);
-    if (hasExact) return;
-
-    const bySlug = businessTypes.find((bt) => String(bt.slug || '').toLowerCase() === String(data.businessType).toLowerCase());
-    if (bySlug) {
-      setData((prev) => ({ ...prev, businessType: bySlug._id }));
-      return;
-    }
-
-    const offering = String(data.offering || '').toLowerCase();
-    const isSupported = (SUPPORTED_OFFERING_VALUES as readonly string[]).includes(offering);
-    if (isSupported) {
-      const match = businessTypes.find((bt) => bt.suggestedListingType === offering);
-      if (match) {
-        setData((prev) => ({ ...prev, businessType: match._id }));
-        return;
-      }
-    }
-
-    setData((prev) => ({ ...prev, businessType: '' }));
-  }, [loadingBusinessTypes, businessTypes, data.businessType, data.offering]);
 
   // Auto-select offering based on selected business type.
   // This keeps onboarding consistent with BusinessType.suggestedListingType.
@@ -653,22 +571,36 @@ const handleCreateBusinessAndContinue = async () => {
         throw new Error(t("onboarding.errors.verifyEmailFirst"));
       }
 
+      // Validate businessType before making API call
+      // The backend expects: MongoDB ObjectId OR slug OR suggestedListingType (lowercase)
       const selectedBusinessType = data.businessType;
-      const resolvedBusinessType = resolveBusinessTypeForSubmission(
-        selectedBusinessType,
-        data.offering,
-        businessTypes
-      );
-
-      if (!resolvedBusinessType) {
-        throw new Error(
-          t("onboarding.errors.invalidBusinessType") ||
-            "Invalid business type. Please select a valid business type."
+      
+      // Check if businessType is a valid selected value from loaded business types
+      const validBusinessType = businessTypes.find(bt => bt._id === selectedBusinessType);
+      
+      if (!validBusinessType) {
+        // Try matching by slug as fallback
+        const slugMatch = businessTypes.find(bt => 
+          String(bt.slug || '').toLowerCase() === String(selectedBusinessType).toLowerCase()
         );
-      }
-
-      if (resolvedBusinessType !== selectedBusinessType) {
-        setData((prev) => ({ ...prev, businessType: resolvedBusinessType }));
+        
+        if (!slugMatch) {
+          // Try matching by suggestedListingType as last resort
+          const offeringMatch = businessTypes.find(bt => 
+            String(bt.suggestedListingType || '').toLowerCase() === String(data.offering || '').toLowerCase()
+          );
+          
+          if (!offeringMatch) {
+            throw new Error(t("onboarding.errors.invalidBusinessType") || "Invalid business type. Please select a valid business type.");
+          }
+          
+          // Use the matched business type
+          setData(prev => ({ ...prev, businessType: offeringMatch._id }));
+          console.log("[Onboarding] Mapped offering to businessType:", { offering: data.offering, businessType: offeringMatch._id });
+        } else {
+          setData(prev => ({ ...prev, businessType: slugMatch._id }));
+          console.log("[Onboarding] Mapped slug to businessType:", { slug: selectedBusinessType, businessType: slugMatch._id });
+        }
       }
 
       // Debug logging for request payload
@@ -682,11 +614,11 @@ const handleCreateBusinessAndContinue = async () => {
         Number.isFinite(effectiveLat) &&
         Number.isFinite(effectiveLng);
 
-      const finalBusinessType = resolvedBusinessType;
+      // Get the validated businessType after any mapping
+      const finalBusinessType = data.businessType;
       console.log("[Onboarding] Creating business with payload:", {
         name: data.shop_name,
-        rawBusinessType: selectedBusinessType,
-        resolvedBusinessType: finalBusinessType,
+        businessType: finalBusinessType,
         offering: data.offering,
         hasEffectiveCoords,
       });
@@ -1345,15 +1277,7 @@ const handleCreateBusinessAndContinue = async () => {
                   <motion.button
                     key={o.value}
                     whileTap={{ scale: 0.97 }}
-                    onClick={() => {
-                      update("offering", o.value);
-                      // If businessType is missing/invalid (common on resume), infer from offering.
-                      const hasValid = !!data.businessType && businessTypes.some((bt) => bt._id === data.businessType);
-                      if (!hasValid) {
-                        const match = businessTypes.find((bt) => bt.suggestedListingType === o.value);
-                        if (match) update("businessType", match._id);
-                      }
-                    }}
+                    onClick={() => update("offering", o.value)}
                     className={`w-full px-4 py-4 rounded-xl text-left font-medium border transition-all flex items-center justify-between ${
                       data.offering === o.value
                         ? "bg-primary text-primary-foreground border-primary"

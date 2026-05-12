@@ -16,6 +16,7 @@ import StaggerChildren, { StaggerItem } from "@/components/StaggerChildren";
 import StoriesTray from "@/components/StoriesTray";
 import GlobalSearch from "@/components/GlobalSearch";
 import { fetchActiveStories, fetchBusinessTypes, fetchNearbyPublicShops, fetchPublicShops, fetchCityImages, fetchPlatformFeedbackStats } from "@/lib/publicShopsApi";
+import { getCityFallbackImage } from "@/lib/cityGroups";
 import { motion } from "framer-motion";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { getDukandarOnboardingUrl } from "@/lib/dukandarDashboard";
@@ -505,6 +506,13 @@ export default function HomePage() {
                             alt={city.name}
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                             loading="lazy"
+                            onError={(event) => {
+                              const target = event.currentTarget;
+                              if (!target.dataset.fallbackApplied) {
+                                target.dataset.fallbackApplied = "true";
+                                target.src = cityImages[city.name] || getCityFallbackImage(city.name);
+                              }
+                            }}
                             onLoad={(e) => {
                               (e.currentTarget as HTMLImageElement).classList.remove('animate-pulse');
                             }}

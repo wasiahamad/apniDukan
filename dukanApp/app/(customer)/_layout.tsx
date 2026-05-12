@@ -16,9 +16,17 @@ function NativeTabLayout() {
         <Icon sf={{ default: "house", selected: "house.fill" }} />
         <Label>Discover</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="cities">
+        <Icon sf={{ default: "mappin.and.ellipse", selected: "mappin.and.ellipse" }} />
+        <Label>Cities</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="search">
         <Icon sf={{ default: "magnifyingglass", selected: "magnifyingglass" }} />
         <Label>Search</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="stories">
+        <Icon sf={{ default: "play.rectangle", selected: "play.rectangle.fill" }} />
+        <Label>Stories</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="bookings">
         <Icon sf={{ default: "calendar", selected: ("calendar.fill" as any) }} />
@@ -71,11 +79,27 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
+        name="cities"
+        options={{
+          title: "Cities",
+          tabBarIcon: ({ color }) =>
+            isIOS ? <SymbolView name="mappin.and.ellipse" tintColor={color} size={22} /> : <Feather name="map-pin" size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="search"
         options={{
           title: "Search",
           tabBarIcon: ({ color }) =>
             isIOS ? <SymbolView name="magnifyingglass" tintColor={color} size={22} /> : <Feather name="search" size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="stories"
+        options={{
+          title: "Stories",
+          tabBarIcon: ({ color }) =>
+            isIOS ? <SymbolView name="play.rectangle" tintColor={color} size={22} /> : <Feather name="play-circle" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -98,6 +122,9 @@ function ClassicTabLayout() {
       {/* Hidden routes (should not appear as tabs) */}
       <Tabs.Screen name="booking" options={{ href: null }} />
       <Tabs.Screen name="business/[id]" options={{ href: null }} />
+      <Tabs.Screen name="pricing" options={{ href: null }} />
+      <Tabs.Screen name="referrals" options={{ href: null }} />
+      <Tabs.Screen name="wallet" options={{ href: null }} />
     </Tabs>
   );
 }

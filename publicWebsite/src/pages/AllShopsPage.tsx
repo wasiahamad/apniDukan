@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { groupCitiesFromShops } from "@/lib/cityGroups";
 import { fetchBusinessTypes, fetchNearbyPublicShops, fetchPublicShops } from "@/lib/publicShopsApi";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { useTranslation } from "react-i18next";
@@ -62,12 +63,15 @@ export default function AllShopsPage() {
 
       // If user applied filters, respect those first.
       if (hasManualFilters) {
-        return fetchPublicShops({
-          city: selectedCity !== "all" ? selectedCity : undefined,
-          category: selectedType !== "all" ? selectedType : undefined,
-          lat: location?.lat ?? undefined,
-          lng: location?.lng ?? undefined,
-        });
+        return (async () => {
+          const all = await fetchPublicShops();
+          return all.filter((shop) => {
+            const cityOk = selectedCity === "all" || shop.citySlug === selectedCity;
+            const typeOk = selectedType === "all" || shop.categorySlug === selectedType;
+            const openOk = !openOnly || shop.isOpen;
+            return cityOk && typeOk && openOk;
+          });
+        })();
       }
 
       // Default behavior: show nearest shops first (nearby), fallback to same-city.
@@ -112,12 +116,7 @@ export default function AllShopsPage() {
     },
   });
 
-  const cities = useMemo(() => {
-    const all = allShopsQuery.data || [];
-    const unique = [...new Set(all.map((s) => s.city).filter(Boolean))];
-    unique.sort((a, b) => a.localeCompare(b));
-    return unique;
-  }, [allShopsQuery.data]);
+  const cities = useMemo(() => groupCitiesFromShops(allShopsQuery.data || []), [allShopsQuery.data]);
 
   const businessTypes = useMemo(() => {
     return businessTypesQuery.data || [];

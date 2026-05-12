@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600" role="img" aria-label="Gogri">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#7c3aed" />
+    </linearGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#g1)" />
+  <g fill="#fff" opacity="0.9">
+    <rect x="48" y="360" width="704" height="140" rx="18" fill="#ffffff22" />
+  </g>
+  <text x="64" y="130" fill="#ffffff" font-family="Helvetica, Arial, sans-serif" font-size="56" font-weight="700">Gogri</text>
+  <text x="64" y="180" fill="#e6eef8" font-family="Helvetica, Arial, sans-serif" font-size="22">Discover local shops in Gogri</text>
+  <g transform="translate(520,220) scale(0.9)">
+    <circle cx="40" cy="40" r="40" fill="#ffffff44" />
+    <rect x="-10" y="110" width="220" height="16" rx="8" fill="#ffffff40" />
+    <rect x="14" y="68" width="152" height="88" rx="12" fill="#ffffff22" />
+  </g>
+</svg>

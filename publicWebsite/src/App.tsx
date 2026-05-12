@@ -25,7 +25,6 @@ import CategoriesPage from "./pages/CategoriesPage";
 import ForBusinessPage from "./pages/ForBusinessPage";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
-import GoogleOAuthLanding from "./pages/oauth/GoogleOAuthLanding";
 import PricingPage from "./pages/PricingPage";
 import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
 import ReferralProgramPage from "./pages/ReferralProgramPage";
@@ -78,7 +77,6 @@ const App = () => (
                   <Route path="shops/:category" element={<CityCategoryPage />} />
                   <Route path="dashboard/*" element={<DashboardRedirect />} />
                   <Route path="shop/:shopSlug" element={<ShopDetailGate><ShopPage /></ShopDetailGate>} />
-                  <Route path="auth/google/callback" element={<GoogleOAuthLanding />} />
                   <Route path=":shopSlug" element={<ShopOrCityPage />} />
                   <Route path="*" element={<NotFound />} />
                 </Route>

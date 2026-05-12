@@ -12,6 +12,7 @@ import PageTransition from "@/components/PageTransition";
 import StaggerChildren, { StaggerItem } from "@/components/StaggerChildren";
 import ScrollReveal from "@/components/ScrollReveal";
 import { fetchBusinessTypes, fetchPublicShops } from "@/lib/publicShopsApi";
+import { normalizeCitySlug } from "@/lib/cityGroups";
 import { useTranslation } from "react-i18next";
 
 const slugToCityLabel = (slug: string) =>
@@ -28,7 +29,7 @@ export default function CityPage() {
 
   const shopsQuery = useQuery({
     queryKey: ["public-shops-city", i18n.language, slug],
-    queryFn: () => fetchPublicShops({ city: slugToCityLabel(slug) }),
+    queryFn: () => fetchPublicShops(),
     enabled: !!slug,
   });
 
@@ -37,7 +38,10 @@ export default function CityPage() {
     queryFn: fetchBusinessTypes,
   });
 
-  const allShops = shopsQuery.data || [];
+  const allShops = useMemo(() => {
+    const normalized = normalizeCitySlug(slug);
+    return (shopsQuery.data || []).filter((shop) => shop.citySlug === normalized);
+  }, [shopsQuery.data, slug]);
   const areas = useMemo(() => [...new Set(allShops.map((s) => s.area).filter(Boolean))], [allShops]);
 
   const [selectedCategory, setSelectedCategory] = useState("all");

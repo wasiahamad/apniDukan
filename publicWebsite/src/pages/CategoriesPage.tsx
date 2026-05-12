@@ -4,12 +4,15 @@ import StaggerChildren, { StaggerItem } from "@/components/StaggerChildren";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cities as fallbackCities, categories as fallbackCategories } from "@/data/mockData";
+import { getCityFallbackImage, groupCitiesFromShops } from "@/lib/cityGroups";
 import { fetchBusinessTypes, fetchPublicShops } from "@/lib/publicShopsApi";
 import { useQuery } from "@tanstack/react-query";
 import { MapPin } from "lucide-react";
 import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+
+const DEFAULT_CITY_IMAGE = "https://images.unsplash.com/photo-1508057198894-247b23fe5ade?w=400&h=300&fit=crop";
 
 export default function CategoriesPage() {
   const navigate = useNavigate();
@@ -37,23 +40,7 @@ export default function CategoriesPage() {
     ? businessTypesQuery.data
     : fallbackCategories;
 
-  const cities = useMemo(() => {
-    const allShops = shopsQuery.data || [];
-    if (allShops.length === 0) return fallbackCities;
-
-    const cityMap = new Map<string, { name: string; slug: string; totalShops: number }>();
-    allShops.forEach((shop) => {
-      const slug = shop.citySlug;
-      const existing = cityMap.get(slug);
-      if (existing) {
-        existing.totalShops += 1;
-      } else {
-        cityMap.set(slug, { name: shop.city, slug, totalShops: 1 });
-      }
-    });
-
-    return Array.from(cityMap.values()).sort((a, b) => b.totalShops - a.totalShops || a.name.localeCompare(b.name));
-  }, [shopsQuery.data]);
+  const cities = useMemo(() => groupCitiesFromShops(shopsQuery.data || [], fallbackCities), [shopsQuery.data]);
 
   return (
     <PageTransition>
@@ -119,11 +106,28 @@ export default function CategoriesPage() {
                   <button type="button" onClick={() => navigate(`/${city.slug}`)} className="w-full">
                     <Card className="cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 hover:border-primary/30">
                       <CardContent className="p-4">
-                        <div className="flex items-start gap-2">
-                          <MapPin className="h-5 w-5 text-primary mt-0.5" />
-                          <div className="min-w-0">
-                            <p className="font-semibold truncate">{city.name}</p>
-                            <p className="text-xs text-muted-foreground">{t("search.cityShopCount", { count: city.totalShops })}</p>
+                        <div className="space-y-2">
+                          <div className="aspect-[4/2.2] overflow-hidden rounded-lg bg-muted">
+                            <img
+                              src={city.image || DEFAULT_CITY_IMAGE}
+                              alt={city.name}
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                              onError={(event) => {
+                                const target = event.currentTarget;
+                                if (!target.dataset.fallbackApplied) {
+                                  target.dataset.fallbackApplied = "true";
+                                  target.src = getCityFallbackImage(city.name);
+                                }
+                              }}
+                            />
+                          </div>
+                          <div className="flex items-start gap-2">
+                            <MapPin className="h-5 w-5 text-primary mt-0.5" />
+                            <div className="min-w-0">
+                              <p className="font-semibold truncate">{city.name}</p>
+                              <p className="text-xs text-muted-foreground">{t("search.cityShopCount", { count: city.totalShops })}</p>
+                            </div>
                           </div>
                         </div>
                       </CardContent>

@@ -1,4 +1,5 @@
 import type { Shop } from "@/data/mockData";
+import { groupCitiesFromShops, isSameCity, normalizeCitySlug } from "@/lib/cityGroups";
 
 const ensureApiSuffix = (baseUrl: string) => {
   const raw = String(baseUrl || '').trim();
@@ -1061,7 +1062,7 @@ export const mapPublicShopToCardShop = (item: PublicShopItem): Shop => {
     category: categoryName,
     categorySlug,
     city: cityName,
-    citySlug: citySource.toLowerCase().replace(/\s+/g, "-"),
+    citySlug: normalizeCitySlug(citySource),
     area,
     address: [
       lang === 'hi' ? (String(item.address.streetHi || '').trim() || item.address.street) : item.address.street,
@@ -1319,7 +1320,7 @@ export const fetchPublicShopBySlug = async (slug: string): Promise<Shop | null> 
     categorySlug: business.businessType?.slug || "general",
     suggestedListingType: business.businessType?.suggestedListingType,
     city: cityName,
-    citySlug: String(citySource || "unknown").toLowerCase().replace(/\s+/g, "-"),
+    citySlug: normalizeCitySlug(citySource),
     area,
     address: [
       lang === 'hi' ? (String(business.address?.streetHi || '').trim() || business.address?.street) : business.address?.street,
@@ -1477,9 +1478,15 @@ export const fetchPublicOffersForBusiness = async (businessId: string) => {
 };
 
 export const looksLikeCitySlug = async (slug: string) => {
-  const cityText = slugToText(slug).toLowerCase();
-  const shops = await fetchPublicShops({ city: cityText });
-  return shops.length > 0;
+  const normalizedSlug = String(slug || "").trim().toLowerCase();
+  if (!normalizedSlug) return false;
+
+  const shops = await fetchPublicShops();
+  const cities = groupCitiesFromShops(shops);
+  return (
+    cities.some((city) => city.slug === normalizedSlug || normalizeCitySlug(city.name) === normalizedSlug) ||
+    shops.some((shop) => isSameCity(shop.city, slugToText(normalizedSlug)))
+  );
 };
 
 export const fetchBusinessTypes = async (): Promise<PublicBusinessType[]> => {

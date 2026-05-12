@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { cities as fallbackCities, categories as fallbackCategories } from "@/data/mockData";
+import { groupCitiesFromShops } from "@/lib/cityGroups";
 import { fetchBusinessTypes, fetchPublicShops } from "@/lib/publicShopsApi";
 import { useTranslation } from "react-i18next";
 
@@ -19,22 +20,7 @@ export default function Footer() {
 
   const allShops = shopsQuery.data || [];
 
-  const cities = useMemo(() => {
-    if (allShops.length === 0) return fallbackCities;
-
-    const cityMap = new Map<string, { name: string; slug: string; totalShops: number }>();
-    allShops.forEach((shop) => {
-      const slug = shop.citySlug;
-      const existing = cityMap.get(slug);
-      if (existing) {
-        existing.totalShops += 1;
-      } else {
-        cityMap.set(slug, { name: shop.city, slug, totalShops: 1 });
-      }
-    });
-
-    return Array.from(cityMap.values()).sort((a, b) => b.totalShops - a.totalShops || a.name.localeCompare(b.name));
-  }, [allShops]);
+  const cities = useMemo(() => groupCitiesFromShops(allShops, fallbackCities), [allShops]);
 
   const categories = businessTypesQuery.data && businessTypesQuery.data.length > 0 ? businessTypesQuery.data : fallbackCategories;
 

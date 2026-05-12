@@ -760,7 +760,7 @@ export default function BusinessDetailScreen() {
                     business.businessType === "rental" ? "🏠 Properties" : "📦 Listings"}
               </Text>
               {listings.map((listing: any) => (
-                <ListingCard key={listing.id} listing={listing} onPress={() => {}} />
+                <ListingCard key={listing.id} listing={listing} onPress={() => router.push({ pathname: "/(customer)/product/[id]", params: { id: listing.id, businessId: business.id } })} />
               ))}
             </View>
           )}

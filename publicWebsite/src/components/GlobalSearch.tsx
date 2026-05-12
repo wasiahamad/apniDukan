@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/command";
 import { Skeleton } from "@/components/ui/skeleton";
 import { autoHindiCity, autoHindiText, fetchBusinessTypes, fetchNearbyPublicShops, fetchPublicShops } from "@/lib/publicShopsApi";
+import { groupCitiesFromShops } from "@/lib/cityGroups";
 import { useUserLocation } from "@/hooks/useUserLocation";
 import { useTranslation } from "react-i18next";
 
@@ -94,19 +95,7 @@ export default function GlobalSearch({ mode = "header" }: { mode?: GlobalSearchM
   const nearbyShops = nearbyShopsQuery.data || [];
   const allShops = allShopsQuery.data || [];
 
-  const cities = useMemo(() => {
-    const cityMap = new Map<string, { id: string; name: string; slug: string; totalShops: number }>();
-    allShops.forEach((shop) => {
-      const key = shop.citySlug;
-      const prev = cityMap.get(key);
-      if (prev) {
-        prev.totalShops += 1;
-      } else {
-        cityMap.set(key, { id: key, name: shop.city, slug: key, totalShops: 1 });
-      }
-    });
-    return Array.from(cityMap.values()).sort((a, b) => b.totalShops - a.totalShops || a.name.localeCompare(b.name));
-  }, [allShops]);
+  const cities = useMemo(() => groupCitiesFromShops(allShops), [allShops]);
 
   const categories = businessTypesQuery.data || [];
 

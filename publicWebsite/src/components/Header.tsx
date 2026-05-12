@@ -13,6 +13,7 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { getDukandarOnboardingUrl } from "@/lib/dukandarDashboard";
+import { groupCitiesFromShops } from "@/lib/cityGroups";
 import { fetchBusinessTypes, fetchPublicShops } from "@/lib/publicShopsApi";
 import { useQuery } from "@tanstack/react-query";
 import { CircleHelp, Plus, Settings, Store, UserCircle2 } from "lucide-react";
@@ -69,25 +70,7 @@ export default function Header() {
 
   const allShops = shopsQuery.data || [];
 
-  const cities = useMemo(() => {
-    const cityMap = new Map<string, { name: string; slug: string; totalShops: number }>();
-
-    allShops.forEach((shop) => {
-      const slug = shop.citySlug;
-      const existing = cityMap.get(slug);
-      if (existing) {
-        existing.totalShops += 1;
-      } else {
-        cityMap.set(slug, {
-          name: shop.city,
-          slug,
-          totalShops: 1,
-        });
-      }
-    });
-
-    return Array.from(cityMap.values()).sort((a, b) => b.totalShops - a.totalShops || a.name.localeCompare(b.name));
-  }, [allShops]);
+  const cities = useMemo(() => groupCitiesFromShops(allShops), [allShops]);
 
   const categories = businessTypesQuery.data || [];
 

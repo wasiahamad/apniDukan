@@ -1,6 +1,14 @@
 const parseGoogleClientIds = () => {
-  return (process.env.GOOGLE_CLIENT_IDS || process.env.GOOGLE_CLIENT_ID || '')
-    .split(',')
+  return [
+    process.env.GOOGLE_CLIENT_IDS,
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_OAUTH_CLIENT_IDS,
+    process.env.GOOGLE_WEB_CLIENT_ID,
+    process.env.PUBLIC_GOOGLE_CLIENT_ID,
+    process.env.VITE_GOOGLE_CLIENT_ID,
+  ]
+    .filter(Boolean)
+    .flatMap((value) => String(value).split(','))
     .map((id) => id.trim())
     .filter(Boolean);
 };
