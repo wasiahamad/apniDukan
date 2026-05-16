@@ -38,6 +38,13 @@ const businessSchema = new mongoose.Schema(
       ref: 'BusinessType',
       required: [true, 'Business type is required'],
     },
+
+    // What this business offers (controls which listing types owner can create)
+    offerings: {
+      type: [String],
+      enum: ['product', 'service', 'food', 'course', 'rental'],
+      default: [],
+    },
     logo: {
       type: String, // Cloudinary URL
     },

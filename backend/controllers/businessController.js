@@ -676,6 +676,8 @@ export const createBusiness = async (req, res) => {
       name,
       slug,
       businessType,
+      offerings,
+      offering,
       phone,
       whatsapp,
       email,
@@ -742,12 +744,32 @@ if (!businessTypeDoc) {
       });
     }
 
+    const allowedOfferingValues = new Set(['product', 'service', 'food', 'course', 'rental']);
+    const normalizeOfferingValue = (v) => String(v || '').trim().toLowerCase();
+    const normalizedOfferings = Array.from(
+      new Set(
+        ([]
+          .concat(Array.isArray(offerings) ? offerings : [])
+          .concat(offering ? [offering] : [])
+          .map(normalizeOfferingValue)
+          .filter((v) => allowedOfferingValues.has(v)))
+      )
+    );
+
+    const fallbackOffering = normalizeOfferingValue(businessTypeDoc?.suggestedListingType);
+    const finalOfferings = normalizedOfferings.length
+      ? normalizedOfferings
+      : allowedOfferingValues.has(fallbackOffering)
+        ? [fallbackOffering]
+        : [];
+
     // Create business
     const business = await Business.create({
       owner: req.user._id,
       name,
       slug,
       businessType: businessTypeDoc._id,
+      offerings: finalOfferings,
       phone,
       whatsapp: whatsapp || phone,
       email,
@@ -832,6 +854,8 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
       name: businessName,
       slug,
       businessType,
+      offerings,
+      offering,
       phone: businessPhone,
       whatsapp,
       email: businessEmail,
@@ -891,6 +915,25 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
       });
     }
 
+    const allowedOfferingValues = new Set(['product', 'service', 'food', 'course', 'rental']);
+    const normalizeOfferingValue = (v) => String(v || '').trim().toLowerCase();
+    const normalizedOfferings = Array.from(
+      new Set(
+        ([]
+          .concat(Array.isArray(offerings) ? offerings : [])
+          .concat(offering ? [offering] : [])
+          .map(normalizeOfferingValue)
+          .filter((v) => allowedOfferingValues.has(v)))
+      )
+    );
+
+    const fallbackOffering = normalizeOfferingValue(businessTypeDoc?.suggestedListingType);
+    const finalOfferings = normalizedOfferings.length
+      ? normalizedOfferings
+      : allowedOfferingValues.has(fallbackOffering)
+        ? [fallbackOffering]
+        : [];
+
     // Check if slug is already taken (if provided)
     if (slug) {
       const slugExists = await Business.findOne({ slug });
@@ -907,6 +950,7 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
       name: businessName,
       slug,
       businessType: businessTypeDoc._id,
+      offerings: finalOfferings,
       phone: businessPhone,
       whatsapp: whatsapp || businessPhone,
       email: businessEmail,
@@ -2604,6 +2648,7 @@ export const updateBusiness = async (req, res) => {
       'name',
       'nameHi',
       'businessType',
+      'offerings',
       'logo',
       'coverImage',
       'branding',
@@ -2701,6 +2746,40 @@ export const updateBusiness = async (req, res) => {
         success: false,
         message: 'Business not found',
       });
+    }
+
+    // Offerings update: strict validation (must include at least one valid value)
+    // Supports legacy single value via `offering` as well.
+    if (req.body.offerings !== undefined || req.body.offering !== undefined) {
+      const allowedOfferingValues = new Set(['product', 'service', 'food', 'course', 'rental']);
+      const normalizeOfferingValue = (v) => String(v || '').trim().toLowerCase();
+
+      const incoming = [];
+      if (req.body.offerings !== undefined) {
+        if (!Array.isArray(req.body.offerings)) {
+          return res.status(400).json({
+            success: false,
+            message: 'offerings must be an array',
+          });
+        }
+        incoming.push(...req.body.offerings);
+      }
+      if (req.body.offering !== undefined) {
+        incoming.push(req.body.offering);
+      }
+
+      const finalOfferings = Array.from(
+        new Set(incoming.map(normalizeOfferingValue).filter((v) => allowedOfferingValues.has(v)))
+      );
+
+      if (finalOfferings.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'offerings must contain at least one valid value: product, service, food, course, rental',
+        });
+      }
+
+      updates.offerings = finalOfferings;
     }
 
     // If business type changes and description is blank/missing, apply type default only when

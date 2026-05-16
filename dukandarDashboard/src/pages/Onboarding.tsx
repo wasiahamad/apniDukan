@@ -130,7 +130,7 @@ const Onboarding = () => {
     state: "",
     area: "",
     pincode: "",
-    offering: "",
+    offerings: [] as string[],
     locationLat: "",
     locationLng: "",
   });
@@ -302,11 +302,18 @@ const Onboarding = () => {
 
     // Only auto-fill when empty or when current value is not one of our supported options.
     // User can still override in the Offerings step.
-    const isSupported = (SUPPORTED_OFFERING_VALUES as readonly string[]).includes(data.offering);
-    if (!data.offering || !isSupported) {
-      setData((prev) => ({ ...prev, offering: suggested }));
+    const supported = new Set(SUPPORTED_OFFERING_VALUES as readonly string[]);
+    const current = Array.isArray(data.offerings) ? data.offerings : [];
+    const normalized = current.map((v) => String(v || '').trim().toLowerCase()).filter(Boolean);
+    const hasAnySupported = normalized.some((v) => supported.has(v));
+
+    if (!normalized.length || !hasAnySupported) {
+      const s = String(suggested || '').trim().toLowerCase();
+      if (supported.has(s)) {
+        setData((prev) => ({ ...prev, offerings: [s] }));
+      }
     }
-  }, [data.businessType, data.offering, businessTypes, loadingBusinessTypes]);
+  }, [data.businessType, data.offerings, businessTypes, loadingBusinessTypes]);
 
   // Prefill referral code from query param (?ref=XXXX)
   useEffect(() => {
@@ -394,7 +401,7 @@ const Onboarding = () => {
     }
     if (step === 1) return data.shop_name.length > 1 && data.businessType;
     if (step === 2) return data.city && data.state && data.area && data.pincode.length === 6;
-    if (step === 3) return data.offering;
+    if (step === 3) return Array.isArray(data.offerings) && data.offerings.length > 0;
     if (step === 4) {
       if (!selectedPlanId) return false;
       if (data.referralCode.trim()) return !!selectedReferralOfferId;
@@ -587,7 +594,7 @@ const handleCreateBusinessAndContinue = async () => {
         if (!slugMatch) {
           // Try matching by suggestedListingType as last resort
           const offeringMatch = businessTypes.find(bt => 
-            String(bt.suggestedListingType || '').toLowerCase() === String(data.offering || '').toLowerCase()
+            String(bt.suggestedListingType || '').toLowerCase() === String((data.offerings || [])[0] || '').toLowerCase()
           );
           
           if (!offeringMatch) {
@@ -596,7 +603,7 @@ const handleCreateBusinessAndContinue = async () => {
           
           // Use the matched business type
           setData(prev => ({ ...prev, businessType: offeringMatch._id }));
-          console.log("[Onboarding] Mapped offering to businessType:", { offering: data.offering, businessType: offeringMatch._id });
+          console.log("[Onboarding] Mapped offering to businessType:", { offerings: data.offerings, businessType: offeringMatch._id });
         } else {
           setData(prev => ({ ...prev, businessType: slugMatch._id }));
           console.log("[Onboarding] Mapped slug to businessType:", { slug: selectedBusinessType, businessType: slugMatch._id });
@@ -619,13 +626,14 @@ const handleCreateBusinessAndContinue = async () => {
       console.log("[Onboarding] Creating business with payload:", {
         name: data.shop_name,
         businessType: finalBusinessType,
-        offering: data.offering,
+        offerings: data.offerings,
         hasEffectiveCoords,
       });
 
       const businessData = {
         name: data.shop_name,
         businessType: finalBusinessType, // BusinessType ID (validated)
+        offerings: data.offerings,
         phone: data.phone,
         whatsapp: data.phone,
         email: data.email,
@@ -1277,15 +1285,29 @@ const handleCreateBusinessAndContinue = async () => {
                   <motion.button
                     key={o.value}
                     whileTap={{ scale: 0.97 }}
-                    onClick={() => update("offering", o.value)}
+                    onClick={() => {
+                      setData((prev) => {
+                        const current = Array.isArray(prev.offerings) ? prev.offerings : [];
+                        const v = String(o.value || '').trim().toLowerCase();
+                        const exists = current.includes(v);
+                        const next = exists ? current.filter((x) => x !== v) : [...current, v];
+                        if (sessionStorage.getItem("pendingOnboardingData")) {
+                          sessionStorage.setItem(
+                            "pendingOnboardingData",
+                            JSON.stringify({ ...prev, offerings: next })
+                          );
+                        }
+                        return { ...prev, offerings: next };
+                      });
+                    }}
                     className={`w-full px-4 py-4 rounded-xl text-left font-medium border transition-all flex items-center justify-between ${
-                      data.offering === o.value
+                      (data.offerings || []).includes(o.value)
                         ? "bg-primary text-primary-foreground border-primary"
                         : "bg-card text-foreground hover:border-primary/40"
                     }`}
                   >
                     {o.label}
-                    {data.offering === o.value && <CheckCircle2 className="w-5 h-5" />}
+                    {(data.offerings || []).includes(o.value) && <CheckCircle2 className="w-5 h-5" />}
                   </motion.button>
                 ))}
               </div>

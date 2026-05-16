@@ -179,6 +179,20 @@ const Products = () => {
     return 'product';
   };
 
+  const getAllowedListingTypes = (biz: Business | null): Listing['listingType'][] => {
+    const allowed = (biz as any)?.offerings;
+    const supported = new Set<Listing['listingType']>(['product', 'service', 'food', 'course', 'rental']);
+
+    const normalized = Array.isArray(allowed)
+      ? (allowed
+          .map((v: any) => String(v || '').trim().toLowerCase())
+          .filter((v: any) => supported.has(v)) as Listing['listingType'][])
+      : [];
+
+    if (normalized.length > 0) return Array.from(new Set(normalized));
+    return [getSuggestedListingType(biz)];
+  };
+
   // Get appropriate field labels based on listing type
   const getFieldLabels = (type: Listing['listingType']) => {
     const labels: Record<Listing['listingType'], { title: string; price: string }> = {
@@ -574,7 +588,11 @@ const Products = () => {
 
     setSaving(true);
     try {
-      const listingType = getSuggestedListingType(business);
+      const allowedTypes = getAllowedListingTypes(business);
+      const chosen = form.listingType || allowedTypes[0] || getSuggestedListingType(business);
+      const listingType = allowedTypes.includes(chosen)
+        ? chosen
+        : (allowedTypes[0] || getSuggestedListingType(business));
 
       const attributes = (form.attributes || [])
         .map(a => ({ name: a.name.trim(), value: a.value.trim() }))
@@ -775,7 +793,8 @@ const Products = () => {
     });
   };
 
-  const listingType = getSuggestedListingType(business);
+  const allowedListingTypes = getAllowedListingTypes(business);
+  const listingType = allowedListingTypes[0] || getSuggestedListingType(business);
 
   const handleImageFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -969,7 +988,7 @@ const Products = () => {
               }
               setShowAdd(true); 
               setEditId(null); 
-              const defaultListingType = getSuggestedListingType(business);
+              const defaultListingType = getAllowedListingTypes(business)[0] || getSuggestedListingType(business);
               setForm({ 
                 title: "", 
                 price: "", 
@@ -1262,11 +1281,25 @@ const Products = () => {
                   <button onClick={closeForm}><X className="w-5 h-5 text-muted-foreground" /></button>
                 </div>
 
-                <input
-                  value={(form.listingType || listingType).toUpperCase()}
-                  disabled
-                  className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-sm text-muted-foreground focus:outline-none"
-                />
+                {allowedListingTypes.length > 1 ? (
+                  <select
+                    value={form.listingType || allowedListingTypes[0]}
+                    onChange={(e) => setForm({ ...form, listingType: e.target.value as any })}
+                    className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  >
+                    {allowedListingTypes.map((tVal) => (
+                      <option key={tVal} value={tVal}>
+                        {String(tVal).toUpperCase()}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={(form.listingType || listingType).toUpperCase()}
+                    disabled
+                    className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-sm text-muted-foreground focus:outline-none"
+                  />
+                )}
 
                 {/* Category Selector */}
                 <div>

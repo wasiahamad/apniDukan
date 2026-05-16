@@ -116,6 +116,7 @@ export interface Business {
   name: string;
   slug: string;
   businessType: BusinessType;
+  offerings?: Array<'product' | 'service' | 'food' | 'course' | 'rental'>;
   phone: string;
   whatsapp?: string;
   whatsappOrderMessageTemplate?: string;
@@ -180,6 +181,7 @@ export interface Business {
 export interface CreateBusinessData {
   name: string;
   businessType: string; // BusinessType ID
+  offerings?: Array<'product' | 'service' | 'food' | 'course' | 'rental'>;
   phone: string;
   whatsapp?: string;
   email?: string;
@@ -197,6 +199,7 @@ export interface CreateBusinessData {
 export interface UpdateBusinessData {
   name?: string;
   businessType?: string;
+  offerings?: Array<'product' | 'service' | 'food' | 'course' | 'rental'>;
   phone?: string;
   whatsapp?: string;
   whatsappOrderMessageTemplate?: string;

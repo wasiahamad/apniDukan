@@ -98,7 +98,7 @@ export const createListing = async (req, res) => {
       });
     }
 
-    // Auto-derive listing type from businessType.suggestedListingType (single source of truth)
+    // Auto-derive listing type from businessType.suggestedListingType
     const businessTypeDoc = await BusinessType.findById(business.businessType).select('suggestedListingType');
     const derivedListingType =
       businessTypeDoc?.suggestedListingType === 'service' ||
@@ -108,6 +108,23 @@ export const createListing = async (req, res) => {
       businessTypeDoc?.suggestedListingType === 'product'
         ? businessTypeDoc.suggestedListingType
         : 'product';
+
+    // If business has configured multiple offerings, allow creating listings for those types.
+    const allowedOfferingValues = new Set(['product', 'service', 'food', 'course', 'rental']);
+    const allowedListingTypes = Array.isArray(business.offerings)
+      ? business.offerings
+          .map((v) => String(v || '').trim().toLowerCase())
+          .filter((v) => allowedOfferingValues.has(v))
+      : [];
+    const normalizedRequestedListingType =
+      typeof req.body.listingType === 'string' ? req.body.listingType.trim().toLowerCase() : '';
+
+    const finalListingType =
+      allowedListingTypes.length > 0
+        ? (allowedListingTypes.includes(normalizedRequestedListingType)
+            ? normalizedRequestedListingType
+            : allowedListingTypes[0])
+        : derivedListingType;
 
     // Check plan limits (effective entitlements)
     const entitlements = await getEffectiveEntitlementsForBusiness(business);
@@ -165,7 +182,7 @@ export const createListing = async (req, res) => {
       description,
       ...(typeof descriptionHi === 'string' && descriptionHi.trim() ? { descriptionHi: descriptionHi.trim() } : {}),
       images: normalizedImages,
-      listingType: derivedListingType,
+      listingType: finalListingType,
       price,
       ...(oldPrice !== undefined && oldPrice !== null && oldPrice !== '' ? { oldPrice: Number(oldPrice) } : {}),
       priceType,
@@ -633,7 +650,7 @@ export const updateListing = async (req, res) => {
       }
     });
 
-    // If listingType was attempted to be changed, enforce derived type from businessType.suggestedListingType
+    // If listingType was attempted to be changed, validate against business offerings (or derive from businessType).
     if (req.body.listingType !== undefined) {
       const businessTypeDoc = await BusinessType.findById(listing.business.businessType).select('suggestedListingType');
       const derivedListingType =
@@ -644,7 +661,22 @@ export const updateListing = async (req, res) => {
         businessTypeDoc?.suggestedListingType === 'product'
           ? businessTypeDoc.suggestedListingType
           : 'product';
-      listing.listingType = derivedListingType;
+
+      const allowedOfferingValues = new Set(['product', 'service', 'food', 'course', 'rental']);
+      const allowedListingTypes = Array.isArray(listing.business.offerings)
+        ? listing.business.offerings
+            .map((v) => String(v || '').trim().toLowerCase())
+            .filter((v) => allowedOfferingValues.has(v))
+        : [];
+      const normalizedRequestedListingType =
+        typeof req.body.listingType === 'string' ? req.body.listingType.trim().toLowerCase() : '';
+
+      listing.listingType =
+        allowedListingTypes.length > 0
+          ? (allowedListingTypes.includes(normalizedRequestedListingType)
+              ? normalizedRequestedListingType
+              : allowedListingTypes[0])
+          : derivedListingType;
     }
 
     await listing.save();
