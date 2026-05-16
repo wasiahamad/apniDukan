@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Save, Eye, TrendingUp, Package, MessageSquare, Users, Clock, ExternalLink, Plus, Trash2 } from "lucide-react";
+import { Save, Eye, TrendingUp, Package, MessageSquare, Users, Clock, ExternalLink, Plus, Trash2, CheckCircle2 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { aiApi, businessApi, type Business } from "@/lib/api/index";
@@ -21,6 +21,32 @@ const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"
 type CustomSocialLink = {
   label: string;
   url: string;
+};
+
+const OFFERING_OPTIONS: Array<{ value: 'product' | 'service' | 'food' | 'course' | 'rental'; label: string }> = [
+  { value: 'product', label: 'Products' },
+  { value: 'service', label: 'Services' },
+  { value: 'food', label: 'Food' },
+  { value: 'course', label: 'Courses' },
+  { value: 'rental', label: 'Rental' },
+];
+
+const normalizeOfferingValue = (v: any) => String(v || '').trim().toLowerCase();
+
+const getInitialOfferings = (biz: Business): Array<'product' | 'service' | 'food' | 'course' | 'rental'> => {
+  const supported = new Set(OFFERING_OPTIONS.map((o) => o.value));
+  const fromBiz = (biz as any)?.offerings;
+  const normalized = Array.isArray(fromBiz)
+    ? (fromBiz
+        .map(normalizeOfferingValue)
+        .filter((v: any) => supported.has(v)) as Array<'product' | 'service' | 'food' | 'course' | 'rental'>)
+    : [];
+
+  if (normalized.length > 0) return Array.from(new Set(normalized));
+
+  const suggested = normalizeOfferingValue((biz as any)?.businessType?.suggestedListingType);
+  if (supported.has(suggested)) return [suggested as any];
+  return ['product'];
 };
 
 // Field component moved outside to prevent re-mounting on parent render
@@ -157,6 +183,7 @@ const BusinessProfile = () => {
   const [form, setForm] = useState({
     name: "",
     description: "",
+    offerings: [] as Array<'product' | 'service' | 'food' | 'course' | 'rental'>,
     phone: "",
     whatsapp: "",
     email: "",
@@ -322,6 +349,7 @@ const BusinessProfile = () => {
         setForm({
           name: biz.name || "",
           description: biz.description || "",
+          offerings: getInitialOfferings(biz),
           phone: biz.phone || "",
           whatsapp: biz.whatsapp || "",
           email: biz.email || "",
@@ -364,6 +392,15 @@ const BusinessProfile = () => {
 
   const handleSave = async () => {
     if (!business) return;
+
+    if (!Array.isArray(form.offerings) || form.offerings.length === 0) {
+      toast({
+        title: t("businessProfile.toasts.errorTitle"),
+        description: t("businessProfile.offerings.errors.required", { defaultValue: "Please select at least one offering." }),
+        variant: "destructive",
+      });
+      return;
+    }
     
     try {
       setSaving(true);
@@ -377,6 +414,7 @@ const BusinessProfile = () => {
       const res = await businessApi.updateBusiness(business._id, {
         name: form.name,
         description: form.description,
+        offerings: form.offerings,
         phone: form.phone,
         whatsapp: form.whatsapp,
         email: form.email,
@@ -610,6 +648,48 @@ const BusinessProfile = () => {
             className="w-full px-3 py-2.5 bg-muted border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none" 
           />
         </div>
+      </div>
+
+      <div className="bg-card border rounded-xl p-4 space-y-3">
+        <div>
+          <h3 className="font-bold text-sm">{t("businessProfile.offerings.title", { defaultValue: "Offerings" })}</h3>
+          <p className="text-xs text-muted-foreground">
+            {t("businessProfile.offerings.subtitle", { defaultValue: "Select what you offer. This controls which listing types you can create." })}
+          </p>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {OFFERING_OPTIONS.map((o) => {
+            const selected = (form.offerings || []).includes(o.value);
+            return (
+              <motion.button
+                key={o.value}
+                whileTap={{ scale: 0.98 }}
+                type="button"
+                onClick={() => {
+                  setForm((prev) => {
+                    const current = Array.isArray(prev.offerings) ? prev.offerings : [];
+                    const exists = current.includes(o.value);
+                    const next = exists ? current.filter((x) => x !== o.value) : [...current, o.value];
+                    return { ...prev, offerings: next };
+                  });
+                }}
+                className={`w-full px-3 py-3 rounded-xl text-left text-sm font-semibold border transition-colors flex items-center justify-between ${
+                  selected
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted text-foreground hover:border-primary/40"
+                }`}
+              >
+                <span>{t(`businessProfile.offerings.options.${o.value}`, { defaultValue: o.label })}</span>
+                {selected && <CheckCircle2 className="w-4 h-4" />}
+              </motion.button>
+            );
+          })}
+        </div>
+        {(form.offerings || []).length === 0 && (
+          <p className="text-xs text-destructive">
+            {t("businessProfile.offerings.errors.required", { defaultValue: "Please select at least one offering." })}
+          </p>
+        )}
       </div>
 
       <div className="bg-card border rounded-xl p-4 space-y-4">
