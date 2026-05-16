@@ -18,6 +18,40 @@ const nextOrderNumber = async (businessId) => {
 
 const normalizePhone = (input) => (input || '').toString().replace(/[^0-9+]/g, '').trim();
 
+const getCallerHostname = (req) => {
+  const candidates = [req.get('origin'), req.get('referer')].filter(Boolean);
+
+  for (const value of candidates) {
+    try {
+      const url = new URL(value);
+      if (url.hostname) return url.hostname.toLowerCase();
+    } catch {
+      // ignore
+    }
+  }
+
+  return null;
+};
+
+const isStorefrontSubdomainHost = (hostname) => {
+  if (!hostname) return false;
+
+  const h = hostname.toLowerCase();
+  // Local dev storefronts
+  if (h === 'localhost' || h === '127.0.0.1') return true;
+
+  // Public marketplace (login required)
+  if (h === 'publicdukan.com' || h === 'www.publicdukan.com') return false;
+
+  // Seller dashboard is not a public storefront
+  if (h === 'seller.publicdukan.com') return false;
+
+  // Any other subdomain storefront
+  if (h.endsWith('.publicdukan.com')) return true;
+
+  return false;
+};
+
 const normalizeOptionLabel = (input) => (input || '').toString().trim();
 
 const parseMaybePrice = (value) => {
@@ -42,11 +76,20 @@ const optionMatch = (a, b) => {
 // @access  Public
 export const createPublicOrder = async (req, res) => {
   try {
-    if (!req.user || req.user.role !== 'customer') {
-      return res.status(401).json({
-        success: false,
-        message: 'Login required to place order',
-      });
+    const isAuthedCustomer = req.user?.role === 'customer';
+
+    // For the main marketplace domain we enforce login.
+    // For storefront subdomains (e.g. <shop>.publicdukan.com) we allow guest checkout.
+    if (!isAuthedCustomer) {
+      const callerHostname = getCallerHostname(req);
+      const allowGuest = isStorefrontSubdomainHost(callerHostname);
+
+      if (!allowGuest) {
+        return res.status(401).json({
+          success: false,
+          message: 'Login required to place order',
+        });
+      }
     }
 
     const { businessId, items, source, origin, customer } = req.body || {};
@@ -191,6 +234,14 @@ export const createPublicOrder = async (req, res) => {
 
     const customerName = (customer?.name || authedCustomerName || '').toString().trim() || 'Customer';
     const customerPhone = normalizePhone(customer?.phone || authedCustomerPhone);
+
+    // For guest checkout, we need at least a phone number.
+    if (!isAuthedCustomer && !customerPhone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Customer phone is required',
+      });
+    }
     const customerAddress = (customer?.address || '').toString().trim();
     const customerNote = (customer?.note || '').toString().trim();
 

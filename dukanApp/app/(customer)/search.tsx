@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, FlatList, TextInput, Pressable,
   Platform, ActivityIndicator,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import Animated, { FadeIn } from "react-native-reanimated";
@@ -52,11 +52,14 @@ function mapShopToCard(shop: PublicShop) {
   };
 }
 
-async function searchBusinesses(query: string) {
-  if (!query.trim()) return { data: [] };
+async function searchBusinesses(query: string, city?: string) {
+  const trimmedQuery = query.trim();
+  const trimmedCity = city ? city.trim() : "";
+  if (!trimmedQuery && !trimmedCity) return { data: [] };
 
   const params = new URLSearchParams();
-  params.set("search", query.trim());
+  if (trimmedQuery) params.set("search", trimmedQuery);
+  if (trimmedCity) params.set("city", trimmedCity);
   params.set("limit", "30");
 
   const data = await apiRequest<PublicShopList>(`/business/public/shops?${params.toString()}`);
@@ -66,13 +69,15 @@ async function searchBusinesses(query: string) {
 export default function SearchScreen() {
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
+  const params = useLocalSearchParams<{ city?: string }>();
+  const cityParam = typeof params.city === "string" ? params.city : "";
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
 
   const { data, isLoading } = useQuery({
-    queryKey: ["search", submitted],
-    queryFn: () => searchBusinesses(submitted),
-    enabled: submitted.length > 0,
+    queryKey: ["search", submitted, cityParam],
+    queryFn: () => searchBusinesses(submitted, cityParam),
+    enabled: submitted.length > 0 || !!cityParam,
   });
 
   const results = data?.data || [];
@@ -87,7 +92,7 @@ export default function SearchScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: Colors.light.background }}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
-        <Text style={styles.title}>Search</Text>
+        <Text style={styles.title}>{cityParam ? `Search in ${cityParam}` : "Search"}</Text>
         <View style={styles.searchBar}>
           <Feather name="search" size={18} color={Colors.light.textSecondary} />
           <TextInput
@@ -106,9 +111,15 @@ export default function SearchScreen() {
             </Pressable>
           )}
         </View>
+        {cityParam ? (
+          <View style={styles.cityChip}>
+            <Feather name="map-pin" size={12} color={Colors.primary} />
+            <Text style={styles.cityChipText}>{cityParam}</Text>
+          </View>
+        ) : null}
       </View>
 
-      {!submitted ? (
+      {!submitted && !cityParam ? (
         <Animated.View entering={FadeIn} style={styles.emptyState}>
           <Feather name="search" size={48} color={Colors.light.textTertiary} />
           <Text style={styles.emptyTitle}>Find local businesses</Text>
@@ -121,8 +132,12 @@ export default function SearchScreen() {
       ) : results.length === 0 ? (
         <Animated.View entering={FadeIn} style={styles.emptyState}>
           <Feather name="inbox" size={48} color={Colors.light.textTertiary} />
-          <Text style={styles.emptyTitle}>No results for "{submitted}"</Text>
-          <Text style={styles.emptySubtitle}>Try a different search term</Text>
+          <Text style={styles.emptyTitle}>
+            {cityParam ? `No results in ${cityParam}` : `No results for "${submitted}"`}
+          </Text>
+          <Text style={styles.emptySubtitle}>
+            {cityParam ? "Try a different search term" : "Try a different search term"}
+          </Text>
         </Animated.View>
       ) : (
         <FlatList
@@ -159,6 +174,17 @@ const styles = StyleSheet.create({
     borderColor: Colors.light.border,
   },
   searchInput: { flex: 1, fontFamily: "Manrope_500Medium", fontSize: 15, color: Colors.light.text },
+  cityChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 6,
+    backgroundColor: `${Colors.primary}14`,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  cityChipText: { fontFamily: "Manrope_600SemiBold", fontSize: 12, color: Colors.primary },
   list: { paddingHorizontal: 16, paddingTop: 16 },
   emptyState: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
   emptyTitle: { fontFamily: "Sora_600SemiBold", fontSize: 18, color: Colors.light.text },

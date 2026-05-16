@@ -1,12 +1,14 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   Pressable,
-  Modal,
   ActivityIndicator,
+  Alert,
+  Linking,
+  LayoutChangeEvent,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
@@ -14,9 +16,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
-import Animated, { FadeIn, ZoomIn } from "react-native-reanimated";
+import Animated, { FadeIn } from "react-native-reanimated";
 import Colors from "@/constants/colors";
 import { apiRequest } from "@/utils/apiClient";
+import { useAuth } from "@/context/AuthContext";
 
 type ProductVariant = {
   size?: string;
@@ -28,6 +31,14 @@ type ProductVariant = {
   inStock?: boolean;
 };
 
+type PricingOption = {
+  label?: string;
+  name?: string;
+  price: number;
+  oldPrice?: number;
+  discountPercent?: number;
+};
+
 type Product = {
   _id: string;
   id: string;
@@ -35,28 +46,41 @@ type Product = {
   name?: string;
   description?: string;
   price: number;
+  oldPrice?: number;
   originalPrice?: number;
   discount?: number;
   images: Array<{ url: string; alt?: string }> | string[];
+  image?: string;
   businessId?: string;
   businessName?: string;
   businessLogo?: string;
   listingType?: string;
+  type?: string;
+  duration?: string;
   isActive?: boolean;
   variants?: ProductVariant[];
+  pricingOptions?: PricingOption[];
   category?: string;
   attributes?: Array<{ name: string; value: string }>;
   soldBy?: string;
+};
+
+type SelectableOption = {
+  name: string;
+  price: number;
+  oldPrice?: number;
+  discountPercent?: number;
 };
 
 export default function ProductDetailScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const { id, businessId } = useLocalSearchParams<{ id: string; businessId: string }>();
+  const { user, accessToken } = useAuth();
   
-  const [selectedVariant, setSelectedVariant] = useState<number>(0);
-  const [quantity, setQuantity] = useState<number>(1);
   const [imageIndex, setImageIndex] = useState<number>(0);
+  const [selectedOptionName, setSelectedOptionName] = useState<string>("");
+  const [footerHeight, setFooterHeight] = useState(140);
 
   // Fetch product data
   const { data: product, isLoading, error } = useQuery({
@@ -89,31 +113,96 @@ export default function ProductDetailScreen() {
         .map((img: any) => (typeof img === "string" ? img : img?.url))
         .filter(Boolean);
     }
-    return [];
+    return product.image ? [product.image] : [];
   }, [product]);
 
   // Current variant data
-  const currentVariant = useMemo(() => {
-    if (!product?.variants || product.variants.length === 0) {
-      return {
-        price: product?.price || 0,
-        originalPrice: product?.originalPrice,
-        discount: product?.discount,
-      };
+  const parseMaybePrice = (value: string | number | undefined) => {
+    const raw = String(value ?? "").trim();
+    if (!raw) return null;
+    const cleaned = raw.replace(/[^0-9.]/g, "");
+    if (!cleaned) return null;
+    const n = Number(cleaned);
+    if (!Number.isFinite(n) || n < 0) return null;
+    return n;
+  };
+
+  const listingType = String(product?.listingType || product?.type || "product").toLowerCase();
+  const typeLabel =
+    listingType === "service"
+      ? "Service"
+      : listingType === "food"
+        ? "Food"
+        : listingType === "course"
+          ? "Course"
+          : listingType === "rental"
+            ? "Rental"
+            : "Product";
+
+  const selectableOptions = useMemo<SelectableOption[]>(() => {
+    if (!product) return [];
+    const direct = Array.isArray(product.pricingOptions) ? product.pricingOptions : [];
+    const directOptions = direct
+      .map((o: PricingOption) => ({
+        name: String(o?.label || o?.name || "").trim(),
+        price: Number(o?.price),
+        oldPrice: Number.isFinite(Number(o?.oldPrice)) ? Number(o?.oldPrice) : undefined,
+        discountPercent: Number.isFinite(Number(o?.discountPercent)) ? Number(o?.discountPercent) : undefined,
+      }))
+      .filter((o) => o.name && Number.isFinite(o.price) && o.price >= 0);
+    if (directOptions.length > 0) return directOptions;
+
+    if (Array.isArray(product.variants) && product.variants.length > 0) {
+      return product.variants.map((variant, idx) => ({
+        name: String(variant.size || variant.quantity || `Option ${idx + 1}`),
+        price: Number(variant.price),
+        oldPrice: Number.isFinite(Number(variant.originalPrice)) ? Number(variant.originalPrice) : undefined,
+        discountPercent: Number.isFinite(Number(variant.discount)) ? Number(variant.discount) : undefined,
+      }));
     }
-    return product.variants[selectedVariant] || product.variants[0];
-  }, [product, selectedVariant]);
+
+    if (listingType !== "food") return [];
+    const attrs = Array.isArray(product.attributes) ? product.attributes : [];
+    return attrs
+      .map((a) => ({ name: String(a?.name || "").trim(), price: parseMaybePrice(a?.value) }))
+      .filter((o) => o.name && o.price !== null)
+      .map((o) => ({ name: o.name, price: o.price as number }));
+  }, [product, listingType]);
+
+  useEffect(() => {
+    if (selectableOptions.length === 0) {
+      setSelectedOptionName("");
+      return;
+    }
+    setSelectedOptionName((prev) => prev || selectableOptions[0].name);
+  }, [selectableOptions]);
+
+  const selectedOption = useMemo(() => {
+    if (!selectedOptionName) return null;
+    return selectableOptions.find((o) => o.name === selectedOptionName) || null;
+  }, [selectableOptions, selectedOptionName]);
+
+  const effectivePrice = selectedOption?.price ?? product?.price ?? 0;
+  const effectiveOldPrice =
+    selectedOption?.oldPrice ?? product?.originalPrice ?? product?.oldPrice ?? undefined;
 
   // Calculate discount
   const discountPercent = useMemo(() => {
-    if (currentVariant.discount) return currentVariant.discount;
-    if (currentVariant.originalPrice && currentVariant.price) {
-      return Math.round(
-        ((currentVariant.originalPrice - currentVariant.price) / currentVariant.originalPrice) * 100
-      );
-    }
-    return 0;
-  }, [currentVariant]);
+    const direct = Number(selectedOption?.discountPercent ?? product?.discount);
+    if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
+    const oldPrice = Number(effectiveOldPrice);
+    if (!Number.isFinite(oldPrice) || oldPrice <= 0) return 0;
+    if (oldPrice <= effectivePrice) return 0;
+    return Math.round(((oldPrice - effectivePrice) / oldPrice) * 100);
+  }, [selectedOption, product, effectiveOldPrice, effectivePrice]);
+
+  const detailsAttributes = useMemo(() => {
+    const attrs = Array.isArray(product?.attributes) ? product.attributes : [];
+    const hasDirectOptions = Array.isArray(product?.pricingOptions) && product?.pricingOptions?.length > 0;
+    if (hasDirectOptions) return attrs;
+    const optionNames = new Set(selectableOptions.map((o) => o.name));
+    return attrs.filter((a) => !optionNames.has(String(a?.name || "").trim()));
+  }, [product, selectableOptions]);
 
   if (isLoading) {
     return (
@@ -139,6 +228,75 @@ export default function ProductDetailScreen() {
 
   const sellerName = business?.name || product?.businessName || "Store";
   const productTitle = product?.title || product?.name || "Product";
+  const businessSlug = business?.slug ? String(business.slug) : "";
+  const canOrder = selectableOptions.length === 0 || !!selectedOption;
+
+  const handleWhatsAppOrder = async () => {
+    if (!user) {
+      Alert.alert("Login required", "Please login to place an order.", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Login", onPress: () => router.push("/(auth)/login") },
+      ]);
+      return;
+    }
+
+    if (!canOrder) {
+      Alert.alert("Select an option", "Please choose an option to continue.");
+      return;
+    }
+
+    const orderBusinessId = String(businessId || product?.businessId || "").trim();
+    if (!orderBusinessId) {
+      Alert.alert("Order failed", "Business info is missing.");
+      return;
+    }
+
+    const wa = business?.whatsapp || "";
+    const digits = wa.replace(/\D/g, "");
+    if (!digits) {
+      Alert.alert("WhatsApp unavailable", "This shop has no WhatsApp number.");
+      return;
+    }
+
+    try {
+      await apiRequest("/orders/public", {
+        method: "POST",
+        accessToken,
+        body: JSON.stringify({
+          businessId: orderBusinessId,
+          source: "whatsapp",
+          origin: "unknown",
+          items: [
+            {
+              listingId: String(id || ""),
+              quantity: 1,
+              ...(selectedOption ? { pricingOptionLabel: selectedOption.name } : {}),
+            },
+          ],
+          customer: {
+            name: String(user?.name || "").trim() || undefined,
+            phone: String(user?.phone || "").trim() || undefined,
+          },
+        }),
+      });
+    } catch (err: any) {
+      Alert.alert("Order failed", err?.message || "Please try again.");
+      return;
+    }
+
+    const lines = [
+      `Order: ${productTitle}`,
+      `Price: ₹${Number(effectivePrice).toLocaleString("en-IN")}`,
+      selectedOption ? `Option: ${selectedOption.name}` : null,
+      `Shop: ${sellerName}`,
+    ].filter(Boolean);
+
+    const url = `https://wa.me/${digits}?text=${encodeURIComponent(lines.join("\n"))}`;
+    Linking.openURL(url);
+  };
+
+  const footerBottom = Math.max(insets.bottom, 10);
+  const footerOffsetFromBottom = tabBarHeight;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -149,8 +307,9 @@ export default function ProductDetailScreen() {
         </Pressable>
       </View>
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
+        contentContainerStyle={{ paddingBottom: footerHeight + footerOffsetFromBottom + footerBottom + 24 }}
         showsVerticalScrollIndicator={false}
         bounces={false}
       >
@@ -164,20 +323,6 @@ export default function ProductDetailScreen() {
                 contentFit="cover"
                 cachePolicy="memory-disk"
               />
-              {images.length > 1 && (
-                <View style={styles.imageDots}>
-                  {images.map((_, idx) => (
-                    <Pressable
-                      key={idx}
-                      style={[
-                        styles.dot,
-                        idx === imageIndex && styles.activeDot,
-                      ]}
-                      onPress={() => setImageIndex(idx)}
-                    />
-                  ))}
-                </View>
-              )}
             </>
           ) : (
             <View style={styles.imagePlaceholder}>
@@ -185,6 +330,24 @@ export default function ProductDetailScreen() {
             </View>
           )}
         </Animated.View>
+
+        {images.length > 1 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.imageThumbs}
+          >
+            {images.map((src, idx) => (
+              <Pressable
+                key={`${src}-${idx}`}
+                style={[styles.thumbButton, idx === imageIndex && styles.thumbButtonActive]}
+                onPress={() => setImageIndex(idx)}
+              >
+                <Image source={{ uri: src }} style={styles.thumbImage} contentFit="cover" />
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
 
         {/* Product Info */}
         <Animated.View entering={FadeIn.delay(100)} style={styles.contentSection}>
@@ -194,9 +357,9 @@ export default function ProductDetailScreen() {
           {/* Price Section */}
           <View style={styles.priceSection}>
             <View style={styles.priceRow}>
-              <Text style={styles.price}>₹{currentVariant.price.toLocaleString("en-IN")}</Text>
-              {currentVariant.originalPrice && (
-                <Text style={styles.originalPrice}>₹{currentVariant.originalPrice.toLocaleString("en-IN")}</Text>
+              <Text style={styles.price}>₹{Number(effectivePrice).toLocaleString("en-IN")}</Text>
+              {effectiveOldPrice && (
+                <Text style={styles.originalPrice}>₹{Number(effectiveOldPrice).toLocaleString("en-IN")}</Text>
               )}
               {discountPercent > 0 && (
                 <View style={styles.discountBadge}>
@@ -215,7 +378,7 @@ export default function ProductDetailScreen() {
           {/* Product Type Badge */}
           <View style={styles.badgeSection}>
             <View style={styles.productBadge}>
-              <Text style={styles.badgeText}>Product</Text>
+              <Text style={styles.badgeText}>{typeLabel}</Text>
             </View>
           </View>
 
@@ -228,33 +391,34 @@ export default function ProductDetailScreen() {
           )}
 
           {/* Choose Option / Variants */}
-          {product?.variants && product.variants.length > 0 && (
+          {selectableOptions.length > 0 && (
             <View style={styles.optionsSection}>
               <Text style={styles.sectionTitle}>Choose option</Text>
-              {product.variants.map((variant, idx) => {
-                const variantLabel = variant.size || variant.quantity || `Option ${idx + 1}`;
-                const varDiscount = variant.discount || (variant.originalPrice && variant.price
-                  ? Math.round(((variant.originalPrice - variant.price) / variant.originalPrice) * 100)
-                  : 0);
-
+              {selectableOptions.map((option, idx) => {
+                const active = option.name === selectedOptionName;
+                const optOld = Number(option.oldPrice);
+                const showOld = Number.isFinite(optOld) && optOld > 0 && optOld > Number(option.price);
+                const optPercent = (() => {
+                  const direct = Number(option.discountPercent);
+                  if (Number.isFinite(direct) && direct > 0) return Math.round(direct);
+                  if (!showOld) return 0;
+                  return Math.round(((optOld - Number(option.price)) / optOld) * 100);
+                })();
                 return (
                   <Pressable
-                    key={idx}
-                    style={[
-                      styles.optionCard,
-                      selectedVariant === idx && styles.optionCardSelected,
-                    ]}
-                    onPress={() => setSelectedVariant(idx)}
+                    key={`${option.name}-${idx}`}
+                    style={[styles.optionCard, active && styles.optionCardSelected]}
+                    onPress={() => setSelectedOptionName(option.name)}
                   >
-                    <Text style={styles.optionLabel}>{variantLabel}</Text>
+                    <Text style={styles.optionLabel}>{option.name}</Text>
                     <View style={styles.optionPriceRow}>
-                      <Text style={styles.optionPrice}>₹{variant.price.toLocaleString("en-IN")}</Text>
-                      {variant.originalPrice && (
-                        <Text style={styles.optionOriginalPrice}>₹{variant.originalPrice.toLocaleString("en-IN")}</Text>
+                      <Text style={styles.optionPrice}>₹{Number(option.price).toLocaleString("en-IN")}</Text>
+                      {showOld && (
+                        <Text style={styles.optionOriginalPrice}>₹{optOld.toLocaleString("en-IN")}</Text>
                       )}
-                      {varDiscount > 0 && (
+                      {optPercent > 0 && (
                         <View style={styles.optionDiscountBadge}>
-                          <Text style={styles.optionDiscountText}>-{varDiscount}%</Text>
+                          <Text style={styles.optionDiscountText}>-{optPercent}%</Text>
                         </View>
                       )}
                     </View>
@@ -264,37 +428,29 @@ export default function ProductDetailScreen() {
             </View>
           )}
 
-          {/* Quantity Selector */}
-          <View style={styles.quantitySection}>
-            <Text style={styles.sectionTitle}>Quantity</Text>
-            <View style={styles.quantityControl}>
-              <Pressable
-                style={styles.quantityButton}
-                onPress={() => setQuantity(Math.max(1, quantity - 1))}
-              >
-                <Text style={styles.quantityButtonText}>−</Text>
-              </Pressable>
-              <Text style={styles.quantityValue}>{quantity}</Text>
-              <Pressable
-                style={styles.quantityButton}
-                onPress={() => setQuantity(quantity + 1)}
-              >
-                <Text style={styles.quantityButtonText}>+</Text>
-              </Pressable>
-            </View>
-          </View>
-
           {/* Attributes */}
-          {product?.attributes && product.attributes.length > 0 && (
+          {(detailsAttributes.length > 0 || product?.duration || product?.listingType) && (
             <View style={styles.attributesSection}>
               <Text style={styles.sectionTitle}>Details</Text>
               <View style={styles.attributeGrid}>
-                {product.attributes.map((attr, idx) => (
+                {detailsAttributes.map((attr, idx) => (
                   <View key={idx} style={styles.attributeItem}>
                     <Text style={styles.attributeName}>{attr.name}</Text>
                     <Text style={styles.attributeValue}>{attr.value}</Text>
                   </View>
                 ))}
+                {product?.duration && (
+                  <View style={styles.attributeItem}>
+                    <Text style={styles.attributeName}>Duration</Text>
+                    <Text style={styles.attributeValue}>{product.duration}</Text>
+                  </View>
+                )}
+                {product?.listingType && (
+                  <View style={styles.attributeItem}>
+                    <Text style={styles.attributeName}>Type</Text>
+                    <Text style={styles.attributeValue}>{typeLabel}</Text>
+                  </View>
+                )}
               </View>
             </View>
           )}
@@ -305,9 +461,31 @@ export default function ProductDetailScreen() {
       </ScrollView>
 
       {/* Add to Cart Button */}
-      <View style={[styles.footer, { paddingBottom: insets.bottom + 16, marginBottom: tabBarHeight }]}>
-        <Pressable style={styles.addButton}>
-          <Text style={styles.addButtonText}>Add to Cart</Text>
+      <View
+        style={[
+          styles.footer,
+          {
+            paddingBottom: footerBottom + 12,
+            bottom: footerOffsetFromBottom,
+          },
+        ]}
+        onLayout={(e: LayoutChangeEvent) => {
+          const h = e?.nativeEvent?.layout?.height;
+          if (typeof h === "number" && Number.isFinite(h) && h > 0) setFooterHeight(h);
+        }}
+      >
+        <Pressable
+          style={[styles.addButton, !canOrder && styles.addButtonDisabled]}
+          onPress={handleWhatsAppOrder}
+          disabled={!canOrder}
+        >
+          <Text style={styles.addButtonText}>Order on WhatsApp</Text>
+        </Pressable>
+        <Pressable
+          style={styles.secondaryButton}
+          onPress={() => router.push({ pathname: "/(customer)/booking", params: { businessId, businessSlug, businessName: sellerName } })}
+        >
+          <Text style={styles.secondaryButtonText}>Book Appointment</Text>
         </Pressable>
       </View>
     </View>
@@ -354,24 +532,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: Colors.light.backgroundSecondary,
   },
-  imageDots: {
-    position: "absolute",
-    bottom: 12,
-    left: 0,
-    right: 0,
+  imageThumbs: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
     flexDirection: "row",
-    justifyContent: "center",
-    gap: 6,
+    gap: 10,
   },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "rgba(255, 255, 255, 0.5)",
+  thumbButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
   },
-  activeDot: {
-    backgroundColor: "#fff",
-    width: 8,
+  thumbButtonActive: {
+    borderColor: Colors.light.primary,
+  },
+  thumbImage: {
+    width: "100%",
+    height: "100%",
   },
   contentSection: {
     paddingHorizontal: 20,
@@ -521,41 +701,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontFamily: "Manrope_600SemiBold",
   },
-  quantitySection: {
-    marginBottom: 24,
-  },
-  quantityControl: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    borderRadius: 12,
-    alignSelf: "flex-start",
-  },
-  quantityButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: Colors.light.primary,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  quantityButtonText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "600",
-    fontFamily: "Manrope_600SemiBold",
-  },
-  quantityValue: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.light.text,
-    minWidth: 30,
-    textAlign: "center",
-    fontFamily: "Manrope_600SemiBold",
-  },
   attributesSection: {
     marginBottom: 24,
   },
@@ -589,9 +734,13 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
+    gap: 10,
     backgroundColor: Colors.light.background,
     borderTopWidth: 1,
     borderTopColor: "rgba(255, 255, 255, 0.1)",
+    position: "absolute",
+    left: 0,
+    right: 0,
   },
   addButton: {
     backgroundColor: Colors.light.primary,
@@ -600,9 +749,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  addButtonDisabled: {
+    opacity: 0.6,
+  },
   addButtonText: {
     color: "#fff",
     fontSize: 16,
+    fontWeight: "600",
+    fontFamily: "Sora_600SemiBold",
+  },
+  secondaryButton: {
+    borderWidth: 1,
+    borderColor: Colors.light.primary,
+    paddingVertical: 12,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "transparent",
+  },
+  secondaryButtonText: {
+    color: Colors.light.primary,
+    fontSize: 15,
     fontWeight: "600",
     fontFamily: "Sora_600SemiBold",
   },

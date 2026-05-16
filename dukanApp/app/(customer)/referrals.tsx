@@ -1,16 +1,38 @@
 import React from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from "react-native";
 import { router } from "expo-router";
+import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 
 import Colors from "@/constants/colors";
 import { PUBLIC_WALLET } from "@/utils/publicCatalog";
+import { apiRequest } from "@/utils/apiClient";
+import { useAuth } from "@/context/AuthContext";
+
+type WalletResponse = { walletBalance: number };
+type ReferralOffer = { offerName: string; description?: string | null; referralThreshold?: number; rewardDuration?: number; rewardPlan?: string };
 
 export default function ReferralsScreen() {
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
+  const { accessToken } = useAuth();
+
+  const { data: wallet } = useQuery({
+    queryKey: ["wallet", "me"],
+    queryFn: () => apiRequest<WalletResponse>("/wallet/me", { accessToken }),
+    enabled: !!accessToken,
+    staleTime: 30_000,
+  });
+
+  const { data: offer } = useQuery({
+    queryKey: ["referral", "active-offer"],
+    queryFn: () => apiRequest<ReferralOffer>("/referrals/offer/active"),
+    staleTime: 60_000,
+  });
+
+  const walletBalance = Number(wallet?.walletBalance ?? PUBLIC_WALLET.balance);
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: Colors.light.background }} contentContainerStyle={{ paddingBottom: bottomPad + 110 }} showsVerticalScrollIndicator={false}>
@@ -25,12 +47,22 @@ export default function ReferralsScreen() {
       <View style={styles.body}>
         <View style={styles.balanceCard}>
           <Text style={styles.balanceLabel}>Wallet balance</Text>
-          <Text style={styles.balanceValue}>₹{PUBLIC_WALLET.balance.toLocaleString("en-IN")}</Text>
+          <Text style={styles.balanceValue}>₹{walletBalance.toLocaleString("en-IN")}</Text>
           <View style={styles.balanceStats}>
             <StatItem icon="clock" label="Pending" value={`₹${PUBLIC_WALLET.pending}`} />
             <StatItem icon="upload" label="Withdrawals" value={`${PUBLIC_WALLET.withdrawals}`} />
           </View>
         </View>
+
+        {offer ? (
+          <View style={styles.offerCard}>
+            <Text style={styles.offerTitle}>{offer.offerName}</Text>
+            {offer.description ? <Text style={styles.offerDesc}>{offer.description}</Text> : null}
+            <Text style={styles.offerMeta}>
+              Invite {offer.referralThreshold || 0} shops • Reward: {offer.rewardPlan || "plan"} for {offer.rewardDuration || 1} month(s)
+            </Text>
+          </View>
+        ) : null}
 
         <View style={styles.infoCard}>
           <InfoRow icon="gift" text="Share your referral code with friends and nearby shops." />
@@ -111,6 +143,17 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 12,
   },
+  offerCard: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.light.borderLight,
+    padding: 16,
+    gap: 6,
+  },
+  offerTitle: { fontFamily: "Sora_700Bold", fontSize: 16, color: Colors.light.text },
+  offerDesc: { fontFamily: "Manrope_400Regular", fontSize: 13, color: Colors.light.textSecondary, lineHeight: 18 },
+  offerMeta: { fontFamily: "Manrope_600SemiBold", fontSize: 12, color: Colors.primary },
   infoRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   infoIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: `${Colors.primary}18`, alignItems: "center", justifyContent: "center" },
   infoText: { fontFamily: "Manrope_500Medium", fontSize: 14, color: Colors.light.textSecondary, flex: 1, lineHeight: 20 },

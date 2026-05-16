@@ -1,17 +1,73 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from "react-native";
 import { router } from "expo-router";
+import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import Animated, { FadeInDown } from "react-native-reanimated";
 
 import Colors from "@/constants/colors";
 import { PUBLIC_PLANS } from "@/utils/publicCatalog";
+import { apiRequest } from "@/utils/apiClient";
+
+type ApiPlan = {
+  name: string;
+  price: number;
+  billingCycle?: "monthly" | "quarterly" | "yearly";
+  description?: string | null;
+  isPopular?: boolean;
+  features?: Record<string, any> | null;
+};
+
+const PLAN_COLORS = ["#059669", "#D74E09", "#0F766E", "#7C3AED", "#0284C7"];
+
+const formatPlanPrice = (plan: ApiPlan) => {
+  if (!Number.isFinite(plan.price) || plan.price <= 0) return "Free";
+  if (plan.billingCycle === "yearly") return `₹${plan.price}/yr`;
+  if (plan.billingCycle === "quarterly") return `₹${plan.price}/qtr`;
+  if (plan.billingCycle === "monthly") return `₹${plan.price}/mo`;
+  return `₹${plan.price}`;
+};
+
+const planPerks = (plan: ApiPlan) => {
+  const perks: string[] = [];
+  const f = plan.features || {};
+  if (typeof f.maxListings === "number") perks.push(`Up to ${f.maxListings} listings`);
+  if (f.bookingEnabled) perks.push("Bookings enabled");
+  if (f.featuredEnabled) perks.push("Featured placement");
+  if (f.analyticsEnabled) perks.push("Analytics access");
+  if (f.prioritySupport) perks.push("Priority support");
+  if (f.whatsappIntegration) perks.push("WhatsApp integration");
+  if (f.storiesEnabled) perks.push("Stories and updates");
+  if (f.ratingsEnabled) perks.push("Ratings & reviews");
+  if (f.ordersEnabled) perks.push("Orders enabled");
+  if (perks.length === 0 && plan.description) perks.push(plan.description);
+  return perks.slice(0, 5);
+};
 
 export default function PricingScreen() {
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
+
+  const { data: apiPlans = [] } = useQuery({
+    queryKey: ["plans", "public"],
+    queryFn: async () => apiRequest<ApiPlan[]>("/plans"),
+    staleTime: 60_000,
+  });
+
+  const planCards = useMemo(() => {
+    if (Array.isArray(apiPlans) && apiPlans.length > 0) {
+      return apiPlans.map((plan, idx) => ({
+        name: plan.name,
+        price: formatPlanPrice(plan),
+        highlight: plan.description || (plan.isPopular ? "Most popular" : "Best for growing businesses"),
+        perks: planPerks(plan),
+        accent: PLAN_COLORS[idx % PLAN_COLORS.length],
+      }));
+    }
+    return PUBLIC_PLANS;
+  }, [apiPlans]);
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: Colors.light.background }} contentContainerStyle={{ paddingBottom: bottomPad + 110 }} showsVerticalScrollIndicator={false}>
@@ -24,7 +80,7 @@ export default function PricingScreen() {
       </View>
 
       <View style={styles.body}>
-        {PUBLIC_PLANS.map((plan, index) => (
+        {planCards.map((plan, index) => (
           <Animated.View key={plan.name} entering={FadeInDown.delay(index * 70)}>
             <Pressable style={[styles.planCard, { borderTopColor: plan.accent }]} onPress={() => router.push("/referrals" as any)}>
               <View style={styles.planTop}>

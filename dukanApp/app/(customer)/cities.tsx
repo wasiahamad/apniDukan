@@ -1,18 +1,56 @@
 import React from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from "react-native";
 import { router } from "expo-router";
+import { useQuery } from "@tanstack/react-query";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { SvgXml } from "react-native-svg";
 import Animated, { FadeInDown } from "react-native-reanimated";
+import { Image } from "expo-image";
 
 import Colors from "@/constants/colors";
 import { FEATURED_CITIES, FEATURED_CATEGORIES, getCityArtwork } from "@/utils/publicCatalog";
+import { apiRequest } from "@/utils/apiClient";
+import { fetchCityImages, groupCategoriesFromShops, groupCitiesFromShops } from "@/utils/publicDynamic";
+
+type PublicShop = {
+  _id: string;
+  address?: { city?: string | null } | null;
+  businessType?: { name?: string | null; slug?: string | null } | null;
+  coverImage?: string | null;
+};
 
 export default function CitiesScreen() {
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
+
+  const { data: metaShops = [] } = useQuery({
+    queryKey: ["public-shops-meta", "cities"],
+    queryFn: async () => {
+      const out = await apiRequest<{ shops: PublicShop[] }>("/business/public/shops?limit=100");
+      return out?.shops || [];
+    },
+    staleTime: 60_000,
+  });
+
+  const dynamicCities = groupCitiesFromShops(metaShops, FEATURED_CITIES);
+  const dynamicCategories = groupCategoriesFromShops(metaShops, FEATURED_CATEGORIES);
+
+  const { data: cityImages = [] } = useQuery({
+    queryKey: ["city-images", "cities", dynamicCities.map((c) => c.name).join("|")],
+    queryFn: () => fetchCityImages(dynamicCities.map((c) => c.name)),
+    enabled: dynamicCities.length > 0,
+    staleTime: 300_000,
+  });
+
+  const cityImageMap = new Map(
+    cityImages.map((row: any) => [String(row?.cityName || ""), String(row?.imageUrl || "")])
+  );
+  const citiesWithImages = dynamicCities.map((c) => ({
+    ...c,
+    imageUrl: cityImageMap.get(c.name) || null,
+  }));
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: Colors.light.background }} contentContainerStyle={{ paddingBottom: bottomPad + 110 }} showsVerticalScrollIndicator={false}>
@@ -25,10 +63,14 @@ export default function CitiesScreen() {
       </View>
 
       <View style={styles.body}>
-        {FEATURED_CITIES.map((city, index) => (
+        {citiesWithImages.map((city, index) => (
           <Animated.View key={city.slug} entering={FadeInDown.delay(index * 60)}>
-            <Pressable onPress={() => router.push("/(customer)/search")} style={styles.cityCard}>
-              <SvgXml xml={getCityArtwork(city.name)} width="100%" height="100%" style={StyleSheet.absoluteFillObject as any} />
+            <Pressable onPress={() => router.push({ pathname: "/(customer)/search", params: { city: city.name } })} style={styles.cityCard}>
+              {city.imageUrl ? (
+                <Image source={{ uri: city.imageUrl }} style={StyleSheet.absoluteFillObject as any} contentFit="cover" />
+              ) : (
+                <SvgXml xml={getCityArtwork(city.name)} width="100%" height="100%" style={StyleSheet.absoluteFillObject as any} />
+              )}
               <View style={styles.overlay} />
               <View style={styles.topRow}>
                 <View style={[styles.badge, { backgroundColor: `${city.accent}22` }]}>
@@ -49,7 +91,7 @@ export default function CitiesScreen() {
 
         <Text style={styles.sectionTitle}>Popular categories</Text>
         <View style={styles.categoryGrid}>
-          {FEATURED_CATEGORIES.map((category) => (
+          {dynamicCategories.map((category) => (
             <Pressable key={category.slug} onPress={() => router.push("/(customer)/search")} style={styles.categoryCard}>
               <View style={[styles.categoryIcon, { backgroundColor: `${category.accent}18` }]}>
                 <Feather name={category.icon as any} size={18} color={category.accent} />
