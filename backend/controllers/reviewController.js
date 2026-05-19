@@ -6,6 +6,34 @@ const DEMO_SHOP_SLUG = 'ram-kirana-store';
 
 const normalizeSlug = (slug) => String(slug || '').toLowerCase().trim();
 
+const getCallerHostname = (req) => {
+  const candidates = [req.get('origin'), req.get('referer')].filter(Boolean);
+
+  for (const value of candidates) {
+    try {
+      const url = new URL(value);
+      if (url.hostname) return url.hostname.toLowerCase();
+    } catch {
+      // ignore
+    }
+  }
+
+  return null;
+};
+
+const isStorefrontSubdomainHost = (hostname) => {
+  if (!hostname) return false;
+
+  const h = hostname.toLowerCase();
+  if (h === 'localhost' || h === '127.0.0.1') return true;
+
+  if (h === 'publicdukan.com' || h === 'www.publicdukan.com') return false;
+  if (h === 'seller.publicdukan.com') return false;
+
+  if (h.endsWith('.publicdukan.com')) return true;
+  return false;
+};
+
 const getPublicBusinessBySlugOrThrow = async (slug) => {
   const normalizedSlug = normalizeSlug(slug);
 
@@ -108,14 +136,23 @@ export const getReviewsBySlug = async (req, res) => {
 // @access  Private (customer)
 export const createReviewBySlug = async (req, res) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Login required',
-      });
+    const isAuthedCustomer = req.user?.role === 'customer';
+
+    // Marketplace requires login; storefront subdomains allow guest reviews.
+    if (!isAuthedCustomer) {
+      const callerHostname = getCallerHostname(req);
+      const allowGuest = isStorefrontSubdomainHost(callerHostname);
+
+      if (!allowGuest) {
+        return res.status(401).json({
+          success: false,
+          message: 'Login required',
+        });
+      }
     }
 
-    if (req.user.role !== 'customer') {
+    // If authenticated but not a customer, keep the old restriction.
+    if (req.user && req.user.role !== 'customer') {
       return res.status(403).json({
         success: false,
         message: 'Only customer can submit reviews',
@@ -135,7 +172,9 @@ export const createReviewBySlug = async (req, res) => {
       });
     }
 
-    const customerName = String(req.user?.name || '').trim();
+    const customerName = isAuthedCustomer
+      ? String(req.user?.name || '').trim()
+      : String(req.body?.customerName || req.body?.name || '').trim();
     const comment = String(req.body?.comment || '').trim();
 
     const created = await Review.create({

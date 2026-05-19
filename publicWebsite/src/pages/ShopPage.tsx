@@ -76,13 +76,7 @@ const fetchReviewsBySlug = async (slug: string, limit = 10) => {
   return json.data || [];
 };
 
-const createReviewBySlug = async (slug: string, payload: { rating: number; comment?: string }) => {
-  if (!hasAuthSession()) {
-    const err: any = new Error("Login required");
-    err.status = 401;
-    throw err;
-  }
-
+const createReviewBySlug = async (slug: string, payload: { rating: number; comment?: string; customerName?: string }) => {
   const token = (() => {
     try {
       return localStorage.getItem("accessToken");
@@ -292,6 +286,7 @@ export default function ShopPage() {
 
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [reviewRating, setReviewRating] = useState<number>(5);
+  const [reviewCustomerName, setReviewCustomerName] = useState<string>("");
   const [reviewComment, setReviewComment] = useState("");
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
@@ -931,6 +926,7 @@ export default function ShopPage() {
     if (!shopSlug) return;
     const rating = Math.min(5, Math.max(1, Math.round(Number(reviewRating) || 0)));
     const comment = String(reviewComment || "").trim();
+    const customerName = String(reviewCustomerName || "").trim();
 
     if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
       toast({
@@ -945,6 +941,7 @@ export default function ShopPage() {
     try {
       await createReviewBySlug(shopSlug, {
         rating,
+        ...(customerName ? { customerName } : {}),
         ...(comment ? { comment } : {}),
       });
 
@@ -955,6 +952,7 @@ export default function ShopPage() {
 
       setReviewDialogOpen(false);
       setReviewRating(5);
+      setReviewCustomerName(user?.name || "");
       setReviewComment("");
 
       // Refresh list + summary shown in header
@@ -1448,15 +1446,9 @@ export default function ShopPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={(e) => {
-                          if (hasAuthSession()) return;
-                          e.preventDefault();
-                          toast({
-                            title: t("shopPage.auth.loginRequiredTitle"),
-                            description: t("shopPage.reviews.loginRequiredDesc"),
-                            variant: "destructive",
-                          });
-                          navigate("/login", { replace: true, state: { from: location, authRequired: true } });
+                        onClick={() => {
+                          // Best-effort default name for logged-in users.
+                          if (!reviewCustomerName.trim() && user?.name) setReviewCustomerName(user.name);
                         }}
                       >
                         {t("shopPage.reviews.writeButton")}
@@ -1493,13 +1485,17 @@ export default function ShopPage() {
                           </div>
                         </div>
 
-                        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
-                          <div className="text-xs text-emerald-700">{t("shopPage.reviews.submittingAs")}</div>
-                          <div className="text-sm font-semibold text-slate-900">
-                            {user?.name || user?.email || t("shopPage.reviews.customerFallback")}
-                          
-                            {user?.name || user?.email || t("shopPage.reviews.customerFallback")}
+                        <div>
+                          <div className="text-sm font-medium">
+                            {t("shopPage.reviews.nameOptionalLabel", { defaultValue: "Your name (optional)" })}
                           </div>
+                          <Input
+                            className="mt-2"
+                            placeholder={t("shopPage.reviews.namePlaceholder", { defaultValue: "Your name" })}
+                            value={reviewCustomerName}
+                            onChange={(e) => setReviewCustomerName(e.target.value)}
+                            maxLength={100}
+                          />
                         </div>
 
                         <div>
