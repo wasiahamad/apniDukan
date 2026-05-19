@@ -44,8 +44,23 @@ router.post(
 	]),
 	authController.verifyEmailOtp
 );
+// Legacy snake_case alias (older clients)
+router.post(
+	'/verify_email_otp',
+	validate([
+		body('email').isEmail().withMessage('Valid email is required'),
+		body('otp').isLength({ min: 6, max: 6 }).withMessage('Valid 6-digit OTP is required'),
+	]),
+	authController.verifyEmailOtp
+);
 router.post(
 	'/resend-email-otp',
+	validate([body('email').isEmail().withMessage('Valid email is required')]),
+	authController.resendEmailOtp
+);
+// Legacy snake_case alias (older clients)
+router.post(
+	'/resend_email_otp',
 	validate([body('email').isEmail().withMessage('Valid email is required')]),
 	authController.resendEmailOtp
 );

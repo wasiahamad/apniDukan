@@ -496,12 +496,24 @@ const resources = {
           whatsappPrefill: "Hi, I want to order {{item}} (₹{{price}}) from {{shopName}} via PublicDukan",
           whatsappOptionLine: "Option: {{option}}",
         },
+        paymentMethod: {
+          label: "Payment method",
+          placeholder: "Select payment method",
+          requiredTitle: "Payment method required",
+          requiredDesc: "Please select a payment method.",
+        },
         listings: {
           noFeatured: "No listings are available right now.",
         },
         whatsapp: {
           foundShopPrefill: "Hi, I found your shop on PublicDukan!",
           orderPrefill: "Hi, I want to order {{item}} (₹{{price}}) from PublicDukan.",
+          imageLine: "Image: {{url}}",
+          orderSummaryLine: "Order card: {{url}}",
+          paymentMethodLine: "Payment method: {{method}}",
+          customerLine: "Customer: {{name}} • {{phone}}",
+          notesLine: "Notes: {{notes}}",
+          bookingPrefill: "Hi, I want to book an appointment for {{item}} on {{date}} at {{time}} from {{shopName}} via PublicDukan",
         },
         about: {
           title: "About",
@@ -1665,12 +1677,24 @@ const resources = {
           whatsappPrefill: "नमस्ते, मैं PublicDukan से {{shopName}} के यहाँ से {{item}} (₹{{price}}) ऑर्डर करना चाहता/चाहती हूँ",
           whatsappOptionLine: "विकल्प: {{option}}",
         },
+        paymentMethod: {
+          label: "पेमेंट मेथड",
+          placeholder: "पेमेंट मेथड चुनें",
+          requiredTitle: "पेमेंट मेथड आवश्यक",
+          requiredDesc: "कृपया पेमेंट मेथड चुनें।",
+        },
         listings: {
           noFeatured: "अभी कोई लिस्टिंग उपलब्ध नहीं है।",
         },
         whatsapp: {
           foundShopPrefill: "नमस्ते, मुझे आपकी दुकान PublicDukan पर मिली!",
           orderPrefill: "नमस्ते, मैं PublicDukan से {{item}} (₹{{price}}) ऑर्डर करना चाहता/चाहती हूँ।",
+          imageLine: "इमेज: {{url}}",
+          orderSummaryLine: "ऑर्डर कार्ड: {{url}}",
+          paymentMethodLine: "पेमेंट मेथड: {{method}}",
+          customerLine: "ग्राहक: {{name}} • {{phone}}",
+          notesLine: "नोट्स: {{notes}}",
+          bookingPrefill: "नमस्ते, मैं PublicDukan से {{shopName}} के यहाँ {{item}} के लिए {{date}} को {{time}} पर अपॉइंटमेंट बुक करना चाहता/चाहती हूँ",
         },
         about: {
           title: "परिचय",

@@ -178,6 +178,94 @@ app.get('/', (req, res) => {
   });
 });
 
+const escapeHtml = (value) =>
+  String(value || '').replace(/[&<>"']/g, (ch) => {
+    switch (ch) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      case "'":
+        return '&#39;';
+      default:
+        return ch;
+    }
+  });
+
+const truncate = (value, max) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.length <= max) return raw;
+  return `${raw.slice(0, Math.max(0, max - 3))}...`;
+};
+
+const isHttpUrl = (value) => {
+  try {
+    const url = new URL(String(value || ''));
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+// Order summary preview (OG tags) for WhatsApp link previews
+app.get('/share/order-summary', (req, res) => {
+  const titleRaw = truncate(req.query.title, 120) || 'Order Summary';
+  const shopRaw = truncate(req.query.shop, 80);
+  const itemRaw = truncate(req.query.item, 80);
+  const totalRaw = truncate(req.query.total, 32);
+  const currencyRaw = truncate(req.query.currency, 8) || '₹';
+  const imageRaw = String(req.query.image || '').trim();
+
+  const descriptionParts = [];
+  if (shopRaw) descriptionParts.push(`Shop: ${shopRaw}`);
+  if (itemRaw) descriptionParts.push(`Item: ${itemRaw}`);
+  if (totalRaw) descriptionParts.push(`Total: ${currencyRaw}${totalRaw}`);
+
+  const descriptionRaw = truncate(descriptionParts.join(' | ') || 'Order summary from PublicDukan.', 240);
+  const imageUrl = isHttpUrl(imageRaw)
+    ? imageRaw
+    : String(process.env.SHARE_DEFAULT_IMAGE_URL || 'https://publicdukan.com/logo-removebg-preview.png');
+
+  const pageUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+  const title = escapeHtml(titleRaw);
+  const description = escapeHtml(descriptionRaw);
+  const image = escapeHtml(imageUrl);
+  const ogUrl = escapeHtml(pageUrl);
+
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.set('Cache-Control', 'public, max-age=300');
+  res.status(200).send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>${title}</title>
+    <meta name="description" content="${description}" />
+    <meta property="og:title" content="${title}" />
+    <meta property="og:description" content="${description}" />
+    <meta property="og:image" content="${image}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="${ogUrl}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${title}" />
+    <meta name="twitter:description" content="${description}" />
+    <meta name="twitter:image" content="${image}" />
+  </head>
+  <body>
+    <main style="font-family:Arial, sans-serif; padding:24px;">
+      <h1 style="font-size:20px; margin:0 0 8px;">${title}</h1>
+      <p style="margin:0; color:#555;">${description}</p>
+    </main>
+  </body>
+</html>`);
+});
+
 // Mount API routes
 mountRoutes(app);
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { MessageCircle, Clock } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -9,8 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { autoHindiText, hasDevanagari } from "@/lib/publicShopsApi";
-import { hasAuthSession } from "@/lib/publicShopsApi";
+import { autoHindiText, buildOrderSummaryUrl, hasDevanagari, hasAuthSession, toSafePublicImageUrl } from "@/lib/publicShopsApi";
 import { createPublicOrder } from "@/lib/ordersApi";
 import { useToast } from "@/hooks/use-toast";
 import type { Product } from "@/data/mockData";
@@ -23,6 +23,7 @@ interface ProductDetailDialogProps {
   customerPhone?: string;
   shopWhatsapp: string;
   shopName: string;
+  paymentMethods?: string[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onBook?: (product: Product) => void;
@@ -37,6 +38,7 @@ export default function ProductDetailDialog({
   customerPhone,
   shopWhatsapp,
   shopName,
+  paymentMethods,
   open,
   onOpenChange,
   onBook,
@@ -81,10 +83,25 @@ export default function ProductDetailDialog({
 
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [placingOrder, setPlacingOrder] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<string>("");
 
   useEffect(() => {
     setSelectedImageIndex(0);
   }, [product, dialogOpen]);
+
+  useEffect(() => {
+    if (!dialogOpen) return;
+    setPaymentMethod("");
+  }, [dialogOpen, product]);
+
+  const paymentMethodOptions = useMemo(() => {
+    const fromShop = Array.isArray(paymentMethods)
+      ? paymentMethods.map((x) => String(x || "").trim()).filter(Boolean)
+      : [];
+    const fallback = ["Cash", "UPI", "Card", "Bank Transfer"];
+    const merged = fromShop.length > 0 ? fromShop : fallback;
+    return Array.from(new Set(merged)).slice(0, 8);
+  }, [paymentMethods]);
 
   const typeLabel =
     safeProduct.type === "service"
@@ -169,7 +186,28 @@ export default function ProductDetailDialog({
   const canOrder = !requiresSelection || !!selectedOption;
 
   const whatsappHref = useMemo(() => {
+    const imageUrl = toSafePublicImageUrl(images?.[0], "");
+    const orderSummaryUrl = buildOrderSummaryUrl({
+      title: `${safeProduct.name} - ${shopName}`,
+      shop: shopName,
+      item: safeProduct.name,
+      image: imageUrl,
+      total: Number.isFinite(Number(effectivePrice)) ? String(effectivePrice) : "",
+      currency: "₹",
+    });
+    const whoLine = (() => {
+      const name = String(customerName || "").trim();
+      const phone = String(customerPhone || "").trim();
+      if (!name && !phone) return null;
+      return t("shopPage.whatsapp.customerLine", {
+        name: name || t("shopPage.customerFallbackLabel"),
+        phone: phone || "-",
+      });
+    })();
+
     const parts = [
+      imageUrl ? t("shopPage.whatsapp.imageLine", { url: imageUrl }) : null,
+      orderSummaryUrl ? t("shopPage.whatsapp.orderSummaryLine", { url: orderSummaryUrl }) : null,
       t("shopPage.productDialog.whatsappPrefill", {
         item: safeProduct.name,
         price: effectivePrice,
@@ -178,9 +216,13 @@ export default function ProductDetailDialog({
       selectedOption
         ? t("shopPage.productDialog.whatsappOptionLine", { option: selectedOption.name })
         : null,
+      paymentMethod
+        ? t("shopPage.whatsapp.paymentMethodLine", { method: paymentMethod })
+        : null,
+      whoLine,
     ].filter(Boolean);
     return `https://wa.me/${shopWhatsapp}?text=${encodeURIComponent(parts.join("\n"))}`;
-  }, [effectivePrice, safeProduct.name, selectedOption, shopName, shopWhatsapp]);
+  }, [customerName, customerPhone, effectivePrice, images, paymentMethod, safeProduct.name, selectedOption, shopName, shopWhatsapp, t]);
 
   const getLastMapOrigin = (): "map" | "website" => {
     try {
@@ -379,12 +421,36 @@ export default function ProductDetailDialog({
             </div>
           )}
 
+          <div className="bg-card border border-border rounded-2xl p-4">
+            <h2 className="text-sm font-bold mb-2">{t("shopPage.paymentMethod.label")}</h2>
+            <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("shopPage.paymentMethod.placeholder")} />
+              </SelectTrigger>
+              <SelectContent>
+                {paymentMethodOptions.map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <Button
             className="w-full gap-2"
             type="button"
-            disabled={!canOrder || placingOrder}
+            disabled={!canOrder || placingOrder || !paymentMethod}
             onClick={async () => {
               if (!canOrder || placingOrder) return;
+              if (!paymentMethod) {
+                toast({
+                  title: t("shopPage.paymentMethod.requiredTitle"),
+                  description: t("shopPage.paymentMethod.requiredDesc"),
+                  variant: "destructive",
+                });
+                return;
+              }
 
               if (!hasAuthSession()) {
                 toast({

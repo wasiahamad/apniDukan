@@ -57,6 +57,7 @@ const setPendingRegistration = async (email, rec) => {
         createdAt: rec?.createdAt || new Date(),
       },
     },
+    { upsert: true },
   );
   return PendingRegistration.findOne({ email: key }).lean();
 };

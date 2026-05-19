@@ -107,15 +107,29 @@ export const authApi = {
   },
 
   async verifyEmailOtp(data: VerifyOtpData): Promise<ApiResponse<AuthResponse>> {
-    const response = await apiClient.post<AuthResponse>('/auth/verify-email-otp', data, false);
-    if (response.success && response.data) {
-      setSession(response.data);
+    try {
+      const response = await apiClient.post<AuthResponse>('/auth/verify-email-otp', data, false);
+      if (response.success && response.data) {
+        setSession(response.data);
+      }
+      return response;
+    } catch (err: any) {
+      if (err?.status !== 404) throw err;
+      const fallback = await apiClient.post<AuthResponse>('/auth/verify_email_otp', data, false);
+      if (fallback.success && fallback.data) {
+        setSession(fallback.data);
+      }
+      return fallback;
     }
-    return response;
   },
 
   async resendEmailOtp(email: string): Promise<ApiResponse<{ otpExpiresInMinutes: number }>> {
-    return apiClient.post<{ otpExpiresInMinutes: number }>('/auth/resend-email-otp', { email }, false);
+    try {
+      return await apiClient.post<{ otpExpiresInMinutes: number }>('/auth/resend-email-otp', { email }, false);
+    } catch (err: any) {
+      if (err?.status !== 404) throw err;
+      return apiClient.post<{ otpExpiresInMinutes: number }>('/auth/resend_email_otp', { email }, false);
+    }
   },
 
   async forgotPassword(data: ForgotPasswordData): Promise<ApiResponse<{ otpExpiresInMinutes?: number }>> {

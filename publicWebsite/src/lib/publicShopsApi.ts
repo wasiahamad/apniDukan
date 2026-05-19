@@ -68,6 +68,44 @@ const resolveApiBaseUrl = () => {
 export const API_BASE_URL = resolveApiBaseUrl();
 const VIEW_SESSION_KEY = "publicdukan_view_session_id";
 
+export const getShareBaseUrl = () => {
+  const base = String(API_BASE_URL || '').trim();
+  if (!base) return '';
+  const withoutApi = base.replace(/\/api\/?$/, '');
+
+  if (withoutApi.startsWith('/')) {
+    if (typeof window === 'undefined') return '';
+    const suffix = withoutApi === '/' ? '' : withoutApi;
+    return `${window.location.origin}${suffix}`;
+  }
+
+  return withoutApi;
+};
+
+export const buildOrderSummaryUrl = (params: {
+  title?: string;
+  shop?: string;
+  item?: string;
+  image?: string;
+  total?: string;
+  currency?: string;
+}) => {
+  const base = getShareBaseUrl();
+  if (!base) return '';
+
+  try {
+    const url = new URL(`${String(base).replace(/\/+$/, '')}/share/order-summary`);
+    const entries = Object.entries(params || {});
+    entries.forEach(([key, value]) => {
+      const v = String(value || '').trim();
+      if (v) url.searchParams.set(key, v);
+    });
+    return url.toString();
+  } catch {
+    return '';
+  }
+};
+
 const getViewSessionId = () => {
   if (typeof window === "undefined") return null;
   try {

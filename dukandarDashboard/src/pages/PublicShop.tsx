@@ -15,7 +15,7 @@ import { categoryApi, type Category } from "@/lib/api/category";
 import { reviewApi, type PublicReview, type ReviewSummary } from "@/lib/api/reviews";
 import { aiApi } from "@/lib/api/ai.ts";
 import { useToast } from "@/hooks/use-toast";
-import { apiClient } from "@/lib/api";
+import { apiClient, API_BASE_URL } from "@/lib/api";
 import heroImage from "@/assets/hero-grocery.jpg";
 import { Carousel, CarouselContent, CarouselItem } from "@/components/ui/carousel";
 import { orderApi } from "@/lib/api/orders";
@@ -391,6 +391,7 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
   }>({ open: false, listingId: null, selectedLabel: "" });
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("");
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [likedProducts, setLikedProducts] = useState<Set<string>>(new Set());
   const [mobileMenu, setMobileMenu] = useState(false);
@@ -901,7 +902,8 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
   const canPlaceCartOrder =
     cartLines.length > 0 &&
     !creatingOrder &&
-    (!!customerName.trim() || !!customerPhone.trim());
+    (!!customerName.trim() || !!customerPhone.trim()) &&
+    !!paymentMethod.trim();
 
   const addToCart = (key: string) =>
     setCart((prev) => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
@@ -929,15 +931,34 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
     return result;
   };
 
-  const buildWhatsAppMessage = (vars: { product_name?: string; order_items?: string; total?: string }) => {
+  const buildWhatsAppMessage = (vars: {
+    product_name?: string;
+    order_items?: string;
+    total?: string;
+    payment_method?: string;
+    image_url?: string;
+    order_summary_url?: string;
+    customer_name?: string;
+    customer_phone?: string;
+  }) => {
     const orderVars = {
       business_name: shopName,
       product_name: vars.product_name || listingPluralLabel,
       order_items: vars.order_items || "",
       total: vars.total || "",
+      payment_method: vars.payment_method || "",
+      image_url: vars.image_url || "",
+      order_summary_url: vars.order_summary_url || "",
+      customer_name: vars.customer_name || "",
+      customer_phone: vars.customer_phone || "",
     };
 
     const templateRaw = whatsappOrderMessageTemplate?.trim() || "";
+    const templateHasPaymentMethod = templateRaw.includes("{{payment_method}}");
+    const templateHasImageUrl = templateRaw.includes("{{image_url}}");
+    const templateHasOrderSummaryUrl = templateRaw.includes("{{order_summary_url}}");
+    const templateHasCustomerName = templateRaw.includes("{{customer_name}}");
+    const templateHasCustomerPhone = templateRaw.includes("{{customer_phone}}");
     let orderText = templateRaw ? fillWhatsAppTemplate(templateRaw, orderVars).trim() : "";
 
     if (vars.order_items && templateRaw && !templateRaw.includes("{{order_items}}")) {
@@ -964,13 +985,55 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
       ? whatsappAutoGreetingMessage.trim()
       : "";
 
-    return greetingText ? `${greetingText}\n\n${fullOrder}` : fullOrder;
+    const extrasTop: string[] = [];
+    if (vars.image_url && !templateHasImageUrl) extrasTop.push(`Image: ${vars.image_url}`);
+    if (vars.order_summary_url && !templateHasOrderSummaryUrl) {
+      extrasTop.push(`Order card: ${vars.order_summary_url}`);
+    }
+    if (vars.payment_method && !templateHasPaymentMethod) extrasTop.push(`Payment method: ${vars.payment_method}`);
+    if ((vars.customer_name || vars.customer_phone) && (!templateHasCustomerName && !templateHasCustomerPhone)) {
+      const name = String(vars.customer_name || '').trim();
+      const phone = String(vars.customer_phone || '').trim();
+      const label = [name || '-', phone || '-'].join(' • ');
+      extrasTop.push(`Customer: ${label}`);
+    }
+
+    const base = greetingText ? `${greetingText}\n\n${fullOrder}` : fullOrder;
+    return extrasTop.length ? `${extrasTop.join("\n")}\n\n${base}` : base;
   };
 
   const getWhatsAppHref = (message: string) => {
     const wa = formatWhatsAppNumber(shopWhatsApp);
     if (!wa) return "#";
     return `https://wa.me/${wa}?text=${encodeURIComponent(message)}`;
+  };
+
+  const getShareBaseUrl = () => {
+    const base = String(API_BASE_URL || '').trim();
+    if (!base) return '';
+    return base.replace(/\/api\/?$/, '');
+  };
+
+  const buildOrderSummaryUrl = (params: {
+    title?: string;
+    shop?: string;
+    item?: string;
+    image?: string;
+    total?: string;
+    currency?: string;
+  }) => {
+    const base = getShareBaseUrl();
+    if (!base) return '';
+    try {
+      const url = new URL(`${String(base).replace(/\/+$/, '')}/share/order-summary`);
+      Object.entries(params || {}).forEach(([key, value]) => {
+        const v = String(value || '').trim();
+        if (v) url.searchParams.set(key, v);
+      });
+      return url.toString();
+    } catch {
+      return '';
+    }
   };
 
   const orderOnWhatsApp = async () => {
@@ -982,6 +1045,21 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
       });
       return;
     }
+    if (!paymentMethod.trim()) {
+      toast({
+        title: "Required",
+        description: "Please select a payment method.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const firstImageUrl = cartLines
+      .map((line) => {
+        const l = listings.find((x) => x._id === line.listingId);
+        return l ? listingImageUrl(l) : "";
+      })
+      .find((x) => !!String(x || "").trim());
 
     const items = cartLines
       .map((line) => {
@@ -990,7 +1068,9 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
         const opt = (line.pricingOptionLabel || '').trim();
         const unitPrice = l ? getUnitPriceForCartLine(l, opt) : 0;
         const labelSuffix = opt ? ` (${opt})` : "";
-        return `${name}${labelSuffix} x${line.qty} - ₹${unitPrice * line.qty}`;
+        const img = l ? listingImageUrl(l) : "";
+        const baseLine = `${name}${labelSuffix} x${line.qty} - ₹${unitPrice * line.qty}`;
+        return img ? `${baseLine}\nImage: ${img}` : baseLine;
       })
       .join("\n");
 
@@ -998,6 +1078,18 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
       product_name: listingPluralLabel,
       order_items: items,
       total: `₹${cartTotal}`,
+      payment_method: paymentMethod.trim(),
+      image_url: String(firstImageUrl || '').trim() || undefined,
+      order_summary_url: buildOrderSummaryUrl({
+        title: `${shopName} order`,
+        shop: shopName,
+        item: `${cartLines.length} items`,
+        image: String(firstImageUrl || '').trim(),
+        total: String(cartTotal),
+        currency: "₹",
+      }) || undefined,
+      customer_name: customerName.trim() || undefined,
+      customer_phone: customerPhone.trim() || undefined,
     });
     const wa = formatWhatsAppNumber(shopWhatsApp);
     if (!wa) {
@@ -2108,6 +2200,20 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
                         inputMode="tel"
                         className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30"
                       />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-foreground mb-1">Payment method</label>
+                      <select
+                        value={paymentMethod}
+                        onChange={(e) => setPaymentMethod(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                      >
+                        <option value="">Select payment method</option>
+                        <option value="Cash">Cash</option>
+                        <option value="UPI">UPI</option>
+                        <option value="Card">Card</option>
+                        <option value="Bank Transfer">Bank Transfer</option>
+                      </select>
                     </div>
                   </div>
                   <div className="flex items-center justify-between mb-4">

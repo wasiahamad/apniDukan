@@ -22,7 +22,7 @@ import { motion } from "framer-motion";
 import { type Product } from "@/data/mockData";
 import { useEffect } from "react";
 import { useUserLocation, getDistanceKm, formatDistance } from "@/hooks/useUserLocation";
-import { API_BASE_URL, fetchRoute, hasAuthSession, hasDevanagari, toSafePublicImageUrl } from "@/lib/publicShopsApi";
+import { API_BASE_URL, buildOrderSummaryUrl, fetchRoute, hasAuthSession, hasDevanagari, toSafePublicImageUrl } from "@/lib/publicShopsApi";
 import { bookPublicSlotBySlug, fetchActiveStories, fetchBookingSlotsBySlug, fetchBusinessDistance, fetchPublicListingsForShop, fetchPublicOffersForBusiness, fetchPublicShopBySlug } from "@/lib/publicShopsApi";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -253,6 +253,7 @@ export default function ShopPage() {
 
   // Booking state
   const [bookingNotes, setBookingNotes] = useState("");
+  const [bookingPaymentMethod, setBookingPaymentMethod] = useState<string>("");
   const [bookingDate, setBookingDate] = useState(() => {
     const d = new Date();
     const yyyy = d.getFullYear();
@@ -502,6 +503,14 @@ export default function ShopPage() {
       toast({ title: t("shopPage.booking.selectTimeSlotTitle"), variant: "destructive" });
       return;
     }
+    if (!bookingPaymentMethod.trim()) {
+      toast({
+        title: t("shopPage.paymentMethod.requiredTitle"),
+        description: t("shopPage.paymentMethod.requiredDesc"),
+        variant: "destructive",
+      });
+      return;
+    }
 
     const selectedVisible = visibleSlots.find((s) => String(s.startTime) === String(selectedStartTime));
     const selectedIsAvailable = selectedVisible && !selectedVisible.isBooked && String(selectedVisible.status || "") === "available";
@@ -518,6 +527,57 @@ export default function ShopPage() {
           customerNotes: bookingNotes.trim() || undefined,
           listingId: bookingListingId ? bookingListingId : undefined,
         });
+
+      // Best-effort: also send booking details on WhatsApp to shop
+      try {
+        const wa = String(shopQuery.data?.whatsapp || "").trim();
+        const shopName = String(shopQuery.data?.name || "").trim() || "Shop";
+        if (wa) {
+          const listing = bookingListingId
+            ? (listingsQuery.data || []).find((p: any) => String(p?.id || "") === String(bookingListingId))
+            : null;
+          const itemName = listing
+            ? String(listing?.name || "").trim() || t("shopPage.booking.generalAppointmentOption")
+            : t("shopPage.booking.generalAppointmentOption");
+          const imageUrl = listing ? String(listing?.image || "").trim() : "";
+          const safeImageUrl = toSafePublicImageUrl(imageUrl, "");
+          const orderSummaryUrl = buildOrderSummaryUrl({
+            title: `${itemName} - ${shopName}`,
+            shop: shopName,
+            item: itemName,
+            image: safeImageUrl,
+          });
+          const timeLabel = formatTime12h(selectedStartTime);
+          const whoName = String(user?.name || "").trim();
+          const whoPhone = String(user?.phone || "").trim();
+          const whoLine = (whoName || whoPhone)
+            ? t("shopPage.whatsapp.customerLine", {
+                name: whoName || t("shopPage.customerFallbackLabel"),
+                phone: whoPhone || "-",
+              })
+            : null;
+
+          const parts = [
+            safeImageUrl ? t("shopPage.whatsapp.imageLine", { url: safeImageUrl }) : null,
+            orderSummaryUrl ? t("shopPage.whatsapp.orderSummaryLine", { url: orderSummaryUrl }) : null,
+            t("shopPage.whatsapp.bookingPrefill", {
+              shopName,
+              item: itemName,
+              date: bookingDate,
+              time: timeLabel,
+            }),
+            bookingNotes.trim() ? t("shopPage.whatsapp.notesLine", { notes: bookingNotes.trim() }) : null,
+            t("shopPage.whatsapp.paymentMethodLine", { method: bookingPaymentMethod.trim() }),
+            whoLine,
+          ].filter(Boolean);
+
+          const message = parts.join("\n");
+          window.open(`https://wa.me/${wa}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
+        }
+      } catch {
+        // ignore
+      }
+
       toast({
         title: t("shopPage.booking.confirmedTitle"),
         description: t("shopPage.booking.confirmedDesc"),
@@ -525,6 +585,7 @@ export default function ShopPage() {
       setSelectedStartTime(null);
       setBookingNotes("");
       setBookingListingId("");
+      setBookingPaymentMethod("");
       await slotsQuery.refetch();
 
       setBookingOpen(false);
@@ -1187,6 +1248,24 @@ export default function ShopPage() {
                             ) : null}
 
                             <div>
+                              <div className="text-sm font-medium">{t("shopPage.paymentMethod.label")}</div>
+                              <div className="mt-2">
+                                <Select value={bookingPaymentMethod} onValueChange={setBookingPaymentMethod}>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder={t("shopPage.paymentMethod.placeholder")} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {(shop.paymentMethods || ["Cash", "UPI"]).map((m) => (
+                                      <SelectItem key={String(m)} value={String(m)}>
+                                        {String(m)}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+
+                            <div>
                               <div className="text-sm font-medium">{t("shopPage.booking.dateLabel")}</div>
                               <Input
                                 className="mt-2"
@@ -1742,6 +1821,7 @@ export default function ShopPage() {
         customerPhone={user?.phone || ''}
         shopWhatsapp={shop.whatsapp}
         shopName={shop.name}
+        paymentMethods={shopQuery.data?.paymentMethods || []}
         open={!!selectedProduct}
         onOpenChange={(open) => !open && closeSelectedProduct()}
         onRequireLogin={(product) => {
