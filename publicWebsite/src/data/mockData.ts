@@ -66,6 +66,9 @@ export interface Shop {
   products: Product[];
   latitude: number;
   longitude: number;
+  distanceKm?: number;
+  durationMins?: number;
+  ordersCount?: number;
   verified: boolean;
   publicShopEnabled?: boolean;
   subdomainActive?: boolean;

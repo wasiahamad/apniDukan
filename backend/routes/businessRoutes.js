@@ -42,6 +42,7 @@ router.get('/', protect, authorize('admin'), businessController.getAllBusinesses
 router.get('/:id/stats', protect, businessController.getBusinessStats);
 router.get('/:id/entitlements', protect, businessController.getBusinessEntitlements);
 router.get('/:id/distance', businessController.getBusinessDistance);
+router.get('/:id/navigation', businessController.getBusinessNavigation);
 router.get('/:id', businessController.getBusinessById);
 router.put('/:id', protect, requireVerifiedBusinessOwnerForWrites, businessController.updateBusiness);
 router.delete('/:id', protect, requireVerifiedBusinessOwnerForWrites, businessController.deleteBusiness);

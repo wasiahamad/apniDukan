@@ -9,6 +9,14 @@ import { useUserLocation, getDistanceKm, formatDistance } from "@/hooks/useUserL
 export default function ShopCard({ shop }: { shop: Shop }) {
   const { userLocation } = useUserLocation();
 
+  const formatDuration = (mins: number) => {
+    if (!Number.isFinite(mins) || mins <= 0) return null;
+    if (mins < 60) return `${Math.round(mins)} min`; 
+    const h = Math.floor(mins / 60);
+    const m = Math.round(mins % 60);
+    return m ? `${h} hr ${m} min` : `${h} hr`;
+  };
+
   const distance = (() => {
     const backendDistance = Number((shop as any)?.distanceKm);
     if (Number.isFinite(backendDistance) && backendDistance >= 0) return backendDistance;
@@ -16,6 +24,22 @@ export default function ShopCard({ shop }: { shop: Shop }) {
       ? getDistanceKm(userLocation.latitude, userLocation.longitude, shop.latitude, shop.longitude)
       : null;
   })();
+
+  const etaMins = (() => {
+    const backendEta = Number((shop as any)?.durationMins);
+    if (Number.isFinite(backendEta) && backendEta >= 0) return backendEta;
+    if (!Number.isFinite(distance || NaN)) return null;
+    return Math.max(1, Math.round(((distance as number) / 25) * 60));
+  })();
+
+  const hasCoords = Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude);
+  const orderCount = Number((shop as any)?.ordersCount ?? 0);
+  const isTrending = orderCount >= 5 && Number(shop.rating) >= 5;
+  const isNearby = Number.isFinite(distance ?? NaN) && (distance as number) <= 3;
+  const hasOffer = Number((shop as any)?.activePlanPrice ?? 0) >= 499;
+  const navigateUrl = hasCoords
+    ? `https://www.google.com/maps/dir/?api=1&destination=${shop.latitude},${shop.longitude}`
+    : null;
 
   return (
     <Card className="overflow-hidden hover:shadow-lg transition-shadow group">
@@ -46,6 +70,21 @@ export default function ShopCard({ shop }: { shop: Shop }) {
             {shop.name}
           </h3>
         </Link>
+        <div className="flex flex-wrap gap-2 mt-2">
+          {isNearby ? (
+            <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.35)]">
+              Near You
+            </Badge>
+          ) : null}
+          {isTrending ? (
+            <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/30">
+              Trending
+            </Badge>
+          ) : null}
+          {hasOffer ? (
+            <Badge className="bg-primary/10 text-primary border-primary/20">Offer</Badge>
+          ) : null}
+        </div>
         <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
           <span>{shop.category}</span>
           <span>•</span>
@@ -62,6 +101,7 @@ export default function ShopCard({ shop }: { shop: Shop }) {
             <div className="flex items-center gap-1 text-xs font-medium text-accent">
               <Navigation2 className="h-3 w-3" />
               <span>{formatDistance(distance)} door</span>
+              {etaMins ? <span className="text-xs text-muted-foreground">• {formatDuration(etaMins)}</span> : null}
             </div>
           )}
         </div>
@@ -71,6 +111,13 @@ export default function ShopCard({ shop }: { shop: Shop }) {
               <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
             </a>
           </Button>
+          {navigateUrl ? (
+            <Button size="sm" variant="secondary" className="gap-1" asChild>
+              <a href={navigateUrl} target="_blank" rel="noopener noreferrer">
+                <Navigation2 className="h-3.5 w-3.5" /> Navigate
+              </a>
+            </Button>
+          ) : null}
           <Button size="sm" variant="outline" className="gap-1" asChild>
             <a href={`tel:+${shop.phone}`}>
               <Phone className="h-3.5 w-3.5" />

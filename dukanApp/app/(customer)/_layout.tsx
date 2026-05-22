@@ -4,13 +4,12 @@ import { Tabs } from "expo-router";
 import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
 import { Feather } from "@expo/vector-icons";
-import React, { useEffect, useRef } from "react";
-import { Platform, StyleSheet, View, useColorScheme } from "react-native";
+import React, { useEffect } from "react";
+import { Linking, Platform, Pressable, StyleSheet, Text, View, useColorScheme } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import * as Location from "expo-location";
 import Colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
-import { apiRequest } from "@/utils/apiClient";
+import { useDeviceLocation } from "@/hooks/useDeviceLocation";
 
 function NativeTabLayout() {
   return (
@@ -134,88 +133,79 @@ function ClassicTabLayout() {
 
 export default function CustomerTabLayout() {
   const { accessToken } = useAuth();
-  const lastSentRef = useRef<{ lat: number; lng: number; ts: number } | null>(null);
+  const { location, loading, permissionDenied, requestLocation } = useDeviceLocation(accessToken);
 
   useEffect(() => {
-    if (Platform.OS === "web") return;
-    let subscription: Location.LocationSubscription | null = null;
-    let cancelled = false;
+    requestLocation();
+  }, [requestLocation]);
 
-    const distanceMeters = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
-      const toRad = (v: number) => (v * Math.PI) / 180;
-      const R = 6371000;
-      const dLat = toRad(b.lat - a.lat);
-      const dLng = toRad(b.lng - a.lng);
-      const lat1 = toRad(a.lat);
-      const lat2 = toRad(b.lat);
-      const h =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-      return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-    };
-
-    const sendLocation = async (coords: Location.LocationObjectCoords) => {
-      if (!accessToken) return;
-      const lat = Number(coords.latitude);
-      const lng = Number(coords.longitude);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-
-      const now = Date.now();
-      const last = lastSentRef.current;
-      if (last) {
-        const moved = distanceMeters({ lat, lng }, { lat: last.lat, lng: last.lng });
-        if (moved < 75 && now - last.ts < 60_000) return;
-      }
-
-      try {
-        await apiRequest("/auth/location", {
-          method: "PUT",
-          accessToken,
-          body: JSON.stringify({
-            latitude: lat,
-            longitude: lng,
-            accuracy: coords.accuracy ?? undefined,
-          }),
-        });
-        lastSentRef.current = { lat, lng, ts: now };
-      } catch {
-        // best-effort
-      }
-    };
-
-    (async () => {
-      try {
-        const perm = await Location.requestForegroundPermissionsAsync();
-        if (cancelled || perm.status !== "granted") return;
-
-        const current = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        if (!cancelled) await sendLocation(current.coords);
-
-        subscription = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.Balanced,
-            timeInterval: 60_000,
-            distanceInterval: 75,
-          },
-          (pos) => {
-            if (!cancelled) sendLocation(pos.coords);
-          }
-        );
-      } catch {
-        // ignore
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      if (subscription) subscription.remove();
-    };
-  }, [accessToken]);
+  if (!location) {
+    return (
+      <View style={styles.locationGate}>
+        <View style={styles.locationCard}>
+          <Feather name="map-pin" size={24} color={Colors.primary} />
+          <Text style={styles.locationTitle}>Location Required</Text>
+          <Text style={styles.locationSubtitle}>
+            Nearby dukandars dikhane ke liye location allow karna zaroori hai.
+          </Text>
+          <Pressable style={styles.locationButton} onPress={requestLocation} disabled={loading}>
+            <Text style={styles.locationButtonText}>{loading ? "Detecting..." : "Allow Location"}</Text>
+          </Pressable>
+          {permissionDenied ? (
+            <Pressable style={styles.settingsButton} onPress={() => Linking.openSettings()}>
+              <Text style={styles.settingsButtonText}>Open Settings</Text>
+            </Pressable>
+          ) : null}
+          {permissionDenied ? (
+            <Text style={styles.locationHint}>Location deny hua hai. Settings me allow kijiye.</Text>
+          ) : null}
+        </View>
+      </View>
+    );
+  }
 
   if (Platform.OS === "ios" && isLiquidGlassAvailable()) {
     return <NativeTabLayout />;
   }
   return <ClassicTabLayout />;
 }
+
+const styles = StyleSheet.create({
+  locationGate: {
+    flex: 1,
+    backgroundColor: Colors.light.background,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  locationCard: {
+    width: "100%",
+    maxWidth: 420,
+    borderRadius: 20,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: Colors.light.borderLight,
+    padding: 20,
+    alignItems: "center",
+    gap: 10,
+  },
+  locationTitle: { fontFamily: "Sora_700Bold", fontSize: 18, color: Colors.light.text },
+  locationSubtitle: { fontFamily: "Manrope_400Regular", fontSize: 13, color: Colors.light.textSecondary, textAlign: "center" },
+  locationButton: {
+    marginTop: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 16,
+    backgroundColor: Colors.primary,
+  },
+  locationButtonText: { fontFamily: "Manrope_600SemiBold", color: "#fff", fontSize: 13 },
+  settingsButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  settingsButtonText: { fontFamily: "Manrope_600SemiBold", color: Colors.primary, fontSize: 13 },
+  locationHint: { fontFamily: "Manrope_400Regular", fontSize: 12, color: "#F97316", textAlign: "center" },
+});

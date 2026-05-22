@@ -4,7 +4,9 @@ import { Image } from "expo-image";
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from "react-native-reanimated";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as Linking from "expo-linking";
 import Colors from "@/constants/colors";
+import { formatDistance, formatDuration } from "@/utils/geo";
 
 type Business = {
   id: string;
@@ -18,6 +20,10 @@ type Business = {
   rating?: number | null;
   reviewCount: number;
   isVerified: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
+  distanceKm?: number | null;
+  durationMins?: number | null;
 };
 
 const BUSINESS_TYPE_COLORS: Record<string, string> = {
@@ -47,11 +53,21 @@ export function BusinessCard({ business, onPress }: { business: Business; onPres
   const typeIcon = BUSINESS_TYPE_ICONS[business.businessType] || "briefcase";
   const hasRating = typeof business.rating === "number" && Number.isFinite(business.rating);
   const locationText = [business.city, business.address].find((v) => typeof v === "string" && v.trim().length > 0) || null;
+  const hasCoords = Number.isFinite(business.latitude) && Number.isFinite(business.longitude);
+  const distanceLabel = Number.isFinite(Number(business.distanceKm)) ? formatDistance(Number(business.distanceKm)) : "";
+  const durationLabel = Number.isFinite(Number(business.durationMins)) ? formatDuration(Number(business.durationMins)) : "";
+  const isNearby = Number(business.distanceKm) <= 3;
 
   function handlePress() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onPress();
   }
+
+  const handleNavigate = () => {
+    if (!hasCoords) return;
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${business.latitude},${business.longitude}`;
+    Linking.openURL(url);
+  };
 
   return (
     <Animated.View style={animStyle}>
@@ -96,6 +112,19 @@ export function BusinessCard({ business, onPress }: { business: Business; onPres
               <Feather name="map-pin" size={12} color={Colors.light.textSecondary} />
               <Text style={styles.location} numberOfLines={1}>{locationText}</Text>
             </View>
+          ) : null}
+          {distanceLabel ? (
+            <View style={styles.distanceRow}>
+              <Feather name="navigation" size={12} color={Colors.primary} />
+              <Text style={styles.distanceText}>{distanceLabel}{durationLabel ? ` • ${durationLabel}` : ""}</Text>
+              {isNearby ? <Text style={styles.nearbyChip}>Near You</Text> : null}
+            </View>
+          ) : null}
+          {hasCoords ? (
+            <Pressable onPress={handleNavigate} style={styles.navigateBtn}>
+              <Feather name="navigation" size={13} color="#fff" />
+              <Text style={styles.navigateText}>Navigate</Text>
+            </Pressable>
           ) : null}
         </View>
       </Pressable>
@@ -173,4 +202,28 @@ const styles = StyleSheet.create({
   rating: { fontFamily: "Manrope_600SemiBold", fontSize: 13, color: Colors.light.text },
   locationRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
   location: { fontFamily: "Manrope_400Regular", fontSize: 13, color: Colors.light.textSecondary, flex: 1 },
+  distanceRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 8 },
+  distanceText: { fontFamily: "Manrope_600SemiBold", fontSize: 12, color: Colors.primary },
+  nearbyChip: {
+    marginLeft: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: "#DCFCE7",
+    color: "#166534",
+    fontFamily: "Manrope_600SemiBold",
+    fontSize: 10,
+  },
+  navigateBtn: {
+    marginTop: 10,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  navigateText: { fontFamily: "Manrope_600SemiBold", fontSize: 12, color: "#fff" },
 });

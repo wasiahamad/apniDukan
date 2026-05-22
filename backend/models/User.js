@@ -137,6 +137,20 @@ const userSchema = new mongoose.Schema(
       ),
       default: undefined,
     },
+    currentLocationMeta: {
+      type: new mongoose.Schema(
+        {
+          city: { type: String, trim: true },
+          state: { type: String, trim: true },
+          country: { type: String, trim: true },
+          pincode: { type: String, trim: true },
+          source: { type: String, trim: true },
+          capturedAt: { type: Date, default: Date.now },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     referralCode: {
       type: String,
       unique: true,

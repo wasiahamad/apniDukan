@@ -146,3 +146,46 @@ export const saveVisitorLocation = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message || 'Error saving location' });
   }
 };
+
+const normalizeIpLocation = (payload) => {
+  const lat = Number(payload?.latitude ?? payload?.lat);
+  const lng = Number(payload?.longitude ?? payload?.lon ?? payload?.lng);
+  return {
+    latitude: Number.isFinite(lat) ? lat : null,
+    longitude: Number.isFinite(lng) ? lng : null,
+    city: String(payload?.city || '').trim() || null,
+    state: String(payload?.region || payload?.region_name || payload?.state || '').trim() || null,
+    country: String(payload?.country_name || payload?.country || '').trim() || null,
+    pincode: String(payload?.postal || payload?.postal_code || payload?.zip || '').trim() || null,
+    accuracy: Number.isFinite(Number(payload?.accuracy)) ? Number(payload?.accuracy) : null,
+  };
+};
+
+// @desc    Resolve visitor location via IP (fallback)
+// @route   GET /api/maps/ip-location
+// @access  Public
+export const getIpLocation = async (req, res) => {
+  try {
+    const endpoint = String(process.env.IP_GEO_PROVIDER_URL || 'https://ipapi.co/json/').trim();
+    if (!endpoint) {
+      return res.status(503).json({ success: false, message: 'IP geolocation not configured' });
+    }
+
+    const resp = await fetch(endpoint, { headers: { Accept: 'application/json' } });
+    const json = await resp.json().catch(() => ({}));
+
+    if (!resp.ok) {
+      return res.status(502).json({
+        success: false,
+        message: 'IP geolocation failed',
+        error: json,
+      });
+    }
+
+    const data = normalizeIpLocation(json);
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error('IP location error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'IP location error' });
+  }
+};

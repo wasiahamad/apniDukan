@@ -10,5 +10,6 @@ const router = express.Router();
 
 router.get('/route', mapsController.getRoute);
 router.post('/visit', mapsController.saveVisitorLocation);
+router.get('/ip-location', mapsController.getIpLocation);
 
 export default router;

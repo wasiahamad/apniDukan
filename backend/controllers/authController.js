@@ -1129,9 +1129,16 @@ export const getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
 
+    const payload = user?.toObject ? user.toObject() : user;
+    const capturedAt = payload?.currentLocation?.capturedAt ? new Date(payload.currentLocation.capturedAt) : null;
+    if (capturedAt && Number.isFinite(capturedAt.getTime())) {
+      payload.locationUpdatedAt = capturedAt.toISOString();
+      payload.locationAgeSeconds = Math.max(0, Math.floor((Date.now() - capturedAt.getTime()) / 1000));
+    }
+
     res.status(200).json({
       success: true,
-      data: user,
+      data: payload,
     });
   } catch (error) {
     console.error('Get me error:', error);
@@ -1238,11 +1245,15 @@ export const updateMyLocation = async (req, res) => {
       sendCustomerNearbyShopEmails({ userId: user._id, trigger: 'location_update' }).catch(() => null);
     }
 
+    const capturedAt = user.currentLocation?.capturedAt ? new Date(user.currentLocation.capturedAt) : null;
+
     return res.status(200).json({
       success: true,
       message: 'Live location updated',
       data: {
         currentLocation: user.currentLocation,
+        locationUpdatedAt: capturedAt ? capturedAt.toISOString() : null,
+        locationAgeSeconds: capturedAt ? Math.max(0, Math.floor((Date.now() - capturedAt.getTime()) / 1000)) : null,
       },
     });
   } catch (error) {
@@ -1550,6 +1561,8 @@ export const adminGetCustomerDetails = async (req, res) => {
 
     activity.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
+    const locationCapturedAt = customer.currentLocation?.capturedAt ? new Date(customer.currentLocation.capturedAt) : null;
+
     return res.status(200).json({
       success: true,
       data: {
@@ -1563,6 +1576,8 @@ export const adminGetCustomerDetails = async (req, res) => {
           isEmailVerified: customer.isEmailVerified,
           lastLogin: customer.lastLogin || null,
           currentLocation: customer.currentLocation || null,
+          locationUpdatedAt: locationCapturedAt ? locationCapturedAt.toISOString() : null,
+          locationAgeSeconds: locationCapturedAt ? Math.max(0, Math.floor((Date.now() - locationCapturedAt.getTime()) / 1000)) : null,
           createdAt: customer.createdAt,
           updatedAt: customer.updatedAt,
           bookingStats,

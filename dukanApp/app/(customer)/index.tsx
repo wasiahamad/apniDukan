@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Platform, FlatList } from "react-native";
 import { router } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
@@ -8,13 +8,16 @@ import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { SvgXml } from "react-native-svg";
 import { Image } from "expo-image";
+import MapView, { Marker } from "react-native-maps";
 
 import Colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { BusinessCard, BusinessCardSkeleton } from "@/components/BusinessCard";
 import { apiRequest } from "@/utils/apiClient";
-import { FEATURED_CATEGORIES, FEATURED_CITIES, FEATURE_STORIES, PUBLIC_FEATURES, getCityArtwork } from "@/utils/publicCatalog";
+import { FEATURED_CATEGORIES, FEATURED_CITIES, PUBLIC_FEATURES, getCityArtwork } from "@/utils/publicCatalog";
 import { fetchCityImages, groupCategoriesFromShops, groupCitiesFromShops } from "@/utils/publicDynamic";
+import { useDeviceLocation } from "@/hooks/useDeviceLocation";
+import { distanceKm } from "@/utils/geo";
 
 type PublicShop = {
   _id: string;
@@ -27,9 +30,11 @@ type PublicShop = {
   logo?: string;
   coverImage?: string;
   businessType?: { name: string; slug: string } | null;
-  address?: { street?: string; city?: string; state?: string; pincode?: string };
+  address?: { street?: string; city?: string; state?: string; pincode?: string } & { latitude?: number; longitude?: number };
   rating?: number;
   reviewCount?: number;
+  distanceKm?: number;
+  durationMins?: number;
 };
 
 type PublicShopList = {
@@ -56,14 +61,26 @@ function mapShopToCard(shop: PublicShop) {
     rating: typeof shop.rating === "number" ? shop.rating : null,
     reviewCount: typeof shop.reviewCount === "number" ? shop.reviewCount : 0,
     isVerified: !!shop.isVerified,
+    latitude: shop.address?.latitude ?? null,
+    longitude: shop.address?.longitude ?? null,
+    distanceKm: typeof shop.distanceKm === "number" ? shop.distanceKm : null,
+    durationMins: typeof shop.durationMins === "number" ? shop.durationMins : null,
   };
 }
 
-async function fetchBusinesses(category?: string, search?: string) {
+async function fetchBusinesses(category?: string, search?: string, location?: { latitude: number; longitude: number }) {
   const params = new URLSearchParams();
   if (category && category !== "all") params.set("category", category);
   if (search && search.trim()) params.set("search", search.trim());
   params.set("limit", "16");
+
+  if (location) {
+    params.set("lat", String(location.latitude));
+    params.set("lng", String(location.longitude));
+    params.set("radiusKm", "25");
+    const data = await apiRequest<{ shops: PublicShop[] }>(`/business/nearby?${params.toString()}`);
+    return { data: (data?.shops || []).map(mapShopToCard) };
+  }
 
   try {
     const data = await apiRequest<PublicShopList>(`/business/public/shops?${params.toString()}`);
@@ -123,14 +140,20 @@ function CityCard({ city }: { city: { name: string; slug: string; shops: number;
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
+  const { location, loading: locationLoading, permissionDenied, requestLocation } = useDeviceLocation(accessToken);
+  const [nearbyView, setNearbyView] = useState<"list" | "map">("list");
 
-  const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["businesses", "home"],
-    queryFn: () => fetchBusinesses("all"),
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ["businesses", "home", location?.latitude ?? null, location?.longitude ?? null],
+    queryFn: () => fetchBusinesses("all", undefined, location ? { latitude: location.latitude, longitude: location.longitude } : undefined),
     staleTime: 30000,
   });
+
+  useEffect(() => {
+    requestLocation();
+  }, [requestLocation]);
 
   const { data: metaShops = [] } = useQuery({
     queryKey: ["public-shops-meta"],
@@ -151,15 +174,46 @@ export default function HomeScreen() {
     staleTime: 300_000,
   });
 
-  const cityImageMap = new Map(
-    cityImages.map((row: any) => [String(row?.cityName || ""), String(row?.imageUrl || "")])
-  );
+  const cityImageMap = new Map(cityImages.map((row: any) => [String(row?.cityName || ""), String(row?.imageUrl || "")]))
   const citiesWithImages = dynamicCities.map((c) => ({
     ...c,
     imageUrl: cityImageMap.get(c.name) || null,
   }));
 
-  const featured = data?.data || [];
+  const featured = useMemo(() => {
+    const rows = data?.data || [];
+    if (!location) return rows;
+    return rows.map((item) => {
+      const hasCoords = Number.isFinite(item.latitude) && Number.isFinite(item.longitude);
+      if (!hasCoords) return item;
+      const computed = distanceKm(
+        { latitude: location.latitude, longitude: location.longitude },
+        { latitude: item.latitude as number, longitude: item.longitude as number }
+      );
+      const distance = Number.isFinite(item.distanceKm as number) ? (item.distanceKm as number) : computed;
+      const eta = Number.isFinite(item.durationMins as number) ? (item.durationMins as number) : Math.max(1, Math.round((distance / 25) * 60));
+      return { ...item, distanceKm: distance, durationMins: eta };
+    });
+  }, [data?.data, location]);
+
+  const mapRegion = useMemo(() => {
+    if (location) {
+      return {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      };
+    }
+    const first = featured.find((item: any) => Number.isFinite(item.latitude) && Number.isFinite(item.longitude));
+    if (!first) return null;
+    return {
+      latitude: first.latitude,
+      longitude: first.longitude,
+      latitudeDelta: 0.05,
+      longitudeDelta: 0.05,
+    };
+  }, [featured, location]);
 
   const renderItem = useCallback(({ item }: any) => (
     <BusinessCard
@@ -192,6 +246,51 @@ export default function HomeScreen() {
         </LinearGradient>
 
         <View style={styles.body}>
+          {locationLoading ? (
+            <View style={styles.locationBanner}>
+              <Feather name="navigation" size={16} color={Colors.primary} />
+              <Text style={styles.locationBannerText}>Detecting your location…</Text>
+            </View>
+          ) : permissionDenied ? (
+            <Pressable onPress={requestLocation} style={[styles.locationBanner, styles.locationBannerWarn]}>
+              <Feather name="alert-triangle" size={16} color="#F97316" />
+              <Text style={styles.locationBannerText}>Location denied. Tap to retry.</Text>
+            </Pressable>
+          ) : null}
+
+          <View style={styles.nearbyHeader}>
+            <Text style={styles.sectionTitle}>Near You</Text>
+            <View style={styles.nearbyToggle}>
+              <Pressable onPress={() => setNearbyView("list")} style={[styles.nearbyPill, nearbyView === "list" && styles.nearbyPillActive]}>
+                <Text style={[styles.nearbyPillText, nearbyView === "list" && styles.nearbyPillTextActive]}>List</Text>
+              </Pressable>
+              <Pressable onPress={() => setNearbyView("map")} style={[styles.nearbyPill, nearbyView === "map" && styles.nearbyPillActive]}>
+                <Text style={[styles.nearbyPillText, nearbyView === "map" && styles.nearbyPillTextActive]}>Map</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          {nearbyView === "map" && mapRegion && Platform.OS !== "web" ? (
+            <View style={styles.mapCard}>
+              <MapView style={StyleSheet.absoluteFillObject} initialRegion={mapRegion} showsUserLocation={!!location}>
+                {featured.slice(0, 12).map((shop: any) => (
+                  Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude) ? (
+                    <Marker
+                      key={shop.id}
+                      coordinate={{ latitude: shop.latitude, longitude: shop.longitude }}
+                      title={shop.name}
+                    />
+                  ) : null
+                ))}
+              </MapView>
+            </View>
+          ) : nearbyView === "map" && Platform.OS === "web" ? (
+            <View style={[styles.mapCard, styles.mapFallback]}>
+              <Feather name="map-pin" size={18} color={Colors.primary} />
+              <Text style={styles.mapFallbackText}>Map view mobile app me available hai.</Text>
+            </View>
+          ) : null}
+
           <View style={styles.quickGrid}>
             <QuickAction icon="map-pin" label="Cities" color={Colors.primary} onPress={() => router.push("/cities" as any)} />
             <QuickAction icon="play-circle" label="Stories" color="#7C3AED" onPress={() => router.push("/stories" as any)} />
@@ -324,6 +423,22 @@ const styles = StyleSheet.create({
   },
   searchText: { fontFamily: "Manrope_500Medium", fontSize: 14, color: Colors.light.textSecondary },
   body: { paddingHorizontal: 16, paddingTop: 18, gap: 18 },
+  locationBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: Colors.light.borderLight,
+  },
+  locationBannerWarn: {
+    borderColor: "#F97316",
+    backgroundColor: "#FFF7ED",
+  },
+  locationBannerText: { fontFamily: "Manrope_600SemiBold", fontSize: 12, color: Colors.light.text },
   quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   quickAction: {
     width: "48.2%",
@@ -393,6 +508,33 @@ const styles = StyleSheet.create({
   featureIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: `${Colors.primary}18`, alignItems: "center", justifyContent: "center" },
   featureTitle: { fontFamily: "Manrope_700Bold", fontSize: 14, color: Colors.light.text },
   featureSubtitle: { fontFamily: "Manrope_400Regular", fontSize: 12, color: Colors.light.textSecondary, marginTop: 2, lineHeight: 17 },
+  nearbyHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  nearbyToggle: { flexDirection: "row", gap: 8 },
+  nearbyPill: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: Colors.light.borderLight,
+    backgroundColor: "#fff",
+  },
+  nearbyPillActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  nearbyPillText: { fontFamily: "Manrope_600SemiBold", fontSize: 12, color: Colors.light.text },
+  nearbyPillTextActive: { color: "#fff" },
+  mapCard: {
+    height: 220,
+    borderRadius: 18,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: Colors.light.borderLight,
+  },
+  mapFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    gap: 8,
+  },
+  mapFallbackText: { fontFamily: "Manrope_600SemiBold", fontSize: 12, color: Colors.light.textSecondary },
   emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: 24, paddingHorizontal: 20, gap: 8 },
   emptyTitle: { fontFamily: "Sora_600SemiBold", fontSize: 16, color: Colors.light.text },
   emptySubtitle: { fontFamily: "Manrope_400Regular", fontSize: 13, color: Colors.light.textSecondary, textAlign: "center" },

@@ -883,7 +883,7 @@ type PublicShopItem = {
   businessType: { name: string; nameHi?: string; slug: string; description?: string; descriptionHi?: string } | null;
   rating?: number;
   reviewCount?: number;
-  ordersCount?: number;
+  ordersCount?: number | null;
   activePlanPrice?: number;
   address: {
     street: string;
@@ -1092,6 +1092,9 @@ export const mapPublicShopToCardShop = (item: PublicShopItem): Shop => {
   const rating = Number((item as any)?.rating);
   const reviewCount = Number((item as any)?.reviewCount);
   const activePlanPrice = Number((item as any)?.activePlanPrice);
+  const ordersCount = Number((item as any)?.ordersCount);
+  const distanceKm = Number((item as any)?.distanceKm);
+  const durationMins = Number((item as any)?.durationMins);
 
   return {
     id: item._id,
@@ -1132,6 +1135,9 @@ export const mapPublicShopToCardShop = (item: PublicShopItem): Shop => {
     products: [],
     latitude: item.address.latitude ?? 0,
     longitude: item.address.longitude ?? 0,
+    distanceKm: Number.isFinite(distanceKm) && distanceKm >= 0 ? distanceKm : undefined,
+    durationMins: Number.isFinite(durationMins) && durationMins >= 0 ? durationMins : undefined,
+    ordersCount: Number.isFinite(ordersCount) && ordersCount >= 0 ? ordersCount : undefined,
     verified: item.isVerified,
   };
 };
@@ -1242,7 +1248,34 @@ export const fetchNearbyPublicShops = async (params?: { lat?: number; lng?: numb
       const raw = Number((rows[idx] as any)?.distanceKm);
       return Number.isFinite(raw) && raw >= 0 ? raw : undefined;
     })(),
+    durationMins: (() => {
+      const raw = Number((rows[idx] as any)?.durationMins);
+      return Number.isFinite(raw) && raw >= 0 ? raw : undefined;
+    })(),
   })) as any;
+};
+
+export const fetchTrendingPublicShops = async (params?: { limit?: number; ratingMin?: number; ordersMin?: number; lat?: number; lng?: number }): Promise<Shop[]> => {
+  const q = new URLSearchParams();
+  q.set('trending', '1');
+  q.set('limit', String(params?.limit ?? 8));
+  q.set('ratingMin', String(params?.ratingMin ?? 5));
+  q.set('ordersMin', String(params?.ordersMin ?? 5));
+  q.set('lang', getPreferredLanguage());
+  if (params?.lat != null && Number.isFinite(params.lat)) q.set('lat', String(params.lat));
+  if (params?.lng != null && Number.isFinite(params.lng)) q.set('lng', String(params.lng));
+
+  const response = await fetch(`${API_BASE_URL}/business/public/shops?${q.toString()}`, {
+    headers: getLanguageHeaders(),
+  });
+  const json = (await response.json()) as PublicShopsResponse;
+
+  if (!response.ok || !json.success) {
+    throw new Error(json.message || 'Failed to load trending shops');
+  }
+
+  const rows = json.data?.shops || [];
+  return rows.map(mapPublicShopToCardShop);
 };
 
 export const fetchBusinessDistance = async (businessId: string, params: { lat: number; lng: number }) => {

@@ -5,10 +5,16 @@ interface UserLocation {
   latitude: number;
   longitude: number;
   accuracy?: number;
+  city?: string;
+  state?: string;
+  country?: string;
+  pincode?: string;
+  source?: "gps" | "cache";
 }
 
 const STORAGE_KEY = "dukandirect:userLocation:v1";
-const LOCATION_SYNC_THROTTLE_MS = 15000;
+const LOCATION_SYNC_THROTTLE_MS = 30000;
+const LOCATION_DISTANCE_REFRESH_METERS = 100;
 
 const readCachedLocation = (): UserLocation | null => {
   try {
@@ -19,7 +25,16 @@ const readCachedLocation = (): UserLocation | null => {
     const lng = Number(parsed?.longitude);
     const accuracy = Number(parsed?.accuracy);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-    return { latitude: lat, longitude: lng, accuracy: Number.isFinite(accuracy) ? accuracy : undefined };
+    return {
+      latitude: lat,
+      longitude: lng,
+      accuracy: Number.isFinite(accuracy) ? accuracy : undefined,
+      city: String(parsed?.city || "") || undefined,
+      state: String(parsed?.state || "") || undefined,
+      country: String(parsed?.country || "") || undefined,
+      pincode: String(parsed?.pincode || "") || undefined,
+      source: "cache",
+    };
   } catch {
     return null;
   }
@@ -29,7 +44,16 @@ const writeCachedLocation = (loc: UserLocation) => {
   try {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ latitude: loc.latitude, longitude: loc.longitude, accuracy: loc.accuracy })
+      JSON.stringify({
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        accuracy: loc.accuracy,
+        city: loc.city,
+        state: loc.state,
+        country: loc.country,
+        pincode: loc.pincode,
+        source: loc.source,
+      })
     );
   } catch {
     // ignore
@@ -45,25 +69,29 @@ const syncLocationToBackend = async (loc: UserLocation) => {
   } catch {
     token = null;
   }
-  if (!token) return;
-
   try {
-    await fetch(`${String(getApiBase()).replace(/\/+$/, "")}/auth/location`, {
-      method: "PUT",
+    await fetch(`${String(getApiBase()).replace(/\/+$/, "")}/location/update`, {
+      method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({
         latitude: loc.latitude,
         longitude: loc.longitude,
         accuracy: loc.accuracy,
+        city: loc.city,
+        state: loc.state,
+        country: loc.country,
+        pincode: loc.pincode,
+        source: loc.source || "gps",
       }),
     });
   } catch {
     // best-effort
   }
 };
+
 
 const distanceMeters = (a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) => {
   // quick haversine in meters
@@ -83,6 +111,7 @@ interface LocationContextType {
   loading: boolean;
   error: string | null;
   permissionDenied: boolean;
+  locationSource: "gps" | "cache" | null;
   requestLocation: () => void;
   persistVisit: (meta?: { page?: string; shopSlug?: string }) => Promise<void>;
 }
@@ -92,6 +121,7 @@ const LocationContext = createContext<LocationContextType>({
   loading: true,
   error: null,
   permissionDenied: false,
+  locationSource: null,
   requestLocation: () => {},
   persistVisit: async () => {},
 });
@@ -105,6 +135,9 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [permissionDenied, setPermissionDenied] = useState(false);
+  const [locationSource, setLocationSource] = useState<"gps" | "cache" | null>(
+    userLocation?.source || null
+  );
   const [watching, setWatching] = useState(false);
 
   // Use refs for throttles/dedup to avoid rerender-driven loops and unstable callbacks.
@@ -128,8 +161,14 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const loc = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy };
+        const loc = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+          source: "gps" as const,
+        };
         setUserLocation(loc);
+        setLocationSource("gps");
         writeCachedLocation(loc);
         maybeSyncLiveLocation(loc);
         setLoading(false);
@@ -153,13 +192,20 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     setWatching(true);
     const id = navigator.geolocation.watchPosition(
       (pos) => {
-        const loc = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy };
+        const loc = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+          source: "gps" as const,
+        };
+
         setUserLocation((prev) => {
           if (!prev) return loc;
           const moved = distanceMeters(prev, loc);
           const acc = Math.max(Number(prev.accuracy) || 0, Number(loc.accuracy) || 0);
-          // Ignore jitter: if movement is smaller than accuracy (or < 15m), don't update.
-          if (moved < Math.max(15, acc)) return prev;
+          const movedEnough = moved >= Math.max(LOCATION_DISTANCE_REFRESH_METERS, acc);
+          const timeEnough = Date.now() - lastWriteTsRef.current >= LOCATION_SYNC_THROTTLE_MS;
+          if (!movedEnough && !timeEnough) return prev;
           return loc;
         });
         const now = Date.now();
@@ -172,6 +218,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
         setLoading(false);
         setPermissionDenied(false);
         setError(null);
+        setLocationSource("gps");
       },
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
@@ -186,8 +233,8 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    // Start background watching only after we already have a location (cached or granted).
-    if (!userLocation) return;
+    // Start background watching only after we already have a GPS location.
+    if (!userLocation || locationSource === "ip") return;
 
     const id = startWatching();
     return () => {
@@ -199,7 +246,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
         }
       }
     };
-  }, [userLocation]);
+  }, [userLocation, locationSource]);
 
   const persistVisit = useCallback(async (meta?: { page?: string; shopSlug?: string }) => {
     if (!userLocation) return;
@@ -229,7 +276,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   }, [userLocation]);
 
   return (
-    <LocationContext.Provider value={{ userLocation, loading, error, permissionDenied, requestLocation, persistVisit }}>
+    <LocationContext.Provider value={{ userLocation, loading, error, permissionDenied, locationSource, requestLocation, persistVisit }}>
       {children}
     </LocationContext.Provider>
   );

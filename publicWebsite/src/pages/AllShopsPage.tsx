@@ -188,8 +188,8 @@ export default function AllShopsPage() {
               <SelectContent>
                 <SelectItem value="all">{t("home.featured.filters.allCities")}</SelectItem>
                 {cities.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
+                  <SelectItem key={c.slug} value={c.slug}>
+                    {c.name}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -422,6 +422,7 @@ function LocationCard({
     onSave,
     locationSaveLoading,
     locationCapturedAt,
+    locationAgeSeconds,
     mapLat,
     mapLng,
     mapRef,
@@ -444,12 +445,16 @@ function LocationCard({
     onSave: () => void;
     locationSaveLoading: boolean;
     locationCapturedAt: string;
+    locationAgeSeconds: number | null;
     mapLat: number;
     mapLng: number;
     mapRef: React.RefObject<HTMLDivElement>;
     hasMapsKey: boolean;
 }) {
     const { t } = useTranslation();
+    const liveLabel = locationAgeSeconds != null
+        ? `${t("account.location.live")} • ${locationAgeSeconds}s`
+        : t("account.location.live");
     return (
         <Card className="rounded-2xl border border-border bg-card shadow-sm">
             <CardHeader>
@@ -503,7 +508,7 @@ function LocationCard({
                         {locationLoading
                             ? t("account.location.detecting")
                             : userLocation
-                                ? t("account.location.live")
+                                ? liveLabel
                                 : permissionDenied
                                     ? t("account.location.permissionDenied")
                                     : t("account.location.idle")}
@@ -583,6 +588,7 @@ export default function AccountPage() {
     const [locationSaveError, setLocationSaveError] = useState("");
     const [locationSaveMessage, setLocationSaveMessage] = useState("");
     const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
+    const [locationAgeSeconds, setLocationAgeSeconds] = useState<number | null>(null);
 
     const [currentPassword, setCurrentPassword] = useState("");
     const [newPassword, setNewPassword] = useState("");
@@ -1202,16 +1208,37 @@ export default function AccountPage() {
     const backendLat = Array.isArray(backendLocation) ? Number(backendLocation[1]) : NaN;
     const backendLng = Array.isArray(backendLocation) ? Number(backendLocation[0]) : NaN;
 
+    const locationLastSyncAt = useMemo(() => {
+        const captured = displayedUser?.currentLocation?.capturedAt;
+        if (!captured) return null;
+        const d = new Date(captured);
+        return Number.isFinite(d.getTime()) ? d : null;
+    }, [displayedUser?.currentLocation?.capturedAt]);
+
     const locationCapturedAt = displayedUser?.currentLocation?.capturedAt
         ? new Date(displayedUser.currentLocation.capturedAt).toLocaleString()
         : t("account.location.notSyncedYet");
 
     useEffect(() => {
+        if (!locationLastSyncAt) {
+            setLocationAgeSeconds(null);
+            return;
+        }
+        const tick = () => {
+            const age = Math.floor((Date.now() - locationLastSyncAt.getTime()) / 1000);
+            setLocationAgeSeconds(Math.max(0, age));
+        };
+        tick();
+        const id = setInterval(tick, 1000);
+        return () => clearInterval(id);
+    }, [locationLastSyncAt]);
+
+    useEffect(() => {
         if (!Number.isFinite(backendLat) || !Number.isFinite(backendLng)) return;
-        setManualLat(String(backendLat));
-        setManualLng(String(backendLng));
+        setManualLat((prev) => (prev ? prev : String(backendLat)));
+        setManualLng((prev) => (prev ? prev : String(backendLng)));
         if (Number.isFinite(displayedUser?.currentLocation?.accuracy as number)) {
-            setManualAccuracy(String(displayedUser?.currentLocation?.accuracy || ""));
+            setManualAccuracy((prev) => (prev ? prev : String(displayedUser?.currentLocation?.accuracy || "")));
         }
     }, [backendLat, backendLng, displayedUser?.currentLocation?.accuracy]);
 
@@ -1282,6 +1309,15 @@ export default function AccountPage() {
         toast({ title: t("account.location.toast.deviceAppliedTitle"), description: t("account.location.toast.deviceAppliedDesc") });
     };
 
+    useEffect(() => {
+        if (!userLocation) return;
+        if (!getToken()) return;
+        const id = setTimeout(() => {
+            meQuery.refetch();
+        }, 1200);
+        return () => clearTimeout(id);
+    }, [userLocation?.latitude, userLocation?.longitude, userLocation?.accuracy]);
+
     const searchLocation = async () => {
         const query = locationSearch.trim();
         if (!query) {
@@ -1315,18 +1351,27 @@ export default function AccountPage() {
     const mapLat = useMemo(() => {
         const manual = safeCoord(manualLat);
         if (Number.isFinite(manual)) return manual;
-        if (Number.isFinite(backendLat)) return backendLat;
         if (Number.isFinite(userLocation?.latitude as number)) return Number(userLocation?.latitude);
+        if (Number.isFinite(backendLat)) return backendLat;
         return NaN;
-    }, [manualLat, backendLat, userLocation?.latitude]);
+    }, [manualLat, userLocation?.latitude, backendLat]);
 
     const mapLng = useMemo(() => {
         const manual = safeCoord(manualLng);
         if (Number.isFinite(manual)) return manual;
-        if (Number.isFinite(backendLng)) return backendLng;
         if (Number.isFinite(userLocation?.longitude as number)) return Number(userLocation?.longitude);
+        if (Number.isFinite(backendLng)) return backendLng;
         return NaN;
-    }, [manualLng, backendLng, userLocation?.longitude]);
+    }, [manualLng, userLocation?.longitude, backendLng]);
+
+    useEffect(() => {
+        if (!userLocation) return;
+        if (!manualLat && !manualLng) {
+            setManualLat(String(userLocation.latitude));
+            setManualLng(String(userLocation.longitude));
+            setManualAccuracy(Number.isFinite(userLocation.accuracy as number) ? String(userLocation.accuracy) : "");
+        }
+    }, [userLocation?.latitude, userLocation?.longitude, userLocation?.accuracy, manualLat, manualLng]);
 
     useEffect(() => {
         if (!Number.isFinite(mapLat) || !Number.isFinite(mapLng)) return;
@@ -1784,6 +1829,7 @@ export default function AccountPage() {
                                     onSave={saveLocationManually}
                                     locationSaveLoading={locationSaveLoading}
                                     locationCapturedAt={locationCapturedAt}
+                                    locationAgeSeconds={locationAgeSeconds}
                                     mapLat={mapLat}
                                     mapLng={mapLng}
                                     mapRef={locationMapRef}

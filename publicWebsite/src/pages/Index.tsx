@@ -15,7 +15,7 @@ import ScrollReveal from "@/components/ScrollReveal";
 import StaggerChildren, { StaggerItem } from "@/components/StaggerChildren";
 import StoriesTray from "@/components/StoriesTray";
 import GlobalSearch from "@/components/GlobalSearch";
-import { fetchActiveStories, fetchBusinessTypes, fetchNearbyPublicShops, fetchPublicShops, fetchCityImages, fetchPlatformFeedbackStats } from "@/lib/publicShopsApi";
+import { fetchActiveStories, fetchBusinessTypes, fetchPublicShops, fetchCityImages, fetchPlatformFeedbackStats, fetchTrendingPublicShops } from "@/lib/publicShopsApi";
 import { getCityFallbackImage } from "@/lib/cityGroups";
 import { motion } from "framer-motion";
 import { useUserLocation } from "@/hooks/useUserLocation";
@@ -56,20 +56,20 @@ export default function HomePage() {
       ),
   });
 
-  const nearbyShopsQuery = useQuery({
+  const trendingShopsQuery = useQuery({
     queryKey: [
-      "public-shops-nearby",
+      "public-shops-trending",
       i18n.language,
       userLocation?.latitude ?? null,
       userLocation?.longitude ?? null,
     ],
-    enabled: !!userLocation,
     queryFn: () =>
-      fetchNearbyPublicShops({
-        lat: userLocation!.latitude,
-        lng: userLocation!.longitude,
-        radiusKm: 25,
-        limit: 1000,
+      fetchTrendingPublicShops({
+        limit: 8,
+        ratingMin: 5,
+        ordersMin: 5,
+        lat: userLocation?.latitude,
+        lng: userLocation?.longitude,
       }),
   });
 
@@ -154,15 +154,12 @@ export default function HomePage() {
   }, [allShops, featuredCategory, featuredCity, featuredOpenOnly]);
 
   const featuredPool = useMemo(() => {
-    // Prefer nearby (25km) when available, but fall back to all shops
-    // so filters never leave the section empty.
-    const nearby = userLocation ? (nearbyShopsQuery.data || []) : [];
-    let items = userLocation && nearby.length > 0 ? [...nearby] : [...filteredAllShops];
+    let items = [...filteredAllShops];
     if (featuredCity !== "all") items = items.filter((shop) => shop.citySlug === featuredCity);
     if (featuredCategory !== "all") items = items.filter((shop) => shop.categorySlug === featuredCategory);
     if (featuredOpenOnly) items = items.filter((shop) => shop.isOpen);
     return items;
-  }, [filteredAllShops, nearbyShopsQuery.data, featuredCategory, featuredCity, featuredOpenOnly, userLocation]);
+  }, [filteredAllShops, featuredCategory, featuredCity, featuredOpenOnly]);
 
   const featuredShops = useMemo(() => {
     const byPlanAndRating = (a: any, b: any) => {
@@ -189,6 +186,8 @@ export default function HomePage() {
     items.sort(byPlanAndRating);
     return items.slice(0, 8);
   }, [featuredPool]);
+
+  const trendingShops = useMemo(() => trendingShopsQuery.data || [], [trendingShopsQuery.data]);
 
   const remainingShops = useMemo(() => {
     const featuredIds = new Set(featuredShops.map((s) => s.id));
@@ -316,6 +315,39 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* Trending Shops */}
+      <section className="container py-14">
+        <ScrollReveal>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+            <div>
+              <h2 className="text-2xl md:text-3xl font-bold">Trending Shops</h2>
+              <p className="text-sm text-muted-foreground">High rating + strong orders wale dukandars.</p>
+            </div>
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/shops">View All</Link>
+            </Button>
+          </div>
+        </ScrollReveal>
+
+        {trendingShopsQuery.isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            <Skeleton className="h-[360px] w-full rounded-xl" />
+            <Skeleton className="h-[360px] w-full rounded-xl" />
+            <Skeleton className="h-[360px] w-full rounded-xl" />
+          </div>
+        ) : trendingShops.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Trending shops abhi available nahi hai.</p>
+        ) : (
+          <StaggerChildren className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {trendingShops.map((shop) => (
+              <StaggerItem key={shop.id}>
+                <ShopCard shop={shop} />
+              </StaggerItem>
+            ))}
+          </StaggerChildren>
+        )}
+      </section>
+
       
 
       {/* How It Works */}
@@ -386,7 +418,7 @@ export default function HomePage() {
             </div>
           </ScrollReveal>
 
-          {shopsQuery.isLoading || (userLocation ? (nearbyShopsQuery.isLoading && allShops.length === 0) : false) ? (
+          {shopsQuery.isLoading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               <Skeleton className="h-[360px] w-full rounded-xl" />
               <Skeleton className="h-[360px] w-full rounded-xl" />
