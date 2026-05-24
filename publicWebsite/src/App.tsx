@@ -57,7 +57,7 @@ const App = () => (
               <LocationGate />
               <Routes>
                 <Route path="/" element={<Layout />}>
-                  <Route index element={<Index />} />
+                  <Route index element={<HomeResolver />} />
                   <Route path="plans" element={<PricingPage />} />
                   <Route path="pricing" element={<Navigate to="/plans" replace />} />
                   <Route path="for-business" element={<ForBusinessPage />} />
@@ -76,6 +76,11 @@ const App = () => (
                   </Route>
                   <Route path="shops/:category" element={<CityCategoryPage />} />
                   <Route path="dashboard/*" element={<DashboardRedirect />} />
+
+                  {/* SEO-friendly shop subdomain URLs */}
+                  <Route path="products/:listingSlug" element={<SubdomainListingRoute listingType="product" />} />
+                  <Route path="services/:listingSlug" element={<SubdomainListingRoute listingType="service" />} />
+
                   <Route path="shop/:shopSlug" element={<ShopDetailGate><ShopPage /></ShopDetailGate>} />
                   <Route path=":shopSlug" element={<ShopOrCityPage />} />
                   <Route path="*" element={<NotFound />} />
@@ -129,21 +134,51 @@ function SubdomainShopRedirect() {
     // Reserved subdomains
     if (["www", "seller", "admin", "api"].includes(shopSlug)) return;
 
-    // On shop subdomain we always resolve to the shop page.
-    const targetPath = `/${shopSlug}`;
-    if (location.pathname === targetPath) return;
+    // Backward compatibility:
+    // Previously subdomains forced `/${shopSlug}`. Now we keep clean URLs:
+    //   /                    (shop home)
+    //   /products/:slug
+    //   /services/:slug
+    const prefix = `/${shopSlug}`;
+    if (location.pathname === prefix) {
+      navigate({ pathname: '/', search: location.search, hash: location.hash }, { replace: true });
+      return;
+    }
 
-    navigate(
-      {
-        pathname: targetPath,
-        search: location.search,
-        hash: location.hash,
-      },
-      { replace: true },
-    );
+    if (location.pathname.startsWith(`${prefix}/`)) {
+      const rest = location.pathname.slice(prefix.length) || '/';
+      navigate({ pathname: rest, search: location.search, hash: location.hash }, { replace: true });
+    }
   }, [location.hash, location.pathname, location.search, navigate]);
 
   return null;
+}
+
+function getShopSlugFromHostname() {
+  if (typeof window === "undefined") return null;
+  const hostname = String(window.location.hostname || "").toLowerCase();
+  const suffix = ".publicdukan.com";
+  if (!hostname.endsWith(suffix)) return null;
+  const sub = hostname.slice(0, -suffix.length);
+  const shopSlug = (sub.split(".")[0] || "").trim();
+  if (!shopSlug) return null;
+  if (["www", "seller", "admin", "api"].includes(shopSlug)) return null;
+  return shopSlug;
+}
+
+function HomeResolver() {
+  const shopSlug = getShopSlugFromHostname();
+  if (shopSlug) {
+    return <ShopPage shopSlugOverride={shopSlug} />;
+  }
+  return <Index />;
+}
+
+function SubdomainListingRoute({ listingType }: { listingType: 'product' | 'service' }) {
+  const { listingSlug } = useParams<{ listingSlug: string }>();
+  const shopSlug = getShopSlugFromHostname();
+  if (!shopSlug) return <NotFound />;
+  return <ShopPage shopSlugOverride={shopSlug} listingSlugOverride={listingSlug} listingTypeOverride={listingType} />;
 }
 
 function ShopDetailGate({ children }: { children: React.ReactElement }) {

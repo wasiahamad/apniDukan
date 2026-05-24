@@ -6,6 +6,9 @@ import morgan from 'morgan';
 import mongoSanitize from 'express-mongo-sanitize';
 import rateLimit from 'express-rate-limit';
 import mongoose from 'mongoose';
+import compression from 'compression';
+import path from 'path';
+import fs from 'fs/promises';
 
 // Import database connection
 import connectDB from './config/database.js';
@@ -24,6 +27,18 @@ import {
   handleCastError,
   handleDuplicateKeyError,
 } from './middleware/errorHandler.js';
+
+import {
+  resolvePublicBusinessForSubdomain,
+  buildSeoHeadTags,
+  injectSeoIntoHtml,
+  isBotRequest,
+  renderBotHtml,
+} from './services/seo/storefrontSeoService.js';
+
+import { getHostInfo } from './services/seo/storefrontHost.js';
+import { generateSitemapXml, generateRobotsTxt } from './services/seo/sitemapService.js';
+import { generateOgPng } from './services/seo/ogImageService.js';
 
 /**
  * ========================================
@@ -47,6 +62,9 @@ let server;
 
 // Security headers
 app.use(helmet());
+
+// Gzip/Brotli compression (safe for APIs and storefront HTML)
+app.use(compression());
 
 // CORS configuration
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -158,24 +176,112 @@ if (process.env.NODE_ENV === 'production') {
 // ROUTES
 // ========================================
 
-// Welcome route
-app.get('/', (req, res) => {
-  res.json({
-    success: true,
-    message: '🚀 Apnidukan Multi-tenant SaaS API',
-    version: '1.0.0',
-    documentation: '/api/docs',
-    endpoints: {
-      health: '/api/health',
-      auth: '/api/auth',
-      business: '/api/business',
-      listings: '/api/listings',
-      inquiries: '/api/inquiries',
-      categories: '/api/categories',
-      bookings: '/api/bookings',
-      plans: '/api/plans',
-    },
+const servePublicWebsite = String(process.env.SERVE_PUBLIC_WEBSITE || '').toLowerCase() === 'true';
+
+// Welcome route (API only mode)
+if (!servePublicWebsite) {
+  app.get('/', (req, res) => {
+    res.json({
+      success: true,
+      message: '🚀 Apnidukan Multi-tenant SaaS API',
+      version: '1.0.0',
+      documentation: '/api/docs',
+      endpoints: {
+        health: '/api/health',
+        auth: '/api/auth',
+        business: '/api/business',
+        listings: '/api/listings',
+        inquiries: '/api/inquiries',
+        categories: '/api/categories',
+        bookings: '/api/bookings',
+        plans: '/api/plans',
+      },
+    });
   });
+}
+
+// Google Search Console verification (file method)
+// Example: GOOGLE_SITE_VERIFICATION_FILE_NAME=google123abc.html
+//          GOOGLE_SITE_VERIFICATION_FILE_CONTENT=google-site-verification: google123abc.html
+app.get('/:fileName', (req, res, next) => {
+  const requested = String(req.params.fileName || '').trim();
+
+  // IndexNow verification: serve the key at /<key>.txt
+  const indexNowKey = String(process.env.INDEXNOW_KEY || '').trim();
+  if (indexNowKey && requested === `${indexNowKey}.txt`) {
+    res.set('Content-Type', 'text/plain; charset=utf-8');
+    res.set('Cache-Control', 'public, max-age=86400');
+    return res.status(200).send(indexNowKey);
+  }
+
+  const expectedName = String(process.env.GOOGLE_SITE_VERIFICATION_FILE_NAME || '').trim();
+  if (!expectedName) return next();
+
+  if (requested !== expectedName) return next();
+
+  const content = String(process.env.GOOGLE_SITE_VERIFICATION_FILE_CONTENT || '').trim();
+  if (!content) return res.status(404).send('Not found');
+
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.set('Cache-Control', 'public, max-age=300');
+  return res.status(200).send(content);
+});
+
+// robots.txt (dynamic per host)
+app.get('/robots.txt', (req, res) => {
+  const hostInfo = getHostInfo(req);
+  const content = generateRobotsTxt({ rootDomain: hostInfo.rootDomain, hostname: hostInfo.hostname });
+  res.set('Content-Type', 'text/plain; charset=utf-8');
+  res.set('Cache-Control', 'public, max-age=300');
+  return res.status(200).send(content);
+});
+
+// sitemap.xml (dynamic per host)
+app.get('/sitemap.xml', async (req, res, next) => {
+  try {
+    const hostInfo = getHostInfo(req);
+    const scope = hostInfo.isStorefrontSubdomain ? 'subdomain' : 'root';
+
+    const xml = await generateSitemapXml({
+      scope,
+      rootDomain: hostInfo.rootDomain,
+      hostname: hostInfo.hostname,
+      subdomain: hostInfo.subdomain,
+    });
+
+    res.set('Content-Type', 'application/xml; charset=utf-8');
+    res.set('Cache-Control', 'public, max-age=300');
+    return res.status(200).send(xml);
+  } catch (e) {
+    return next(e);
+  }
+});
+
+// OG image (dynamic)
+// - Shop:    /og.png?type=shop&slug=<business-slug>
+// - Listing: /og.png?type=listing&id=<listingIdOrSlug>
+app.get('/og.png', async (req, res, next) => {
+  try {
+    const type = String(req.query?.type || 'shop');
+    const slug = String(req.query?.slug || '').trim();
+    const id = String(req.query?.id || req.query?.listing || '').trim();
+
+    const png = await generateOgPng({
+      type,
+      slug,
+      listingIdOrSlug: id,
+    });
+
+    if (!png) {
+      return res.status(404).send('Not found');
+    }
+
+    res.set('Content-Type', 'image/png');
+    res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+    return res.status(200).send(png);
+  } catch (e) {
+    return next(e);
+  }
 });
 
 const escapeHtml = (value) =>
@@ -268,6 +374,92 @@ app.get('/share/order-summary', (req, res) => {
 
 // Mount API routes
 mountRoutes(app);
+
+// ========================================
+// STOREFRONT (Public Website) + Dynamic SEO
+// ========================================
+
+// This is optional: in many deployments the public website is hosted separately.
+// When enabled, this server can serve the built Vite app with dynamic SEO tags per subdomain.
+if (servePublicWebsite) {
+  const distDir = String(process.env.PUBLIC_WEBSITE_DIST_DIR || '').trim();
+  const resolvedDist = distDir
+    ? path.resolve(distDir)
+    : path.resolve(process.cwd(), '../publicWebsite/dist');
+
+  let cachedIndexHtml = null;
+  let cachedIndexMtimeMs = null;
+
+  const readIndexHtml = async () => {
+    const indexPath = path.join(resolvedDist, 'index.html');
+    const stat = await fs.stat(indexPath);
+    if (cachedIndexHtml && cachedIndexMtimeMs === stat.mtimeMs) return cachedIndexHtml;
+    const raw = await fs.readFile(indexPath, 'utf8');
+    cachedIndexHtml = raw;
+    cachedIndexMtimeMs = stat.mtimeMs;
+    return raw;
+  };
+
+  // Static assets
+  app.use(
+    express.static(resolvedDist, {
+      index: false,
+      etag: true,
+      maxAge: '365d',
+      immutable: true,
+    })
+  );
+
+  // HTML fallback with dynamic SEO injection
+  app.get('*', async (req, res, next) => {
+    try {
+      // Never intercept API routes
+      if (req.path.startsWith('/api/')) return next();
+      if (req.path.startsWith('/share/')) return next();
+
+      const hostInfo = getHostInfo(req);
+      const subdomain = hostInfo?.subdomain;
+      const business = subdomain ? await resolvePublicBusinessForSubdomain(subdomain) : null;
+
+      // Unknown storefront subdomain: respond 404 and noindex.
+      if (hostInfo.isStorefrontSubdomain && subdomain && !business) {
+        res.status(404);
+        res.set('Content-Type', 'text/html; charset=utf-8');
+        res.set('Cache-Control', 'public, max-age=60');
+        return res.send(`<!doctype html><html><head><meta charset="utf-8" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Shop not found</title></head><body><h1>Shop not found</h1></body></html>`);
+      }
+
+      // Bot-friendly minimal SSR snapshot
+      const enableBotSsr = String(process.env.ENABLE_STORE_FRONT_BOT_SSR || 'true').toLowerCase() === 'true';
+      if (enableBotSsr && business && isBotRequest(req)) {
+        res.set('Content-Type', 'text/html; charset=utf-8');
+        res.set('Cache-Control', 'public, max-age=300');
+        return res.status(200).send(await renderBotHtml({ req, business }));
+      }
+
+      const indexHtml = await readIndexHtml();
+
+      const ogHost = hostInfo.isLocalhost && business
+        ? `${business.slug}.${hostInfo.rootDomain}`
+        : (hostInfo.hostname || hostInfo.rootDomain);
+
+      const ogImageUrl = business
+        ? `https://${ogHost}/og.png?type=shop&slug=${encodeURIComponent(business.slug)}`
+        : `https://${hostInfo.rootDomain}/logo-removebg-preview.png`;
+
+      const { tags } = buildSeoHeadTags({ req, business, ogImageUrl });
+      const html = injectSeoIntoHtml({ html: indexHtml, headTags: tags });
+
+      res.set('Content-Type', 'text/html; charset=utf-8');
+      res.set('Cache-Control', 'public, max-age=120');
+      return res.status(200).send(html);
+    } catch (e) {
+      return next(e);
+    }
+  });
+}
 
 // ========================================
 // ERROR HANDLING

@@ -4,6 +4,7 @@ import { getEffectiveEntitlementsForBusiness } from '../services/entitlementsSer
 import { calculatePlanExpiryDate } from '../services/subscriptionService.js';
 import { getSmartCategoryIcon } from '../services/categoryIconAiService.js';
 import { CATEGORY_FALLBACK_ICON, inferCategoryIcon } from '../utils/categoryIcon.js';
+import { queueIndexingPingForBusiness } from '../services/seo/indexingPingService.js';
 
 const DEMO_SHOP_SLUG = 'wasi-kirana-store';
 
@@ -802,6 +803,13 @@ if (!businessTypeDoc) {
     }
 
     await business.populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages');
+
+    // Best-effort indexing ping (does not affect response)
+    try {
+      queueIndexingPingForBusiness({ businessSlug: business.slug });
+    } catch {
+      // ignore
+    }
 
     res.status(201).json({
       success: true,

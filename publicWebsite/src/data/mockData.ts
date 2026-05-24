@@ -15,6 +15,7 @@ export interface Category {
 
 export interface Product {
   id: string;
+  slug?: string;
   name: string;
   price: number;
   oldPrice?: number;

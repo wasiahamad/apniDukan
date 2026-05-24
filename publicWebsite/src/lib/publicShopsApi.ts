@@ -68,44 +68,6 @@ const resolveApiBaseUrl = () => {
 export const API_BASE_URL = resolveApiBaseUrl();
 const VIEW_SESSION_KEY = "publicdukan_view_session_id";
 
-export const getShareBaseUrl = () => {
-  const base = String(API_BASE_URL || '').trim();
-  if (!base) return '';
-  const withoutApi = base.replace(/\/api\/?$/, '');
-
-  if (withoutApi.startsWith('/')) {
-    if (typeof window === 'undefined') return '';
-    const suffix = withoutApi === '/' ? '' : withoutApi;
-    return `${window.location.origin}${suffix}`;
-  }
-
-  return withoutApi;
-};
-
-export const buildOrderSummaryUrl = (params: {
-  title?: string;
-  shop?: string;
-  item?: string;
-  image?: string;
-  total?: string;
-  currency?: string;
-}) => {
-  const base = getShareBaseUrl();
-  if (!base) return '';
-
-  try {
-    const url = new URL(`${String(base).replace(/\/+$/, '')}/share/order-summary`);
-    const entries = Object.entries(params || {});
-    entries.forEach(([key, value]) => {
-      const v = String(value || '').trim();
-      if (v) url.searchParams.set(key, v);
-    });
-    return url.toString();
-  } catch {
-    return '';
-  }
-};
-
 const getViewSessionId = () => {
   if (typeof window === "undefined") return null;
   try {
@@ -883,7 +845,7 @@ type PublicShopItem = {
   businessType: { name: string; nameHi?: string; slug: string; description?: string; descriptionHi?: string } | null;
   rating?: number;
   reviewCount?: number;
-  ordersCount?: number | null;
+  ordersCount?: number;
   activePlanPrice?: number;
   address: {
     street: string;
@@ -1021,6 +983,34 @@ const getStorefrontOrigin = () => {
   return String(window.location.origin || '').trim();
 };
 
+const getShareBaseUrl = () => {
+  const base = String(API_BASE_URL || '').trim();
+  if (!base) return '';
+  return base.replace(/\/api\/?$/, '');
+};
+
+export const buildOrderSummaryUrl = (params: {
+  title?: string;
+  shop?: string;
+  item?: string;
+  image?: string;
+  total?: string;
+  currency?: string;
+}) => {
+  const base = getShareBaseUrl();
+  if (!base) return '';
+  try {
+    const url = new URL(`${String(base).replace(/\/+$/, '')}/share/order-summary`);
+    Object.entries(params || {}).forEach(([key, value]) => {
+      const v = String(value || '').trim();
+      if (v) url.searchParams.set(key, v);
+    });
+    return url.toString();
+  } catch {
+    return '';
+  }
+};
+
 export function toSafePublicImageUrl(value: unknown, fallback: string) {
   const raw = String(value || '').trim();
   if (!raw) return fallback;
@@ -1092,9 +1082,6 @@ export const mapPublicShopToCardShop = (item: PublicShopItem): Shop => {
   const rating = Number((item as any)?.rating);
   const reviewCount = Number((item as any)?.reviewCount);
   const activePlanPrice = Number((item as any)?.activePlanPrice);
-  const ordersCount = Number((item as any)?.ordersCount);
-  const distanceKm = Number((item as any)?.distanceKm);
-  const durationMins = Number((item as any)?.durationMins);
 
   return {
     id: item._id,
@@ -1135,9 +1122,6 @@ export const mapPublicShopToCardShop = (item: PublicShopItem): Shop => {
     products: [],
     latitude: item.address.latitude ?? 0,
     longitude: item.address.longitude ?? 0,
-    distanceKm: Number.isFinite(distanceKm) && distanceKm >= 0 ? distanceKm : undefined,
-    durationMins: Number.isFinite(durationMins) && durationMins >= 0 ? durationMins : undefined,
-    ordersCount: Number.isFinite(ordersCount) && ordersCount >= 0 ? ordersCount : undefined,
     verified: item.isVerified,
   };
 };
@@ -1220,6 +1204,30 @@ export const fetchPublicShops = async (params?: { city?: string; category?: stri
   return rows.map(mapPublicShopToCardShop);
 };
 
+// Fetch trending shops (backend-driven). Accepts same params plus `limit`.
+export const fetchTrendingPublicShops = async (params?: { city?: string; category?: string; lat?: number; lng?: number; limit?: number }): Promise<Shop[]> => {
+  const q = new URLSearchParams();
+  q.set("lang", getPreferredLanguage());
+  q.set('trending', '1');
+  if (params?.city) q.set('city', params.city);
+  if (params?.category) q.set('category', params.category);
+  if (params?.lat != null && Number.isFinite(params.lat)) q.set('lat', String(params.lat));
+  if (params?.lng != null && Number.isFinite(params.lng)) q.set('lng', String(params.lng));
+  if (params?.limit != null) q.set('limit', String(Math.max(1, Math.min(200, Math.trunc(Number(params.limit) || 0)))));
+
+  const response = await fetch(`${API_BASE_URL}/business/public/shops?${q.toString()}`, {
+    headers: getLanguageHeaders(),
+  });
+  const json = (await response.json()) as PublicShopsResponse;
+
+  if (!response.ok || !json.success) {
+    throw new Error(json.message || "Failed to load trending shops");
+  }
+
+  const rows = json.data?.shops || [];
+  return rows.map(mapPublicShopToCardShop);
+};
+
 export const fetchNearbyPublicShops = async (params?: { lat?: number; lng?: number; radiusKm?: number; limit?: number }): Promise<Shop[]> => {
   const q = new URLSearchParams();
   if (params?.lat != null && Number.isFinite(params.lat)) q.set('lat', String(params.lat));
@@ -1248,34 +1256,7 @@ export const fetchNearbyPublicShops = async (params?: { lat?: number; lng?: numb
       const raw = Number((rows[idx] as any)?.distanceKm);
       return Number.isFinite(raw) && raw >= 0 ? raw : undefined;
     })(),
-    durationMins: (() => {
-      const raw = Number((rows[idx] as any)?.durationMins);
-      return Number.isFinite(raw) && raw >= 0 ? raw : undefined;
-    })(),
   })) as any;
-};
-
-export const fetchTrendingPublicShops = async (params?: { limit?: number; ratingMin?: number; ordersMin?: number; lat?: number; lng?: number }): Promise<Shop[]> => {
-  const q = new URLSearchParams();
-  q.set('trending', '1');
-  q.set('limit', String(params?.limit ?? 8));
-  q.set('ratingMin', String(params?.ratingMin ?? 5));
-  q.set('ordersMin', String(params?.ordersMin ?? 5));
-  q.set('lang', getPreferredLanguage());
-  if (params?.lat != null && Number.isFinite(params.lat)) q.set('lat', String(params.lat));
-  if (params?.lng != null && Number.isFinite(params.lng)) q.set('lng', String(params.lng));
-
-  const response = await fetch(`${API_BASE_URL}/business/public/shops?${q.toString()}`, {
-    headers: getLanguageHeaders(),
-  });
-  const json = (await response.json()) as PublicShopsResponse;
-
-  if (!response.ok || !json.success) {
-    throw new Error(json.message || 'Failed to load trending shops');
-  }
-
-  const rows = json.data?.shops || [];
-  return rows.map(mapPublicShopToCardShop);
 };
 
 export const fetchBusinessDistance = async (businessId: string, params: { lat: number; lng: number }) => {

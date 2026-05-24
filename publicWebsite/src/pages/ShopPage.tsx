@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -20,7 +20,6 @@ import StoriesTray from "@/components/StoriesTray";
 import AiChatWidget from "@/components/AiChatWidget";
 import { motion } from "framer-motion";
 import { type Product } from "@/data/mockData";
-import { useEffect } from "react";
 import { useUserLocation, getDistanceKm, formatDistance } from "@/hooks/useUserLocation";
 import { API_BASE_URL, buildOrderSummaryUrl, fetchRoute, hasAuthSession, hasDevanagari, toSafePublicImageUrl } from "@/lib/publicShopsApi";
 import { bookPublicSlotBySlug, fetchActiveStories, fetchBookingSlotsBySlug, fetchBusinessDistance, fetchPublicListingsForShop, fetchPublicOffersForBusiness, fetchPublicShopBySlug } from "@/lib/publicShopsApi";
@@ -175,8 +174,17 @@ const formatDurationSeconds = (totalSeconds: number) => {
   return parts.join(" ");
 };
 
-export default function ShopPage() {
-  const { shopSlug } = useParams<{ shopSlug: string }>();
+export default function ShopPage({
+  shopSlugOverride,
+  listingSlugOverride,
+  listingTypeOverride,
+}: {
+  shopSlugOverride?: string;
+  listingSlugOverride?: string;
+  listingTypeOverride?: "product" | "service";
+} = {}) {
+  const routeParams = useParams<{ shopSlug?: string; listingSlug?: string }>();
+  const shopSlug = shopSlugOverride || routeParams.shopSlug;
   const navigate = useNavigate();
   const location = useLocation();
   const { t, i18n } = useTranslation();
@@ -207,21 +215,57 @@ export default function ShopPage() {
   const { toast } = useToast();
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
+  const isShopSubdomainHost = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const hostname = String(window.location.hostname || "").toLowerCase();
+    const suffix = ".publicdukan.com";
+    if (!hostname.endsWith(suffix)) return false;
+    const sub = hostname.slice(0, -suffix.length);
+    const s = (sub.split(".")[0] || "").trim();
+    if (!s) return false;
+    return !["www", "seller", "admin", "api"].includes(s);
+  }, []);
+
+  const openListing = useCallback(
+    (p: Product) => {
+      setSelectedProduct(p);
+      if (!isShopSubdomainHost) return;
+
+      const slugOrId = String((p as any)?.slug || p.id);
+      const inferredType: "product" | "service" = listingTypeOverride
+        ? listingTypeOverride
+        : p.type === "service"
+          ? "service"
+          : "product";
+
+      const segment = inferredType === "service" ? "services" : "products";
+      navigate({ pathname: `/${segment}/${encodeURIComponent(slugOrId)}` }, { replace: false });
+    },
+    [isShopSubdomainHost, listingTypeOverride, navigate],
+  );
+
   const closeSelectedProduct = () => {
     setSelectedProduct(null);
 
+    // If we are on SEO-friendly listing route, go back to shop home.
+    if (isShopSubdomainHost && (location.pathname.startsWith("/products/") || location.pathname.startsWith("/services/"))) {
+      navigate({ pathname: "/", search: "", hash: "" }, { replace: true });
+      return;
+    }
+
     // If this dialog was opened via a shared/story link (?listing=...),
     // remove the query param so the dialog doesn't auto-open again.
-    const params = new URLSearchParams(location.search || "");
-    if (!params.has("listing")) return;
-    params.delete("listing");
-    const next = params.toString();
+    const q = new URLSearchParams(location.search || "");
+    if (!q.has("listing")) return;
+    q.delete("listing");
+    const next = q.toString();
     navigate(
       {
         pathname: location.pathname,
         search: next ? `?${next}` : "",
+        hash: location.hash,
       },
-      { replace: true }
+      { replace: true },
     );
   };
 
@@ -858,23 +902,29 @@ export default function ShopPage() {
 
   const hasActiveStory = Array.isArray(shopStoriesQuery.data) && shopStoriesQuery.data.length > 0;
 
+  const listingKey = useMemo(() => {
+    const fromPath = listingSlugOverride || routeParams.listingSlug;
+    if (fromPath) return String(fromPath);
+    return new URLSearchParams(location.search || "").get("listing");
+  }, [listingSlugOverride, location.search, routeParams.listingSlug]);
+
   useEffect(() => {
-    const listingId = new URLSearchParams(location.search || "").get("listing");
-    if (!listingId) return;
+    if (!listingKey) return;
     if (selectedProduct) return;
 
     const all = (listingsQuery.data || []) as Product[];
     const candidates = all.length > 0 ? all : (shop?.products || []);
     if (candidates.length === 0) return;
 
-    const found = candidates.find((p) => String(p.id) === String(listingId));
+    const found = candidates.find((p) => String((p as any)?.slug || "") === String(listingKey) || String(p.id) === String(listingKey));
     if (found) {
       setSelectedProduct(found);
     }
-  }, [location.search, selectedProduct, listingsQuery.data, shop?.products]);
+  }, [listingKey, selectedProduct, listingsQuery.data, shop?.products]);
 
   const ownerName = shop?.ownerName || t("shopPage.owner.fallbackName");
-  const ownerPhone = shop?.ownerPhone || shop?.phone || "";
+  // Prefer business phone (updated via dashboard) over owner's account phone
+  const ownerPhone = shop?.phone || shop?.ownerPhone || "";
   const ownerEmail = shop?.ownerEmail || "";
 
   if (shopQuery.isLoading) {
@@ -1063,7 +1113,14 @@ export default function ShopPage() {
         animate={{ opacity: 1 }}
         transition={{ duration: 0.5 }}
       >
-        <img src={shop.coverImage} alt={shop.name} className="w-full h-full object-cover" />
+        <img
+          src={shop.coverImage}
+          alt={shop.name}
+          className="w-full h-full object-cover"
+          loading="eager"
+          decoding="async"
+          fetchPriority="high"
+        />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
       </motion.div>
 
@@ -1426,7 +1483,7 @@ export default function ShopPage() {
                       <StaggerItem key={p.id}>
                         <div
                           className="flex gap-3 p-3 rounded-lg border hover:border-primary/50 hover:shadow-md transition-all cursor-pointer"
-                          onClick={() => setSelectedProduct(p)}
+                          onClick={() => openListing(p)}
                         >
                           <img src={p.image} alt={p.name} className="w-20 h-20 rounded-lg object-cover" loading="lazy" />
                           <div className="flex-1 flex flex-col justify-between">
@@ -1474,7 +1531,7 @@ export default function ShopPage() {
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setSelectedProduct(p);
+                                openListing(p);
                               }}
                             >
                               <MessageCircle className="h-3 w-3" /> {t("shopPage.actions.order")}

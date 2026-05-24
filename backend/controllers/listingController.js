@@ -1,5 +1,6 @@
 import { Listing, Business, Category, BusinessType } from '../models/index.js';
 import { getEffectiveEntitlementsForBusiness, isUnlimited } from '../services/entitlementsService.js';
+import { queueIndexingPingForListing } from '../services/seo/indexingPingService.js';
 
 const DEMO_SHOP_SLUG = 'ram-kirana-store';
 
@@ -201,6 +202,17 @@ export const createListing = async (req, res) => {
 
     // Populate and return
     const populatedListing = await Listing.findById(listing._id).populate('category', 'name slug');
+
+    // Best-effort indexing ping (does not affect response)
+    try {
+      queueIndexingPingForListing({
+        businessSlug: business.slug,
+        listingType: populatedListing?.listingType,
+        listingSlugOrId: populatedListing?.slug || populatedListing?._id,
+      });
+    } catch {
+      // ignore
+    }
 
     res.status(201).json({
       success: true,

@@ -150,7 +150,14 @@ export default function AiChatWidget(props: { businessId: string | null; busines
   };
 
   return (
-    <div className={cn("fixed bottom-4 z-50", side === "right" ? "right-4" : "left-4")}>
+    // On mobile keep the chat button above the bottom nav (use larger bottom offset),
+    // while on sm+ screens keep the original small offset.
+    <div
+      className={cn(
+        "fixed z-50 bottom-20 sm:bottom-4",
+        side === "right" ? "right-4" : "left-4"
+      )}
+    >
       {!open ? (
         <Button
           type="button"

@@ -1156,15 +1156,26 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
 
       const res = await aiApi.chat({ businessId: business._id, userMessage: msg });
       if (!res.success || !res.data?.reply) {
-        throw new Error(res.message || "AI request failed");
+        const serverMsg = res.message || (res.error ? String(res.error) : null);
+        const err = new Error(serverMsg || "AI request failed");
+        (err as any).status = (res as any)?.status || null;
+        throw err;
       }
       setAiReply(res.data.reply);
+      // clear input after successful reply
+      setAiQuestion("");
     } catch (err: any) {
-      toast({
-        title: "AI error",
-        description: err?.message || "Please try again.",
-        variant: "destructive",
-      });
+      // Provide clearer messages for common cases
+      let message = err?.message || 'AI request failed';
+      if (err?.status === 429) {
+        message = err?.message || 'Daily AI limit reached. Try again tomorrow.';
+      } else if (err?.status === 403) {
+        message = err?.message || 'AI not available for this shop plan.';
+      } else if (!err?.status) {
+        message = err?.message || 'Network error. Please check your connection.';
+      }
+
+      toast({ title: 'AI error', description: message, variant: 'destructive' });
     } finally {
       setAskingAi(false);
     }
@@ -1936,24 +1947,35 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
                 </div>
 
                 <div className="flex flex-col md:flex-row gap-3">
-                  <input
+                  <textarea
                     value={aiQuestion}
                     onChange={(e) => setAiQuestion(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
+                      if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         askShopAi();
                       }
                     }}
                     placeholder="Eg: Aaj sugar ka price kya hai? Delivery hoti hai?"
-                    className="flex-1 h-12 px-4 rounded-xl bg-background/90 text-foreground placeholder:text-muted-foreground outline-none border border-primary-foreground/20 focus:border-primary-foreground/40"
+                    rows={2}
+                    className="flex-1 min-h-[56px] px-4 py-3 rounded-xl bg-background/90 text-foreground placeholder:text-muted-foreground outline-none border border-primary-foreground/20 focus:border-primary-foreground/40 resize-none"
                   />
                   <button
                     onClick={askShopAi}
                     disabled={askingAi || !aiQuestion.trim()}
-                    className="h-12 px-6 rounded-xl font-bold bg-primary-foreground text-primary disabled:opacity-60"
+                    className="h-12 px-6 rounded-xl font-bold bg-primary-foreground text-primary disabled:opacity-60 flex items-center justify-center gap-2"
                   >
-                    {askingAi ? 'Asking…' : 'Ask'}
+                    {askingAi ? (
+                      <>
+                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                        </svg>
+                        Asking…
+                      </>
+                    ) : (
+                      'Ask'
+                    )}
                   </button>
                 </div>
 
@@ -2072,7 +2094,7 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
 
           <div className="border-t border-white/10 pt-6 flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-xs text-background/40">© {new Date().getFullYear()} {shopName}. All rights reserved.</p>
-            <p className="text-xs text-background/40">Powered by <span className="text-primary font-semibold">PublicDukan</span></p>
+            <p className="text-xs text-background/40">Powered by <span className="text-primary font-semibold"><a href="https://www.publicdukan.com">publicDukan</a></span></p>
           </div>
         </div>
       </footer>
