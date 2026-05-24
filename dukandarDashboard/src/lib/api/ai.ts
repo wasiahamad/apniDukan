@@ -61,7 +61,7 @@ const getViewSessionId = () => {
 export const aiApi = {
   chat: async (payload: AiChatPayload): Promise<ApiResponse<AiChatData>> => {
     const sid = getViewSessionId();
-    return apiClient.post<AiChatData>(
+    const response = await apiClient.post<AiChatData | { reply?: string }>(
       "/ai/chat",
       {
         businessId: String(payload?.businessId || "").trim(),
@@ -70,6 +70,17 @@ export const aiApi = {
       false,
       sid ? { "x-session-id": sid } : undefined
     );
+
+    // The backend currently returns either `{ reply: string }` or the standard
+    // `{ success, data }` envelope depending on the code path. Normalize both.
+    if ((response as any)?.reply && !(response as any).data) {
+      return {
+        success: true,
+        data: { reply: String((response as any).reply || "").trim() },
+      };
+    }
+
+    return response as ApiResponse<AiChatData>;
   },
 
   generate: async <M extends AiGenerateMode>(

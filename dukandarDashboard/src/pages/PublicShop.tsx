@@ -676,7 +676,7 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
   }, [business?.owner]);
 
   const ownerName = ownerProfile.name || "Store Owner";
-  const ownerPhone = ownerProfile.phone || shopCall;
+  const ownerPhone = shopCall || ownerProfile.phone;
   const ownerEmail = ownerProfile.email || (business?.email || shopData.email);
   const shopAddressText = business?.address
     ? `${business.address.street}, ${business.address.city}, ${business.address.state} - ${business.address.pincode}`
@@ -688,7 +688,7 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
 
   const footerPhoneText = slug?.toLowerCase() === DEMO_SHOP_SLUG
     ? shopCall
-    : (business?.phone || ownerProfile.phone || business?.whatsapp || "");
+    : (shopCall || business?.whatsapp || ownerProfile.phone || "");
 
   const trustedCity = (business?.address?.city || "").trim();
   const trustedFamiliesLine = trustedCity
@@ -1142,11 +1142,7 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
     if (!msg) return;
 
     if (!business?._id || slug?.toLowerCase() === DEMO_SHOP_SLUG) {
-      toast({
-        title: "AI not available",
-        description: "Is shop ke liye AI abhi available nahi hai.",
-        variant: "destructive",
-      });
+      setAiReply("Is shop ke liye AI abhi available nahi hai. WhatsApp ya call se contact karein.");
       return;
     }
 
@@ -1165,17 +1161,18 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
       // clear input after successful reply
       setAiQuestion("");
     } catch (err: any) {
-      // Provide clearer messages for common cases
-      let message = err?.message || 'AI request failed';
+      // Never show a destructive error popup here; keep the experience calm.
+      let message = 'Abhi AI reply available nahi ho paaya. Thodi der baad try karein ya WhatsApp/call karein.';
       if (err?.status === 429) {
-        message = err?.message || 'Daily AI limit reached. Try again tomorrow.';
+        message = 'Aaj ke AI questions complete ho gaye. Kal phir try karein.';
       } else if (err?.status === 403) {
-        message = err?.message || 'AI not available for this shop plan.';
+        message = 'Is shop plan me AI available nahi hai. WhatsApp ya call se contact karein.';
       } else if (!err?.status) {
-        message = err?.message || 'Network error. Please check your connection.';
+        message = 'Network slow hai. Thodi der baad phir try karein ya WhatsApp/call karein.';
       }
 
-      toast({ title: 'AI error', description: message, variant: 'destructive' });
+      setAiReply(message);
+      setAiQuestion("");
     } finally {
       setAskingAi(false);
     }
@@ -1979,11 +1976,51 @@ const PublicShop = ({ shopSlug }: { shopSlug?: string }) => {
                   </button>
                 </div>
 
-                {aiReply && (
-                  <div className="mt-4 rounded-xl bg-background/15 border border-primary-foreground/20 p-4">
-                    <p className="text-sm text-primary-foreground whitespace-pre-line leading-relaxed">{aiReply}</p>
-                  </div>
-                )}
+                <AnimatePresence initial={false}>
+                  {(aiReply || askingAi) && (
+                    <motion.div
+                      key="ai-reply-card"
+                      initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                      transition={{ duration: 0.18 }}
+                      className="mt-4 rounded-2xl border border-white/20 bg-foreground/10 shadow-sm overflow-hidden"
+                    >
+                      <div className="flex items-center gap-2 px-4 py-3 border-b border-white/10 bg-white/5">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-foreground text-primary shadow-sm">
+                          <MessageSquare className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-primary-foreground">Shop AI</p>
+                          <p className="text-[11px] text-primary-foreground/70">
+                            {askingAi ? 'Soch raha hai...' : 'Short Hinglish reply'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="px-4 py-4">
+                        {askingAi ? (
+                          <div className="flex items-center gap-3 text-primary-foreground/80">
+                            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-foreground/15">
+                              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                                <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                              </svg>
+                            </span>
+                            <div className="space-y-1">
+                              <div className="h-3 w-36 rounded-full bg-white/20 animate-pulse" />
+                              <div className="h-3 w-24 rounded-full bg-white/15 animate-pulse" />
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-primary-foreground whitespace-pre-line leading-relaxed">
+                            {aiReply}
+                          </p>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
                 <p className="mt-3 text-xs text-primary-foreground/70">
                   Note: AI reply short Hinglish me hota hai. Agar exact detail confirm na ho, to WhatsApp/call pe contact karein.
