@@ -1,15 +1,15 @@
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
-import { BriefcaseBusiness, Film, Gift, House, Layers3 } from "lucide-react";
+import { FiBookOpen, FiGift, FiGrid, FiHome, FiUser } from "react-icons/fi";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 const items = [
-  { key: "home", labelKey: "nav.home", icon: House },
-  { key: "categories", labelKey: "nav.categories", icon: Layers3 },
-  { key: "stories", labelKey: "nav.stories", icon: Film },
-  { key: "referral", labelKey: "nav.referralShort", icon: Gift },
-  { key: "business", labelKey: "nav.forBusinessShort", icon: BriefcaseBusiness },
+  { key: "home", labelKey: "nav.home", icon: FiHome },
+  { key: "categories", labelKey: "nav.categories", icon: FiGrid },
+  { key: "stories", labelKey: "nav.stories", icon: FiBookOpen },
+  { key: "referral", labelKey: "nav.referralShort", icon: FiGift },
+  { key: "profile", labelKey: "nav.profile", icon: FiUser },
 ] as const;
 
 export default function MobileBottomNav() {
@@ -22,7 +22,7 @@ export default function MobileBottomNav() {
     if (key === "categories") navigate("/categories");
     if (key === "stories") navigate("/stories");
     if (key === "referral") navigate("/referral-program");
-    if (key === "business") navigate("/for-business");
+    if (key === "profile") navigate("/account");
   };
 
   return (
@@ -33,10 +33,10 @@ export default function MobileBottomNav() {
             const Icon = item.icon;
             const active =
               (item.key === "home" && location.pathname === "/") ||
-              (item.key === "categories" && (location.pathname.startsWith("/categories") || location.pathname.startsWith("/shops"))) ||
+              (item.key === "categories" && location.pathname.startsWith("/categories")) ||
               (item.key === "stories" && location.pathname.startsWith("/stories")) ||
               (item.key === "referral" && location.pathname.startsWith("/referral-program")) ||
-              (item.key === "business" && location.pathname.startsWith("/for-business"));
+              (item.key === "profile" && location.pathname.startsWith("/account"));
 
             return (
               <button
@@ -48,26 +48,23 @@ export default function MobileBottomNav() {
                 <motion.div
                   whileTap={{ scale: 0.94 }}
                   className={cn(
-                    "flex flex-col items-center justify-center gap-1 py-2.5 text-[11px] font-medium transition-colors",
+                    "flex flex-col items-center justify-center py-3 transition-colors",
                     active ? "text-primary" : "text-muted-foreground",
                   )}
                 >
-                  <motion.div
-                    animate={active ? { y: [0, -1, 0] } : { y: 0 }}
-                    transition={{ duration: 0.24 }}
-                  >
+                  <motion.div animate={active ? { y: [0, -1, 0] } : { y: 0 }} transition={{ duration: 0.24 }}>
                     <Icon className="h-[18px] w-[18px]" />
                   </motion.div>
-                  <span className="relative inline-flex px-1 leading-none">
-                    {t(item.labelKey)}
+                    <span className="text-[11px] leading-none mt-1">{t(item.labelKey)}</span>
+                  <div className="relative mt-2 h-0.5 w-6">
                     {active ? (
                       <motion.span
                         layoutId="mobile-nav-active-pill"
-                        className="absolute left-0 right-0 top-[calc(100%+6px)] h-0.5 rounded-full bg-primary"
+                        className="absolute inset-0 rounded-full bg-primary"
                         transition={{ type: "spring", stiffness: 380, damping: 28 }}
                       />
                     ) : null}
-                  </span>
+                  </div>
                 </motion.div>
               </button>
             );

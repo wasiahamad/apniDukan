@@ -21,6 +21,4 @@ export * as storyController from './storyController.js';
 export * as customerReferralEarningsController from './customerReferralEarningsController.js';
 export * as walletController from './walletController.js';
 export * as offerController from './offerController.js';
-export * as aiController from './aiController.js';
-export * as emailController from './emailController.js';
 

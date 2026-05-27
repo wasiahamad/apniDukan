@@ -29,8 +29,6 @@ const defaultFeatures: PlanFeatures = {
   maxListings: 10,
   publicShopEnabled: true,
   bookingEnabled: false,
-  aiCustomerChatEnabled: true,
-  aiDukandarAgentEnabled: false,
   storiesEnabled: false,
   listingStoriesEnabled: false,
   ratingsEnabled: true,
@@ -103,9 +101,6 @@ function featureSummary(input: unknown): string[] {
   items.push(`Max listings: ${f.maxListings}`);
 
   if (f.publicShopEnabled) items.push("Public shop");
-
-  if (f.aiCustomerChatEnabled) items.push("AI chat (customers)");
-  if (f.aiDukandarAgentEnabled) items.push("AI tools (dukandar)");
 
   if (f.bookingEnabled) items.push("Bookings enabled");
   if (f.storiesEnabled) items.push("Stories & Reels");
@@ -533,22 +528,8 @@ export default function Subscriptions() {
                   <Switch checked={form.features.publicShopEnabled} onCheckedChange={(v) => setFeature("publicShopEnabled", v)} />
                 </div>
                 <div className="flex items-center justify-between rounded-md border p-3">
-                  <Label className="text-sm">AI Chat (Customers)</Label>
-                  <Switch
-                    checked={form.features.aiCustomerChatEnabled}
-                    onCheckedChange={(v) => setFeature("aiCustomerChatEnabled", v)}
-                  />
-                </div>
-                <div className="flex items-center justify-between rounded-md border p-3">
                   <Label className="text-sm">Bookings</Label>
                   <Switch checked={form.features.bookingEnabled} onCheckedChange={(v) => setFeature("bookingEnabled", v)} />
-                </div>
-                <div className="flex items-center justify-between rounded-md border p-3">
-                  <Label className="text-sm">AI Tools (Dukandar)</Label>
-                  <Switch
-                    checked={form.features.aiDukandarAgentEnabled}
-                    onCheckedChange={(v) => setFeature("aiDukandarAgentEnabled", v)}
-                  />
                 </div>
                 <div className="flex items-center justify-between rounded-md border p-3">
                   <Label className="text-sm">Stories & Reels</Label>

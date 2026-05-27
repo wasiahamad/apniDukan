@@ -1,10 +1,11 @@
 import { Business, User, Plan, Category } from '../models/index.js';
 import slugify from 'slugify';
 import { getEffectiveEntitlementsForBusiness } from '../services/entitlementsService.js';
+import { queueIndexingPingForBusiness } from '../services/seo/indexingPingService.js';
+import { invalidateSitemapCache } from '../services/seo/sitemapService.js';
 import { calculatePlanExpiryDate } from '../services/subscriptionService.js';
 import { getSmartCategoryIcon } from '../services/categoryIconAiService.js';
 import { CATEGORY_FALLBACK_ICON, inferCategoryIcon } from '../utils/categoryIcon.js';
-import { queueIndexingPingForBusiness } from '../services/seo/indexingPingService.js';
 
 const DEMO_SHOP_SLUG = 'wasi-kirana-store';
 
@@ -610,14 +611,6 @@ const coerceNumber = (v) => {
   return null;
 };
 
-const isTruthyQueryValue = (v) => {
-  if (v === true) return true;
-  if (v === false) return false;
-  if (v === undefined || v === null) return false;
-  const s = String(v).trim().toLowerCase();
-  return s === '1' || s === 'true' || s === 'yes' || s === 'y';
-};
-
 const isValidLat = (n) => typeof n === 'number' && Number.isFinite(n) && n >= -90 && n <= 90;
 const isValidLng = (n) => typeof n === 'number' && Number.isFinite(n) && n >= -180 && n <= 180;
 
@@ -685,8 +678,6 @@ export const createBusiness = async (req, res) => {
       name,
       slug,
       businessType,
-      offerings,
-      offering,
       phone,
       whatsapp,
       email,
@@ -753,32 +744,12 @@ if (!businessTypeDoc) {
       });
     }
 
-    const allowedOfferingValues = new Set(['product', 'service', 'food', 'course', 'rental']);
-    const normalizeOfferingValue = (v) => String(v || '').trim().toLowerCase();
-    const normalizedOfferings = Array.from(
-      new Set(
-        ([]
-          .concat(Array.isArray(offerings) ? offerings : [])
-          .concat(offering ? [offering] : [])
-          .map(normalizeOfferingValue)
-          .filter((v) => allowedOfferingValues.has(v)))
-      )
-    );
-
-    const fallbackOffering = normalizeOfferingValue(businessTypeDoc?.suggestedListingType);
-    const finalOfferings = normalizedOfferings.length
-      ? normalizedOfferings
-      : allowedOfferingValues.has(fallbackOffering)
-        ? [fallbackOffering]
-        : [];
-
     // Create business
     const business = await Business.create({
       owner: req.user._id,
       name,
       slug,
       businessType: businessTypeDoc._id,
-      offerings: finalOfferings,
       phone,
       whatsapp: whatsapp || phone,
       email,
@@ -804,12 +775,8 @@ if (!businessTypeDoc) {
 
     await business.populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages');
 
-    // Best-effort indexing ping (does not affect response)
-    try {
-      queueIndexingPingForBusiness({ businessSlug: business.slug });
-    } catch {
-      // ignore
-    }
+    invalidateSitemapCache({ subdomain: business.slug });
+    queueIndexingPingForBusiness({ businessSlug: business.slug });
 
     res.status(201).json({
       success: true,
@@ -870,8 +837,6 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
       name: businessName,
       slug,
       businessType,
-      offerings,
-      offering,
       phone: businessPhone,
       whatsapp,
       email: businessEmail,
@@ -931,25 +896,6 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
       });
     }
 
-    const allowedOfferingValues = new Set(['product', 'service', 'food', 'course', 'rental']);
-    const normalizeOfferingValue = (v) => String(v || '').trim().toLowerCase();
-    const normalizedOfferings = Array.from(
-      new Set(
-        ([]
-          .concat(Array.isArray(offerings) ? offerings : [])
-          .concat(offering ? [offering] : [])
-          .map(normalizeOfferingValue)
-          .filter((v) => allowedOfferingValues.has(v)))
-      )
-    );
-
-    const fallbackOffering = normalizeOfferingValue(businessTypeDoc?.suggestedListingType);
-    const finalOfferings = normalizedOfferings.length
-      ? normalizedOfferings
-      : allowedOfferingValues.has(fallbackOffering)
-        ? [fallbackOffering]
-        : [];
-
     // Check if slug is already taken (if provided)
     if (slug) {
       const slugExists = await Business.findOne({ slug });
@@ -966,7 +912,6 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
       name: businessName,
       slug,
       businessType: businessTypeDoc._id,
-      offerings: finalOfferings,
       phone: businessPhone,
       whatsapp: whatsapp || businessPhone,
       email: businessEmail,
@@ -1015,6 +960,9 @@ export const adminCreateBusinessWithOwner = async (req, res) => {
     await createdBusiness.populate('owner', 'name email phone role isActive');
     await createdBusiness.populate('businessType', 'name slug description suggestedListingType exampleCategories whyChooseUsTemplates defaultCoverImage defaultImages');
     await createdBusiness.populate('plan', 'name');
+
+    invalidateSitemapCache({ subdomain: createdBusiness.slug });
+    queueIndexingPingForBusiness({ businessSlug: createdBusiness.slug });
 
     res.status(201).json({
       success: true,
@@ -1234,15 +1182,7 @@ export const getBusinessDirectoryBySlug = async (req, res) => {
 export const getPublicShops = async (req, res) => {
   try {
     const { city, category, search, page = 1, limit = 40, lat, lng } = req.query;
-    const trending = isTruthyQueryValue(req.query?.trending);
     const lang = getRequestedLang(req);
-
-    const ratingMin = trending
-      ? Math.max(0, Number.isFinite(Number(req.query?.ratingMin)) ? Number(req.query.ratingMin) : 5)
-      : null;
-    const ordersMin = trending
-      ? Math.max(0, Number.isFinite(Number(req.query?.ordersMin)) ? Number(req.query.ordersMin) : 5)
-      : null;
 
     const safePage = Math.max(parseInt(page, 10) || 1, 1);
     const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 40, 1), 100);
@@ -1378,17 +1318,6 @@ export const getPublicShops = async (req, res) => {
 
     pipeline.push({
       $addFields: {
-        storiesEnabled: {
-          $or: [
-            { $eq: [{ $ifNull: ['$planDoc.features.storiesEnabled', false] }, true] },
-            { $eq: [{ $ifNull: ['$planDoc.features.listingStoriesEnabled', false] }, true] },
-          ],
-        },
-      },
-    });
-
-    pipeline.push({
-      $addFields: {
         activePlanPrice: {
           $cond: ['$planIsActive', { $ifNull: ['$planDoc.price', 0] }, 0],
         },
@@ -1477,34 +1406,15 @@ export const getPublicShops = async (req, res) => {
       },
     });
 
-    if (trending) {
-      pipeline.push({
-        $match: {
-          rating: { $gte: ratingMin ?? 0 },
-          ordersCount: { $gte: ordersMin ?? 0 },
-        },
-      });
-      pipeline.push({
-        $sort: {
-          ordersCount: -1,
-          rating: -1,
-          storiesEnabled: -1,
-          activePlanPrice: -1,
-          distanceSort: 1,
-          createdAt: -1,
-        },
-      });
-    } else {
-      pipeline.push({
-        $sort: {
-          activePlanPrice: -1,
-          ordersCount: -1,
-          rating: -1,
-          distanceSort: 1,
-          createdAt: -1,
-        },
-      });
-    }
+    pipeline.push({
+      $sort: {
+        activePlanPrice: -1,
+        ordersCount: -1,
+        rating: -1,
+        distanceSort: 1,
+        createdAt: -1,
+      },
+    });
 
     pipeline.push({
       $facet: {
@@ -1573,7 +1483,6 @@ export const getPublicShops = async (req, res) => {
               rating: 1,
               reviewCount: 1,
               ordersCount: 1,
-              storiesEnabled: 1,
               activePlanPrice: 1,
               workingHours: 1,
               openStatusMode: 1,
@@ -1900,19 +1809,11 @@ export const getNearbyBusinesses = async (req, res) => {
     );
 
     const rows = await Business.aggregate(pipeline);
-    const avgSpeedKmph = Number(process.env.NEARBY_AVG_SPEED_KMPH || 25);
     const shops = (rows || []).map((b) => {
       const payload = {
         ...b,
         isOpen: resolveBusinessIsOpen(b),
       };
-
-      const distanceKm = Number(payload?.distanceKm);
-      if (Number.isFinite(distanceKm) && distanceKm >= 0) {
-        const durationSeconds = Math.max(0, Math.round((distanceKm / Math.max(avgSpeedKmph, 1)) * 3600));
-        payload.durationSeconds = durationSeconds;
-        payload.durationMins = Math.max(1, Math.round(durationSeconds / 60));
-      }
 
       if (lang === 'hi') {
         if (payload?.nameHi) payload.name = payload.nameHi;
@@ -1936,51 +1837,6 @@ export const getNearbyBusinesses = async (req, res) => {
       success: false,
       message: error.message || 'Failed to load nearby shops',
     });
-  }
-};
-
-// @desc    Get navigation URL for a business
-// @route   GET /api/business/:id/navigation?originLat=xx&originLng=yy&mode=driving
-// @access  Public
-export const getBusinessNavigation = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const mode = String(req.query.mode || 'driving').toLowerCase();
-    const originLat = Number(req.query.originLat ?? req.query.lat);
-    const originLng = Number(req.query.originLng ?? req.query.lng);
-
-    const business = await Business.findById(id).select('_id name address.location');
-    if (!business) return res.status(404).json({ success: false, message: 'Business not found' });
-
-    const coords = business.address?.location?.coordinates;
-    if (!Array.isArray(coords) || coords.length !== 2) {
-      return res.status(400).json({ success: false, message: 'Business location not set' });
-    }
-
-    const [bizLng, bizLat] = coords;
-    if (!Number.isFinite(bizLat) || !Number.isFinite(bizLng)) {
-      return res.status(400).json({ success: false, message: 'Business location invalid' });
-    }
-
-    const url = new URL('https://www.google.com/maps/dir/?api=1');
-    url.searchParams.set('destination', `${bizLat},${bizLng}`);
-    if (Number.isFinite(originLat) && Number.isFinite(originLng)) {
-      url.searchParams.set('origin', `${originLat},${originLng}`);
-    }
-    if (['driving', 'walking', 'bicycling', 'transit'].includes(mode)) {
-      url.searchParams.set('travelmode', mode);
-    }
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        url: url.toString(),
-        destination: { lat: bizLat, lng: bizLng },
-      },
-    });
-  } catch (error) {
-    console.error('Get business navigation error:', error);
-    return res.status(500).json({ success: false, message: error.message || 'Error generating navigation URL' });
   }
 };
 
@@ -2045,6 +1901,62 @@ export const getBusinessDistance = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message || 'Error calculating distance',
+    });
+  }
+};
+
+// @desc    Get navigation links for a business (PUBLIC)
+// @route   GET /api/business/:id/navigation
+// @access  Public
+export const getBusinessNavigation = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const business = await Business.findById(id)
+      .select('name slug isActive address')
+      .lean();
+
+    if (!business || business.isActive !== true) {
+      return res.status(404).json({
+        success: false,
+        message: 'Business not found',
+      });
+    }
+
+    const coords = business.address?.location?.coordinates;
+    const hasCoords = Array.isArray(coords) && coords.length === 2 && Number.isFinite(coords[0]) && Number.isFinite(coords[1]);
+    const lat = hasCoords ? Number(coords[1]) : null;
+    const lng = hasCoords ? Number(coords[0]) : null;
+
+    const addressText = [
+      business.address?.street,
+      business.address?.city,
+      business.address?.state,
+      business.address?.pincode,
+    ]
+      .filter(Boolean)
+      .join(', ');
+
+    const query = hasCoords ? `${lat},${lng}` : encodeURIComponent(addressText || business.name);
+
+    const googleMapsUrl = hasCoords
+      ? `https://www.google.com/maps?q=${query}`
+      : `https://www.google.com/maps/search/?api=1&query=${query}`;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        lat,
+        lng,
+        address: addressText,
+        googleMapsUrl,
+      },
+    });
+  } catch (error) {
+    console.error('Get business navigation error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error fetching navigation',
     });
   }
 };
@@ -2756,7 +2668,6 @@ export const updateBusiness = async (req, res) => {
       'name',
       'nameHi',
       'businessType',
-      'offerings',
       'logo',
       'coverImage',
       'branding',
@@ -2854,40 +2765,6 @@ export const updateBusiness = async (req, res) => {
         success: false,
         message: 'Business not found',
       });
-    }
-
-    // Offerings update: strict validation (must include at least one valid value)
-    // Supports legacy single value via `offering` as well.
-    if (req.body.offerings !== undefined || req.body.offering !== undefined) {
-      const allowedOfferingValues = new Set(['product', 'service', 'food', 'course', 'rental']);
-      const normalizeOfferingValue = (v) => String(v || '').trim().toLowerCase();
-
-      const incoming = [];
-      if (req.body.offerings !== undefined) {
-        if (!Array.isArray(req.body.offerings)) {
-          return res.status(400).json({
-            success: false,
-            message: 'offerings must be an array',
-          });
-        }
-        incoming.push(...req.body.offerings);
-      }
-      if (req.body.offering !== undefined) {
-        incoming.push(req.body.offering);
-      }
-
-      const finalOfferings = Array.from(
-        new Set(incoming.map(normalizeOfferingValue).filter((v) => allowedOfferingValues.has(v)))
-      );
-
-      if (finalOfferings.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'offerings must contain at least one valid value: product, service, food, course, rental',
-        });
-      }
-
-      updates.offerings = finalOfferings;
     }
 
     // If business type changes and description is blank/missing, apply type default only when

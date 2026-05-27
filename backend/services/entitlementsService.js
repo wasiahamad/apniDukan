@@ -30,10 +30,6 @@ const DEFAULT_FEATURES = {
   inquiriesEnabled: true,
 
   offersEnabled: false,
-
-  // AI modules (plan controlled)
-  aiCustomerChatEnabled: true,
-  aiDukandarAgentEnabled: false,
 };
 
 // Features exposed when subscription is not active.
@@ -69,10 +65,6 @@ const INACTIVE_PLAN_FEATURES = {
   inquiriesEnabled: false,
 
   offersEnabled: false,
-
-  // AI modules (plan controlled)
-  aiCustomerChatEnabled: false,
-  aiDukandarAgentEnabled: false,
 };
 
 const mergeFeatures = (base, overrides) => {

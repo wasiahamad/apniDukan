@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import slugify from 'slugify';
 
 /**
  * UNIVERSAL LISTING MODEL - Replaces Product Model
@@ -22,12 +21,6 @@ const listingSchema = new mongoose.Schema(
             required: [true, 'Title is required'],
             trim: true,
             maxlength: [200, 'Title cannot exceed 200 characters'],
-        },
-        slug: {
-            type: String,
-            lowercase: true,
-            trim: true,
-            index: true,
         },
         // Optional Hindi title (Devanagari)
         titleHi: {
@@ -177,17 +170,6 @@ listingSchema.index({ listingType: 1, isActive: 1 });
 listingSchema.index({ isFeatured: 1, isActive: 1 });
 listingSchema.index({ createdAt: -1 }); // For sorting by latest
 
-// Slug should be unique per business (partial to allow legacy docs without slug).
-listingSchema.index(
-    { business: 1, slug: 1 },
-    {
-        unique: true,
-        partialFilterExpression: {
-            slug: { $type: 'string', $ne: '' },
-        },
-    }
-);
-
 // Text index for search functionality
 listingSchema.index({ title: 'text', description: 'text' });
 
@@ -220,42 +202,6 @@ listingSchema.pre('save', function (next) {
     }
 
     next();
-});
-
-// Auto-generate SEO slug from title (per business)
-listingSchema.pre('save', async function (next) {
-    try {
-        const titleChanged = this.isModified('title');
-        const hasSlug = typeof this.slug === 'string' && this.slug.trim();
-
-        if (!titleChanged && hasSlug) return next();
-        if (typeof this.title !== 'string' || !this.title.trim()) return next();
-
-        const base = slugify(this.title, {
-            lower: true,
-            strict: true,
-            remove: /[*+~.()'"!:@]/g,
-        });
-
-        let candidate = base || String(this._id);
-        let counter = 1;
-
-        while (
-            await mongoose.model('Listing').findOne({
-                business: this.business,
-                slug: candidate,
-                _id: { $ne: this._id },
-            })
-        ) {
-            counter += 1;
-            candidate = `${base}-${counter}`;
-        }
-
-        this.slug = candidate;
-        return next();
-    } catch (e) {
-        return next(e);
-    }
 });
 
 // Method to increment stats

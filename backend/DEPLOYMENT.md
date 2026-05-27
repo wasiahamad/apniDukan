@@ -72,6 +72,25 @@ RAZORPAY_KEY_SECRET=xxxx
 TWILIO_ACCOUNT_SID=ACxxxx
 TWILIO_AUTH_TOKEN=xxxx
 TWILIO_PHONE_NUMBER=+1234567890
+
+# ----------------------------------------
+# Public Storefront + SEO (Optional)
+# ----------------------------------------
+# If you want the backend to serve the built public website and inject SEO tags per host/subdomain:
+SERVE_PUBLIC_WEBSITE=true
+# PUBLIC_WEBSITE_DIST_DIR=/var/www/publicWebsite/dist
+PUBLIC_DUKAN_ROOT_DOMAIN=publicdukan.com
+PUBLIC_DUKAN_RESERVED_SUBDOMAINS=www,seller,api,admin
+ENABLE_STORE_FRONT_BOT_SSR=true
+SEO_CACHE_TTL_SECONDS=300
+
+# IndexNow (optional)
+INDEXNOW_KEY=
+INDEXNOW_KEY_LOCATION=
+
+# Google Search Console verification (file method)
+GOOGLE_SITE_VERIFICATION_FILE_NAME=
+GOOGLE_SITE_VERIFICATION_FILE_CONTENT=
 ```
 
 ### Generate Strong Secrets

@@ -293,6 +293,16 @@ export const renderBotHtml = async ({ req, business }) => {
     .limit(200)
     .lean();
 
+  const uniqueCategories = [];
+  const seenCategorySlugs = new Set();
+  for (const c of categories || []) {
+    const slug = String(c?.slug || '').trim();
+    if (!slug) continue;
+    if (seenCategorySlugs.has(slug)) continue;
+    seenCategorySlugs.add(slug);
+    uniqueCategories.push(c);
+  }
+
   const products = listings.filter((l) => l.listingType === 'product');
   const services = listings.filter((l) => l.listingType === 'service');
 
@@ -305,7 +315,7 @@ export const renderBotHtml = async ({ req, business }) => {
       })
       .join('');
 
-  const catLinks = categories
+  const catLinks = uniqueCategories
     .slice(0, 40)
     .map((c) => `<li><a href="/categories/${escapeHtml(encodeURIComponent(c.slug))}">${escapeHtml(c.name)}</a></li>`)
     .join('');

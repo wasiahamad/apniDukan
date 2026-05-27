@@ -15,7 +15,6 @@ export interface Category {
 
 export interface Product {
   id: string;
-  slug?: string;
   name: string;
   price: number;
   oldPrice?: number;
@@ -67,9 +66,6 @@ export interface Shop {
   products: Product[];
   latitude: number;
   longitude: number;
-  distanceKm?: number;
-  durationMins?: number;
-  ordersCount?: number;
   verified: boolean;
   publicShopEnabled?: boolean;
   subdomainActive?: boolean;

@@ -79,9 +79,21 @@
   * {
     @apply border-border;
   }
+  html {
+    scroll-behavior: smooth;
+    overscroll-behavior-y: none; /* Disable pull-to-refresh style overscroll */
+  }
   body {
     @apply bg-background text-foreground;
     font-family: 'Inter', 'Segoe UI', sans-serif;
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    body {
+      transition: background-color 220ms ease, color 220ms ease;
+    }
   }
 }
 

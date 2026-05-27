@@ -226,6 +226,17 @@ export default function ShopPage({
     return !["www", "seller", "admin", "api"].includes(s);
   }, []);
 
+  const rootBrowseOrigin = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    if (!isShopSubdomainHost) return window.location.origin;
+
+    // When on shop subdomain, link out to root domain pages.
+    // In dev, keep same origin so local navigation still works.
+    if (import.meta.env.DEV) return window.location.origin;
+    const proto = window.location.protocol || "https:";
+    return `${proto}//publicdukan.com`;
+  }, [isShopSubdomainHost]);
+
   const openListing = useCallback(
     (p: Product) => {
       setSelectedProduct(p);
@@ -1173,9 +1184,24 @@ export default function ShopPage({
                   </div>
 
                   {/* Category (single line) */}
-                  <p className="text-muted-foreground text-sm whitespace-nowrap">
-                    {shop.category}
-                  </p>
+                  <div className="text-muted-foreground text-sm whitespace-nowrap">
+                    {shop.categorySlug ? (
+                      isShopSubdomainHost ? (
+                        <a
+                          href={`${rootBrowseOrigin}/categories/${encodeURIComponent(shop.categorySlug)}`}
+                          className="hover:underline"
+                        >
+                          {shop.category}
+                        </a>
+                      ) : (
+                        <Link to={`/categories/${encodeURIComponent(shop.categorySlug)}`} className="hover:underline">
+                          {shop.category}
+                        </Link>
+                      )
+                    ) : (
+                      shop.category
+                    )}
+                  </div>
 
                   <div className="flex items-start gap-2 mt-2">
                     <MapPin className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
@@ -1485,7 +1511,14 @@ export default function ShopPage({
                           className="flex gap-3 p-3 rounded-lg border hover:border-primary/50 hover:shadow-md transition-all cursor-pointer"
                           onClick={() => openListing(p)}
                         >
-                          <img src={p.image} alt={p.name} className="w-20 h-20 rounded-lg object-cover" loading="lazy" />
+                          <img
+                            src={p.image}
+                            alt={p.name}
+                            className="w-20 h-20 rounded-lg object-cover"
+                            loading="lazy"
+                            decoding="async"
+                            fetchPriority="low"
+                          />
                           <div className="flex-1 flex flex-col justify-between">
                             <div>
                               <h4 className="font-medium text-sm">{p.name}</h4>
@@ -1548,6 +1581,54 @@ export default function ShopPage({
                 </CardContent>
               </Card>
             </ScrollReveal>
+
+            {/* Explore (internal links) */}
+            {(shop.categorySlug || shop.citySlug) ? (
+              <ScrollReveal delay={0.05}>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>{t("shopPage.explore.title")}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex flex-wrap gap-2">
+                    {shop.categorySlug ? (
+                      <Button size="sm" variant="outline" asChild>
+                        {isShopSubdomainHost ? (
+                          <a href={`${rootBrowseOrigin}/categories/${encodeURIComponent(shop.categorySlug)}`}>
+                            {t("shopPage.explore.moreInCategory", { category: shop.category })}
+                          </a>
+                        ) : (
+                          <Link to={`/categories/${encodeURIComponent(shop.categorySlug)}`}>
+                            {t("shopPage.explore.moreInCategory", { category: shop.category })}
+                          </Link>
+                        )}
+                      </Button>
+                    ) : null}
+
+                    <Button size="sm" variant="outline" asChild>
+                      {isShopSubdomainHost ? (
+                        <a href={`${rootBrowseOrigin}/categories`}>{t("shopPage.explore.browseCategories")}</a>
+                      ) : (
+                        <Link to="/categories">{t("shopPage.explore.browseCategories")}</Link>
+                      )}
+                    </Button>
+
+                    {shop.citySlug ? (
+                      <Button size="sm" variant="outline" asChild>
+                        {isShopSubdomainHost ? (
+                          <a href={`${rootBrowseOrigin}/${encodeURIComponent(shop.citySlug)}`}>
+                            {t("shopPage.explore.moreInCity", { city: shop.city })}
+                          </a>
+                        ) : (
+                          <Link to={`/${encodeURIComponent(shop.citySlug)}`}>
+                            {t("shopPage.explore.moreInCity", { city: shop.city })}
+                          </Link>
+                        )}
+                      </Button>
+                    ) : null}
+                  </CardContent>
+                </Card>
+              </ScrollReveal>
+            ) : null}
 
             {/* About */}
             <ScrollReveal delay={0.1}>

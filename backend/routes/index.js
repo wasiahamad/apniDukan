@@ -23,14 +23,11 @@ import platformFeedbackRoutes from './platformFeedbackRoutes.js';
 import contactRoutes from './contactRoutes.js';
 import aboutRoutes from './aboutRoutes.js';
 import mapsRoutes from './mapsRoutes.js';
-import locationRoutes from './locationRoutes.js';
 import cityRoutes from './cityRoutes.js';
 import storyRoutes from './storyRoutes.js';
 import customerReferralEarningsRoutes from './customerReferralEarningsRoutes.js';
 import walletRoutes from './walletRoutes.js';
 import offerRoutes from './offerRoutes.js';
-import aiRoutes from './aiRoutes.js';
-import emailRoutes from './emailRoutes.js';
 
 /**
  * Mount routes to Express app
@@ -67,13 +64,10 @@ export const mountRoutes = (app) => {
   app.use('/api/contact', contactRoutes);
   app.use('/api/about', aboutRoutes);
   app.use('/api/maps', mapsRoutes);
-  app.use('/api/location', locationRoutes);
   app.use('/api/public/cities', cityRoutes);
   app.use('/api/customer-referrals', customerReferralEarningsRoutes);
   app.use('/api/wallet', walletRoutes);
   app.use('/api/offers', offerRoutes);
-  app.use('/api/ai', aiRoutes);
-  app.use('/api/emails', emailRoutes);
   // Stories & Reels (endpoints: /api/story, /api/stories)
   app.use('/api', storyRoutes);
 };

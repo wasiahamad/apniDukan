@@ -28,10 +28,6 @@ export type EntitlementFeatures = {
 
   ordersEnabled: boolean;
   inquiriesEnabled: boolean;
-
-  // AI modules (plan controlled)
-  aiCustomerChatEnabled?: boolean;
-  aiDukandarAgentEnabled?: boolean;
 };
 
 export type BusinessEntitlements = {

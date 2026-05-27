@@ -23,6 +23,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import {
     ArrowRight,
+    Bell,
     CalendarClock,
     Eye,
     Facebook,
@@ -2306,6 +2307,20 @@ export default function AccountPage() {
                                         <div className="mt-3 flex flex-wrap gap-2">
                                             <Button asChild variant="outline" className="border-primary/25 text-primary hover:bg-primary/10">
                                                 <Link to="/contact">{t("account.settings.help.contactSupport")}</Link>
+                                            </Button>
+                                        </div>
+                                    </div>
+
+                                    <div className="rounded-2xl border border-border bg-muted/40 p-4">
+                                        <p className="text-sm font-semibold text-foreground">{t("account.settings.notifications.title")}</p>
+                                        <p className="mt-1 text-xs text-muted-foreground">
+                                            {t("account.settings.notifications.desc")}
+                                        </p>
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                            <Button asChild variant="outline" className="border-primary/25 text-primary hover:bg-primary/10">
+                                                <Link to="/notifications">
+                                                    <Bell className="h-4 w-4 mr-2" /> {t("account.settings.notifications.action")}
+                                                </Link>
                                             </Button>
                                         </div>
                                     </div>

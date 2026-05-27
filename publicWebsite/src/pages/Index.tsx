@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Store, ArrowRight, Star, MessageCircle, Users, TrendingUp } from "lucide-react";
+import { Search, Store, ArrowRight, Star, MessageCircle, Users, TrendingUp, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +15,7 @@ import ScrollReveal from "@/components/ScrollReveal";
 import StaggerChildren, { StaggerItem } from "@/components/StaggerChildren";
 import StoriesTray from "@/components/StoriesTray";
 import GlobalSearch from "@/components/GlobalSearch";
-import { fetchActiveStories, fetchBusinessTypes, fetchPublicShops, fetchCityImages, fetchPlatformFeedbackStats, fetchTrendingPublicShops } from "@/lib/publicShopsApi";
+import { fetchActiveStories, fetchBusinessTypes, fetchNearbyPublicShops, fetchPublicShops, fetchCityImages, fetchPlatformFeedbackStats, fetchTrendingPublicShops } from "@/lib/publicShopsApi";
 import { getCityFallbackImage } from "@/lib/cityGroups";
 import { motion } from "framer-motion";
 import { useUserLocation } from "@/hooks/useUserLocation";
@@ -41,6 +41,11 @@ export default function HomePage() {
   const [featuredOpenOnly, setFeaturedOpenOnly] = useState(searchParams.get("open") === "1");
   const [cityImages, setCityImages] = useState<Record<string, string>>({});
 
+  const handleInstallApp = () => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new Event("publicdukan:pwa:install-request"));
+  };
+
   const shopsQuery = useQuery({
     queryKey: [
       "public-shops",
@@ -56,20 +61,20 @@ export default function HomePage() {
       ),
   });
 
-  const trendingShopsQuery = useQuery({
+  const nearbyShopsQuery = useQuery({
     queryKey: [
-      "public-shops-trending",
+      "public-shops-nearby",
       i18n.language,
       userLocation?.latitude ?? null,
       userLocation?.longitude ?? null,
     ],
+    enabled: !!userLocation,
     queryFn: () =>
-      fetchTrendingPublicShops({
-        limit: 8,
-        ratingMin: 5,
-        ordersMin: 5,
-        lat: userLocation?.latitude,
-        lng: userLocation?.longitude,
+      fetchNearbyPublicShops({
+        lat: userLocation!.latitude,
+        lng: userLocation!.longitude,
+        radiusKm: 25,
+        limit: 1000,
       }),
   });
 
@@ -86,6 +91,21 @@ export default function HomePage() {
   const storiesQuery = useQuery({
     queryKey: ["public-stories", "story"],
     queryFn: () => fetchActiveStories("story"),
+  });
+
+  const trendingShopsQuery = useQuery({
+    queryKey: [
+      "public-shops-trending",
+      i18n.language,
+      userLocation?.latitude ?? null,
+      userLocation?.longitude ?? null,
+    ],
+    queryFn: () =>
+      fetchTrendingPublicShops({
+        lat: userLocation?.latitude,
+        lng: userLocation?.longitude,
+        limit: 6,
+      }),
   });
 
 
@@ -154,12 +174,15 @@ export default function HomePage() {
   }, [allShops, featuredCategory, featuredCity, featuredOpenOnly]);
 
   const featuredPool = useMemo(() => {
-    let items = [...filteredAllShops];
+    // Prefer nearby (25km) when available, but fall back to all shops
+    // so filters never leave the section empty.
+    const nearby = userLocation ? (nearbyShopsQuery.data || []) : [];
+    let items = userLocation && nearby.length > 0 ? [...nearby] : [...filteredAllShops];
     if (featuredCity !== "all") items = items.filter((shop) => shop.citySlug === featuredCity);
     if (featuredCategory !== "all") items = items.filter((shop) => shop.categorySlug === featuredCategory);
     if (featuredOpenOnly) items = items.filter((shop) => shop.isOpen);
     return items;
-  }, [filteredAllShops, featuredCategory, featuredCity, featuredOpenOnly]);
+  }, [filteredAllShops, nearbyShopsQuery.data, featuredCategory, featuredCity, featuredOpenOnly, userLocation]);
 
   const featuredShops = useMemo(() => {
     const byPlanAndRating = (a: any, b: any) => {
@@ -186,8 +209,6 @@ export default function HomePage() {
     items.sort(byPlanAndRating);
     return items.slice(0, 8);
   }, [featuredPool]);
-
-  const trendingShops = useMemo(() => trendingShopsQuery.data || [], [trendingShopsQuery.data]);
 
   const remainingShops = useMemo(() => {
     const featuredIds = new Set(featuredShops.map((s) => s.id));
@@ -316,15 +337,17 @@ export default function HomePage() {
       </section>
 
       {/* Trending Shops */}
-      <section className="container py-14">
+      <section className="container py-12">
         <ScrollReveal>
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-2xl md:text-3xl font-bold">Trending Shops</h2>
-              <p className="text-sm text-muted-foreground">High rating + strong orders wale dukandars.</p>
+              <h2 className="text-2xl md:text-3xl font-bold">{t("home.trending.title")}</h2>
+              <p className="text-muted-foreground text-sm mt-1">{t("home.trending.subtitle")}</p>
             </div>
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/shops">View All</Link>
+            <Button variant="ghost" asChild className="gap-1">
+              <Link to="/shops">
+                {t("actions.viewAll")} <ArrowRight className="h-4 w-4" />
+              </Link>
             </Button>
           </div>
         </ScrollReveal>
@@ -335,17 +358,21 @@ export default function HomePage() {
             <Skeleton className="h-[360px] w-full rounded-xl" />
             <Skeleton className="h-[360px] w-full rounded-xl" />
           </div>
-        ) : trendingShops.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Trending shops abhi available nahi hai.</p>
-        ) : (
-          <StaggerChildren className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {trendingShops.map((shop) => (
-              <StaggerItem key={shop.id}>
-                <ShopCard shop={shop} />
-              </StaggerItem>
-            ))}
-          </StaggerChildren>
-        )}
+        ) : (() => {
+          const primary = trendingShopsQuery.data || [];
+          const fallback = featuredShops.slice(0, 6);
+          const list = (primary.length > 0 ? primary : fallback).slice(0, 6);
+          if (list.length === 0) return null;
+          return (
+            <StaggerChildren className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {list.map((shop) => (
+                <StaggerItem key={shop.id}>
+                  <ShopCard shop={shop} />
+                </StaggerItem>
+              ))}
+            </StaggerChildren>
+          );
+        })()}
       </section>
 
       
@@ -418,7 +445,7 @@ export default function HomePage() {
             </div>
           </ScrollReveal>
 
-          {shopsQuery.isLoading ? (
+          {shopsQuery.isLoading || (userLocation ? (nearbyShopsQuery.isLoading && allShops.length === 0) : false) ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               <Skeleton className="h-[360px] w-full rounded-xl" />
               <Skeleton className="h-[360px] w-full rounded-xl" />
@@ -598,6 +625,16 @@ export default function HomePage() {
                   asChild
                 >
                   <Link to="/signup">{t("home.cta.createCustomer")}</Link>
+                </Button>
+              </motion.div>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }}>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="bg-transparent border-primary-foreground text-primary-foreground hover:bg-primary-foreground/10 gap-2"
+                  onClick={handleInstallApp}
+                >
+                  <Download className="h-5 w-5" /> {t("home.cta.installApp")}
                 </Button>
               </motion.div>
             </div>

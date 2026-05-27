@@ -148,19 +148,6 @@ const planSchema = new mongoose.Schema(
         type: Boolean,
         default: false,
       },
-
-      // AI modules (plan controlled)
-      // Public/customer facing AI chat on public shop pages
-      aiCustomerChatEnabled: {
-        type: Boolean,
-        default: true,
-      },
-
-      // Dukandar-facing AI agent (dashboard tools like generate/insights)
-      aiDukandarAgentEnabled: {
-        type: Boolean,
-        default: false,
-      },
     },
     description: {
       type: String,

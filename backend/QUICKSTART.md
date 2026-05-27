@@ -116,7 +116,58 @@ npm start
 curl http://localhost:5000/api/health
 
 # Expected response:
-# { "success": true, "message": "Server is running" }
+# { "success": true, "message": "API is running" }
+```
+
+---
+
+## 🌐 Optional: Serve Public Storefront (SEO)
+
+The backend can also serve the PublicDukan storefront (with dynamic SEO for subdomains).
+
+Build the public website:
+
+```bash
+cd ../publicWebsite
+npm install
+npm run build
+```
+
+Start backend with storefront serving enabled:
+
+```env
+SERVE_PUBLIC_WEBSITE=true
+
+# (Recommended) set your real root domain
+PUBLIC_DUKAN_ROOT_DOMAIN=publicdukan.com
+
+# Optional: enable/disable bot SSR-lite HTML
+ENABLE_STORE_FRONT_BOT_SSR=true
+```
+
+Then run:
+
+```bash
+cd ../backend
+npm run dev
+```
+
+Local testing tips:
+
+- Simulate a real shop subdomain:
+  - Request `http://localhost:5000/sitemap.xml` with header `Host: <shopSlug>.publicdukan.com`
+- Or use query param on localhost for some endpoints:
+  - `http://localhost:5000/robots.txt?shop=<shopSlug>`
+
+Optional indexing settings:
+
+```env
+# IndexNow (Bing)
+INDEXNOW_KEY=
+
+# Google Search Console verification (file method)
+GOOGLE_SITE_VERIFICATION_FILE_NAME=
+GOOGLE_SITE_VERIFICATION_FILE_CONTENT=
 ```
 
 ---

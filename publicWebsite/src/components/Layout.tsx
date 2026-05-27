@@ -1,4 +1,5 @@
 import MobileBottomNav from "@/components/mobile/MobileBottomNav";
+import InstallAppBanner from "@/components/pwa/InstallAppBanner";
 import RouteErrorBoundary from "@/components/RouteErrorBoundary";
 import { Outlet } from "react-router-dom";
 import LogoIntro from "./LogoIntro";
@@ -15,6 +16,7 @@ export default function Layout() {
           <Outlet />
         </RouteErrorBoundary>
       </main>
+      <InstallAppBanner />
       <MobileBottomNav />
       <div className="pb-16 md:pb-0">
         <Footer />

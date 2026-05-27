@@ -387,6 +387,27 @@ if (servePublicWebsite) {
     ? path.resolve(distDir)
     : path.resolve(process.cwd(), '../publicWebsite/dist');
 
+  // APK download endpoint (optional)
+  // Place the APK at backend/public/apk/PublicDukan.apk (default) or override via PUBLIC_APK_FILE_PATH.
+  // This must be registered BEFORE static hosting + SPA fallback, otherwise it will return index.html.
+  const defaultApkPath = path.resolve(process.cwd(), 'public/apk/PublicDukan.apk');
+  const apkFilePath = String(process.env.PUBLIC_APK_FILE_PATH || '').trim() || defaultApkPath;
+
+  app.get(['/download/publicdukan.apk', '/publicdukan.apk'], async (req, res) => {
+    try {
+      await fs.stat(apkFilePath);
+    } catch {
+      res.set('Content-Type', 'text/plain; charset=utf-8');
+      res.set('Cache-Control', 'no-store');
+      return res.status(404).send('APK not available');
+    }
+
+    res.set('Content-Type', 'application/vnd.android.package-archive');
+    res.set('Content-Disposition', 'attachment; filename="PublicDukan.apk"');
+    res.set('Cache-Control', 'public, max-age=3600');
+    return res.sendFile(apkFilePath);
+  });
+
   let cachedIndexHtml = null;
   let cachedIndexMtimeMs = null;
 

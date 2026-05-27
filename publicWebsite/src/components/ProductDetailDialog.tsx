@@ -3,7 +3,7 @@ import { MessageCircle, Clock } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
+import { 
   Dialog,
   DialogContent,
   DialogHeader,
@@ -185,6 +185,42 @@ export default function ProductDetailDialog({
   const requiresSelection = selectableOptions.length > 0;
   const canOrder = !requiresSelection || !!selectedOption;
 
+  const startingFromPrice = useMemo(() => {
+    if (selectableOptions.length === 0) return null;
+    const prices = [Number(safeProduct.price), ...selectableOptions.map((o) => Number(o.price))]
+      .filter((n) => Number.isFinite(n) && n >= 0);
+    if (prices.length === 0) return null;
+    return Math.min(...prices);
+  }, [safeProduct.price, selectableOptions]);
+
+  const stockInfo = useMemo(() => {
+    const direct = Number((safeProduct as any)?.stock ?? (safeProduct as any)?.quantity ?? (safeProduct as any)?.qty);
+    if (Number.isFinite(direct)) {
+      const n = Math.max(0, Math.trunc(direct));
+      return { count: n, text: String(n), isOut: n <= 0 };
+    }
+
+    const candidates = Array.isArray(attrs) ? attrs : [];
+    const stockAttr = candidates.find((a) => {
+      const name = String(a?.name || "").toLowerCase();
+      return name.includes("stock") || name.includes("qty") || name.includes("quantity") || name.includes("in stock");
+    });
+
+    if (!stockAttr) return null;
+    const raw = String((stockAttr as any)?.value ?? "").trim();
+    if (!raw) return null;
+
+    const num = Number(String(raw).replace(/[^0-9]/g, ""));
+    if (Number.isFinite(num)) {
+      const n = Math.max(0, Math.trunc(num));
+      return { count: n, text: String(n), isOut: n <= 0 };
+    }
+
+    const lower = raw.toLowerCase();
+    const isOut = lower.includes("out") || lower.includes("not available") || lower.includes("unavailable") || lower.includes("नहीं") || lower.includes("उपलब्ध नहीं");
+    return { text: raw, isOut };
+  }, [attrs, safeProduct]);
+
   const whatsappHref = useMemo(() => {
     const imageUrl = toSafePublicImageUrl(images?.[0], "");
     const orderSummaryUrl = buildOrderSummaryUrl({
@@ -336,6 +372,16 @@ export default function ProductDetailDialog({
                 <Badge variant="secondary" className="text-[10px]">-{effectiveDiscountPercent}%</Badge>
               ) : null}
             </div>
+            {startingFromPrice != null ? (
+              <div className="text-xs text-muted-foreground">
+                {t("shopPage.productDialog.startingFrom", { price: startingFromPrice })}
+              </div>
+            ) : null}
+            {stockInfo ? (
+              <div className={stockInfo.isOut ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
+                {t("shopPage.productDialog.stockLabel")}: {stockInfo.isOut ? t("shopPage.productDialog.outOfStock") : stockInfo.text}
+              </div>
+            ) : null}
             <div className="text-sm text-muted-foreground">
               {t("shopPage.productDialog.soldBy", { shopName })}
             </div>

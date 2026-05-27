@@ -19,9 +19,6 @@ export type PlanFeatures = {
   maxListings: number;
   publicShopEnabled: boolean;
   bookingEnabled: boolean;
-  // AI
-  aiCustomerChatEnabled: boolean;
-  aiDukandarAgentEnabled: boolean;
   storiesEnabled: boolean;
   listingStoriesEnabled: boolean;
   ratingsEnabled: boolean;

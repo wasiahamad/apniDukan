@@ -20,11 +20,15 @@ const resources = {
       brand: "PublicDukan",
       nav: {
         home: "Home",
+        nearbyShops: "Nearby",
         stories: "Stories",
         referral: "Referral Program",
         referralShort: "Referral",
+        installApk: "Install APK",
         cities: "Cities",
         categories: "Categories",
+        notifications: "Notifications",
+        profile: "Profile",
         forBusiness: "For Business",
         forBusinessShort: "Business",
       },
@@ -109,6 +113,11 @@ const resources = {
             cities: "{{count}} Cities",
           },
         },
+
+        trending: {
+          title: "Trending Shops",
+          subtitle: "High rating + strong orders wale dukandars.",
+        },
         howItWorks: {
           title: "How Does It Work 🤔?",
           stepLabel: "Step {{step}}",
@@ -161,6 +170,7 @@ const resources = {
             "Create a professional shop page in minutes. Take orders on WhatsApp and grow your customers.",
           registerShop: "Register Your Shop",
           createCustomer: "Create Customer Account",
+          installApp: "Install the App",
         },
       },
 
@@ -487,6 +497,9 @@ const resources = {
           descriptionTitle: "Description",
           descriptionMissingHindi: "Hindi description is not available yet.",
           autoDescriptionFallback: "To order this item, message on WhatsApp.",
+          startingFrom: "Starting from ₹{{price}}",
+          stockLabel: "Stock",
+          outOfStock: "Out of stock",
           detailsTitle: "Details",
           chooseOptionTitle: "Choose option",
           durationLabel: "Duration",
@@ -504,6 +517,12 @@ const resources = {
         },
         listings: {
           noFeatured: "No listings are available right now.",
+        },
+        explore: {
+          title: "Explore",
+          moreInCategory: "More in {{category}}",
+          browseCategories: "Browse categories",
+          moreInCity: "More shops in {{city}}",
         },
         whatsapp: {
           foundShopPrefill: "Hi, I found your shop on PublicDukan!",
@@ -1073,6 +1092,11 @@ const resources = {
             uploadChange: "Upload / Change",
           },
           note: "Some fields are managed by the account provider and cannot be edited here.",
+          notifications: {
+            title: "Notifications",
+            desc: "Manage notification permissions and settings.",
+            action: "Open Notifications",
+          },
           help: {
             title: "Need help?",
             desc: "For any issue, contact support and we’ll help you out.",
@@ -1200,11 +1224,15 @@ const resources = {
       brand: "PublicDukan",
       nav: {
         home: "होम",
+        nearbyShops: "नज़दीकी",
         stories: "स्टोरीज़",
         referral: "रेफरल प्रोग्राम",
         referralShort: "रेफरल",
+        installApk: "APK इंस्टॉल",
         cities: "शहर",
         categories: "श्रेणियाँ",
+        notifications: "नोटिफिकेशंस",
+        profile: "प्रोफ़ाइल",
         forBusiness: "व्यवसाय के लिए",
         forBusinessShort: "व्यवसाय",
       },
@@ -1289,6 +1317,11 @@ const resources = {
             cities: "{{count}} शहर",
           },
         },
+
+        trending: {
+          title: "ट्रेंडिंग दुकानें",
+          subtitle: "हाई रेटिंग + ज़्यादा ऑर्डर्स वाले दुकानदार।",
+        },
         howItWorks: {
           title: "कैसे काम करता है 🤔?",
           stepLabel: "कदम {{step}}",
@@ -1341,6 +1374,7 @@ const resources = {
             "कुछ ही मिनटों में प्रोफ़ेशनल दुकान पेज बनाएं। WhatsApp पर ऑर्डर लें और ग्राहक बढ़ाएं।",
           registerShop: "अपनी दुकान रजिस्टर करें",
           createCustomer: "ग्राहक अकाउंट बनाएं",
+          installApp: "ऐप इंस्टॉल करें",
         },
       },
 
@@ -1639,6 +1673,12 @@ const resources = {
         distance: {
           awayFromYou: "आपसे {{distance}} दूर",
         },
+        explore: {
+          title: "और देखें",
+          moreInCategory: "{{category}} में और देखें",
+          browseCategories: "सभी श्रेणियाँ देखें",
+          moreInCity: "{{city}} में और दुकानें",
+        },
         status: {
           openNow: "अभी खुला",
           closed: "बंद",
@@ -1668,6 +1708,9 @@ const resources = {
           descriptionTitle: "विवरण",
           descriptionMissingHindi: "हिंदी में विवरण अभी उपलब्ध नहीं है।",
           autoDescriptionFallback: "इस आइटम का ऑर्डर करने के लिए WhatsApp पर संदेश भेजें।",
+          startingFrom: "शुरुआत ₹{{price}} से",
+          stockLabel: "स्टॉक",
+          outOfStock: "स्टॉक खत्म",
           detailsTitle: "जानकारी",
           chooseOptionTitle: "विकल्प चुनें",
           durationLabel: "अवधि",
@@ -2255,6 +2298,11 @@ const resources = {
             uploadChange: "अपलोड / बदलें",
           },
           note: "कुछ फ़ील्ड्स अकाउंट प्रोवाइडर मैनेज करता है, इसलिए उन्हें यहाँ एडिट नहीं किया जा सकता।",
+          notifications: {
+            title: "नोटिफिकेशन",
+            desc: "नोटिफिकेशन अनुमति और सेटिंग्स मैनेज करें।",
+            action: "नोटिफिकेशन खोलें",
+          },
           help: {
             title: "मदद चाहिए?",
             desc: "किसी भी समस्या के लिए सपोर्ट से संपर्क करें।",

@@ -38,6 +38,37 @@ const ttlMs = () => {
 
 const cache = new Map();
 
+export const invalidateSitemapCache = ({ subdomain } = {}) => {
+  const sd = String(subdomain || '').trim().toLowerCase();
+  if (sd) {
+    cache.delete(`sitemap:subdomain:${sd}`);
+  }
+  // Root sitemap includes all storefront origins.
+  cache.delete('sitemap:root:root');
+};
+
+const dedupeBySlugKeepLatest = (items) => {
+  const map = new Map();
+  for (const it of items || []) {
+    const slug = String(it?.slug || '').trim();
+    if (!slug) continue;
+
+    const prev = map.get(slug);
+    if (!prev) {
+      map.set(slug, it);
+      continue;
+    }
+
+    const prevTs = prev?.updatedAt ? new Date(prev.updatedAt).getTime() : 0;
+    const nextTs = it?.updatedAt ? new Date(it.updatedAt).getTime() : 0;
+    if (Number.isFinite(nextTs) && nextTs > prevTs) {
+      map.set(slug, it);
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => String(a?.slug || '').localeCompare(String(b?.slug || '')));
+};
+
 const getCached = (key) => {
   const entry = cache.get(key);
   if (!entry) return null;
@@ -103,8 +134,8 @@ export const generateSitemapXml = async ({ scope, rootDomain, hostname, subdomai
     urls.push(buildUrlEntry({ loc: `${baseOrigin}/`, lastmod: business.updatedAt }));
 
     // Categories (global)
-    const categories = await Category.find({ isActive: true }).select('slug updatedAt').lean();
-    for (const c of categories || []) {
+    const categories = dedupeBySlugKeepLatest(await Category.find({ isActive: true }).select('slug updatedAt').lean());
+    for (const c of categories) {
       if (!c?.slug) continue;
       urls.push(buildUrlEntry({ loc: `${baseOrigin}/categories/${encodeURIComponent(c.slug)}`, lastmod: c.updatedAt }));
     }
@@ -126,8 +157,8 @@ export const generateSitemapXml = async ({ scope, rootDomain, hostname, subdomai
     urls.push(buildUrlEntry({ loc: `${baseOrigin}/all-shops`, lastmod: new Date() }));
     urls.push(buildUrlEntry({ loc: `${baseOrigin}/categories`, lastmod: new Date() }));
 
-    const categories = await Category.find({ isActive: true }).select('slug updatedAt').lean();
-    for (const c of categories || []) {
+    const categories = dedupeBySlugKeepLatest(await Category.find({ isActive: true }).select('slug updatedAt').lean());
+    for (const c of categories) {
       if (!c?.slug) continue;
       urls.push(buildUrlEntry({ loc: `${baseOrigin}/categories/${encodeURIComponent(c.slug)}`, lastmod: c.updatedAt }));
     }

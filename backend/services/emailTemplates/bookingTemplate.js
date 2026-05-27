@@ -11,7 +11,7 @@ export const generateBookingConfirmationTemplate = (bookingData) => {
     heroGradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)',
     bodyHtml: `
       <p class="lead">Hi ${escapeHtml(customerName || 'Customer')}, your appointment on PublicDukan is confirmed.</p>
-      <div class="section alt">
+       <div class="section alt">
         <div class="section-title">Booking details</div>
         <div class="kv"><strong>Booking ID</strong><span class="muted">${escapeHtml(bookingId)}</span></div>
         <div class="kv"><strong>Service</strong><span class="muted">${escapeHtml(serviceName || 'Service Booking')}</span></div>

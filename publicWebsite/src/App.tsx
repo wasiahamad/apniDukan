@@ -10,27 +10,37 @@ import { LocationProvider } from "@/hooks/useUserLocation";
 import { getDashboardUrl } from "@/lib/dashboardUrl";
 import { hasAuthSession, looksLikeCitySlug } from "@/lib/publicShopsApi";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import LocationGate from "@/components/LocationGate";
-import AboutPage from "./pages/AboutPage";
-import AccountPage from "./pages/AccountPage";
 import AllShopsPage from "./pages/AllShopsPage";
 import LoginPage from "./pages/auth/LoginPage";
 import SignupPage from "./pages/auth/SignupPage";
-import CityCategoryPage from "./pages/CityCategoryPage";
-import CityPage from "./pages/CityPage";
-import ContactPage from "./pages/ContactPage";
 import CategoriesPage from "./pages/CategoriesPage";
-import ForBusinessPage from "./pages/ForBusinessPage";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
-import PricingPage from "./pages/PricingPage";
-import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
-import ReferralProgramPage from "./pages/ReferralProgramPage";
 import ShopPage from "./pages/ShopPage";
-import TermsPage from "./pages/TermsPage";
-import StoriesPage from "./pages/StoriesPage";
+const AccountPage = lazy(() => import("./pages/AccountPage"));
+const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
+
+const AboutPage = lazy(() => import("./pages/AboutPage"));
+const ContactPage = lazy(() => import("./pages/ContactPage"));
+const ForBusinessPage = lazy(() => import("./pages/ForBusinessPage"));
+const PricingPage = lazy(() => import("./pages/PricingPage"));
+const PrivacyPolicyPage = lazy(() => import("./pages/PrivacyPolicyPage"));
+const ReferralProgramPage = lazy(() => import("./pages/ReferralProgramPage"));
+const TermsPage = lazy(() => import("./pages/TermsPage"));
+const StoriesPage = lazy(() => import("./pages/StoriesPage"));
+const CityCategoryPage = lazy(() => import("./pages/CityCategoryPage"));
+const CityPage = lazy(() => import("./pages/CityPage"));
+
+const RouteFallback = () => (
+  <div className="container py-10 space-y-3">
+    <Skeleton className="h-8 w-64" />
+    <Skeleton className="h-10 w-full rounded-xl" />
+    <Skeleton className="h-[320px] w-full rounded-xl" />
+  </div>
+);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -58,23 +68,101 @@ const App = () => (
               <Routes>
                 <Route path="/" element={<Layout />}>
                   <Route index element={<HomeResolver />} />
-                  <Route path="plans" element={<PricingPage />} />
+                  <Route
+                    path="plans"
+                    element={
+                      <Suspense fallback={<RouteFallback />}>
+                        <PricingPage />
+                      </Suspense>
+                    }
+                  />
                   <Route path="pricing" element={<Navigate to="/plans" replace />} />
-                  <Route path="for-business" element={<ForBusinessPage />} />
-                  <Route path="contact" element={<ContactPage />} />
-                  <Route path="about" element={<AboutPage />} />
-                  <Route path="stories" element={<StoriesPage />} />
-                  <Route path="referral-program" element={<ReferralProgramPage />} />
-                  <Route path="privacy-policy" element={<PrivacyPolicyPage />} />
-                  <Route path="terms" element={<TermsPage />} />
+                  <Route
+                    path="for-business"
+                    element={
+                      <Suspense fallback={<RouteFallback />}>
+                        <ForBusinessPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route
+                    path="contact"
+                    element={
+                      <Suspense fallback={<RouteFallback />}>
+                        <ContactPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route
+                    path="about"
+                    element={
+                      <Suspense fallback={<RouteFallback />}>
+                        <AboutPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route
+                    path="stories"
+                    element={
+                      <Suspense fallback={<RouteFallback />}>
+                        <StoriesPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route
+                    path="referral-program"
+                    element={
+                      <Suspense fallback={<RouteFallback />}>
+                        <ReferralProgramPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route
+                    path="privacy-policy"
+                    element={
+                      <Suspense fallback={<RouteFallback />}>
+                        <PrivacyPolicyPage />
+                      </Suspense>
+                    }
+                  />
+                  <Route
+                    path="terms"
+                    element={
+                      <Suspense fallback={<RouteFallback />}>
+                        <TermsPage />
+                      </Suspense>
+                    }
+                  />
                   <Route path="categories" element={<CategoriesPage />} />
                   <Route path="shops" element={<AllShopsPage />} />
                   <Route path="login" element={<LoginPage />} />
                   <Route path="signup" element={<SignupPage />} />
+                  <Route
+                    path="notifications"
+                    element={
+                      <Suspense fallback={<RouteFallback />}>
+                        <NotificationsPage />
+                      </Suspense>
+                    }
+                  />
                   <Route element={<ProtectedRoute />}>
-                    <Route path="account" element={<AccountPage />} />
+                    <Route
+                      path="account"
+                      element={
+                        <Suspense fallback={<RouteFallback />}>
+                          <AccountPage />
+                        </Suspense>
+                      }
+                    />
                   </Route>
-                  <Route path="shops/:category" element={<CityCategoryPage />} />
+                  <Route
+                    path="shops/:category"
+                    element={
+                      <Suspense fallback={<RouteFallback />}>
+                        <CityCategoryPage />
+                      </Suspense>
+                    }
+                  />
                   <Route path="dashboard/*" element={<DashboardRedirect />} />
 
                   {/* SEO-friendly shop subdomain URLs */}
@@ -216,7 +304,13 @@ function ShopOrCityPage() {
       </div>
     );
   }
-  if (detectQuery.data) return <CityPage />;
+  if (detectQuery.data) {
+    return (
+      <Suspense fallback={<RouteFallback />}>
+        <CityPage />
+      </Suspense>
+    );
+  }
   if (!hasAuthSession()) {
     return <Navigate to="/login" replace state={{ from: location, authRequired: true }} />;
   }

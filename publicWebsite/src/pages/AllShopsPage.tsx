@@ -187,11 +187,11 @@ export default function AllShopsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t("home.featured.filters.allCities")}</SelectItem>
-                {cities.map((c) => (
-                  <SelectItem key={c.slug} value={c.slug}>
-                    {c.name}
-                  </SelectItem>
-                ))}
+                  {cities.map((city) => (
+                    <SelectItem key={city.slug} value={city.slug}>
+                      {city.name}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
 

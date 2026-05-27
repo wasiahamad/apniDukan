@@ -9,7 +9,6 @@ export { categoryApi } from './category';
 export { listingApi } from './listing';
 export { planApi } from './plan';
 export { uploadApi } from './upload';
-export { aiApi } from './ai';
 export { referralApi } from './referral';
 export { orderApi } from './orders';
 export { supportApi } from './support';
